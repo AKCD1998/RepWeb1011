@@ -1,0 +1,91 @@
+/* ตัด height: 100% ออก ไม่ต้องล็อกสูงเท่าจอ */
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+/* ให้ background + min-height แค่ตัวนี้พอ */
+.page-body {
+  background: linear-gradient(145deg, #00040b, #03142d);
+  min-height: 100vh;   /* เริ่มต้นสูงเท่าจอ ถ้ามีเนื้อหาเยอะก็ยืดต่อได้ */
+}
+
+/* กล่องใหญ่ของฟอร์ม */
+.rx1011-form-container {
+  background: linear-gradient(145deg, #0b1930, #102544);
+  border-radius: 18px;
+  padding: 10px;
+  max-width: 95vw;
+  width: clamp(600px, 90vw, 1400px);
+  /* อย่าตั้ง height: 95%; ให้มันสูงตามเนื้อหาเอง */
+  margin: 56px auto 40px;   /* เริ่มจากตรงกลางก่อน */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: white;
+
+  box-shadow:
+   0 24px 50px rgba(0, 0, 0, 0.85),
+   0 0 0 1px rgba(30, 64, 175, 0.5);
+}
+
+.header-bar {
+  font-size: 2.5rem;
+  margin: 20px 0 10px 0;
+  text-align: center;
+  background-color: #00040b;
+}
+
+.grid{
+  display: grid;
+  grid-template-columns: 1fr 1fr; /* 1x2 */
+  gap: 400px;
+  vertical-align: center;
+}
+
+/* different sizes */
+.left{
+  font-size: 32px;
+  margin-left: 30px;   
+  margin-top: 6px;
+}
+.right{ 
+  font-size: 16px;
+  margin-top: 10px; 
+  margin-bottom: 10px;
+} 
+
+
+.grid-container {
+  margin-top:20px;
+  margin-bottom: 20px;
+  display: grid;
+  /* Defines two columns, each taking up an equal fraction (1fr) of the available space. */
+  grid-template-columns: 1fr 1fr;
+  /* Defines two rows, each taking up an equal fraction (1fr) of the available space. */
+  grid-template-rows: 1fr 1fr;
+  /* Optional: Adds a gap between grid items for spacing. */
+  gap: 20px; /* You can use any unit like px, em, or rem */
+  /* Optional: Sets a specific height for the container, adjust as needed */
+  height: 300px;
+  /* Optional: Adds a border to the container to visualize the grid area */
+  border: 1px solid #ccc;
+}
+
+.grid-item {
+  background-color: #f0f0f0;
+  padding: 20px;
+  text-align: center;
+  border: 1px solid #ddd;
+}
+
+
+
+
+@media (max-width: 800px) {
+  .grid-container {
+    grid-template-columns: 1fr; /* Stacks items in a single column on smaller screens */
+  }
+}
+
+

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>My Web Page</title>
+    <link rel="stylesheet" type="text/css" href="styles.css">
+  </head>
+
+  <body class="page-body">
+    <div class="rx1011-form-container">
+      <div class="biggest-grid-container">
+        <div class="item1">Row 1 Content
+      <div class="grid">
+        <div class="left">รายงานขย. 10 11</div>
+        <div class="right">ศิริชัยเภสัช สาขา:
+          <select id="branch" class="hl" style="min-width:320px">
+          <option value="" disabled="" selected="">เลือกสาขา…</option>
+          <option value="001">001 : ตลาดแม่กลอง</option>
+          <option value="003">003 : วัดช่องลม</option>
+          <option value="004">004 : ตลาดบางน้อย</option>
+        </select>
+        </div>
+      </div>
+  </div>
+    <div class="item2">Row 2 Content
+      <div class="grid-container">
+        <div class="grid-item1">
+          <form id="uploadForm" enctype="multipart/form-data">
+            <label for="fileInput">Choose file to upload</label>
+            <input type="file" id="fileInput" name="fileInput" multiple>
+            <button type="button" class="startProcessing">Start processing</button>
+          </form>
+
+        </div>
+        <div class="grid-item2">รายงานสินค้า
+          <div id="productId"></div>
+          <div id="productName"></div>
+          <div id="productMaker"></div>
+        </div>
+        <div class="grid-item3">Item 3</div>
+        <div class="grid-item4">Item 4</div>
+      </div>
+    </div>
+
+
+
+    </div>
+  </div>
+
+  </body>
+  <!-- use version 0.20.3 -->
+  <script type="text/javascript" src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script type="module" src="./script.js">
+
+    
+  </script>
+
+  </script>
+  
+</html>
+
