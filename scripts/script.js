@@ -69,6 +69,10 @@ import products from "./product-oop.js";
         console.log("products info:", productsInfo);
 
         document.getElementById('productName').innerText = productsInfo[0]?.product?.productName ?? "ไม่พบชื่อสินค้า";
+        document.getElementById('productMaker').innerText = productsInfo[0]?.product?.manufacturer ?? "ไม่พบผู้ผลิตสินค้า";
+        document.getElementById('productRepType').innerText = productsInfo[0]?.product?.reportType ?? "ไม่พบประเภทการรายงานสินค้า";
+        
+
 
         
         /*
@@ -151,7 +155,7 @@ import products from "./product-oop.js";
 
 
 
-    
+
     // helper function to get products by their company IDs
     function getProductsByIds(ids) {
 
