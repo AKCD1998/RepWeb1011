@@ -1,0 +1,240 @@
+
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: #f5f5f5;
+  color: #333;
+  background-color: #031b35;
+}
+
+/* Layout */
+.section-card {
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.wrap {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* Back Button */
+.pos-back-btn {
+  background: #d71717;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin: 15px 10px;
+  font-size: 14px;
+}
+
+.pos-back:hover {
+  background: #820404;
+}
+
+/* Alert */
+.pos-alert {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 15px;
+}
+
+.hidden {
+  display: none;
+}
+
+/* Main Panel */
+.panel {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.pos {
+  display: flex;
+  gap: 20px;
+}
+
+.pos-left {
+  flex: 1;
+  position: relative;
+  min-width: 800px;
+}
+
+.pos-rail {
+  width: 200px;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0px 15px 0px 15px;
+}
+
+/* Table */
+.pos-table {
+  position: static;
+  width: 100%;
+  margin-bottom: 20px;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+}
+
+.thead, .tbody > div {
+  display: grid;
+  grid-template-columns:60px 120px 1fr 100px 100px 80px 100px 80px;
+  gap: 6px;
+  padding: 10px;
+  vertical-align: top;
+}
+
+.thead-barcode,
+.thead-product-name,
+.amount,
+.sum,
+.note-bin {
+  display: flex;
+  vertical-align: top;
+  justify-content: center;
+}
+
+.thead {
+  background: darkblue;
+  color: white;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.tbody > div {
+  border-bottom: 1px solid #dee2e6;
+}
+
+.tbody > div:last-child {
+  border-bottom: none;
+}
+
+/* Input Bar */
+.pos-inputbar {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  padding: 25px 30px 25px 20px;
+  max-width: 30px;
+  margin: 10px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  position: absolute;
+  bottom: 20px;
+  min-width: calc(100% - 60px);
+}
+
+.pos-inputbar input {
+  flex: 1;
+  padding: 10px;
+  margin-left: 20px;
+  margin-right: 20px; 
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 14px;
+  min-width: 480px;
+}
+
+.pos-panel {
+  background-color: #0056b3;
+  padding : 10px;
+  margin: 20px ;
+  display: flex;
+  min-height: 500px;
+  min-width: 1000px;
+  border-radius: 8px;
+}
+
+
+
+.mult {
+  background: #ffc107;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-weight: bold;
+}
+
+.total {
+  font-size: 24px;
+  font-weight: bold;
+  color: #007bff;
+  white-space: nowrap;
+}
+
+/* Buttons */
+.btn {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #007bff;
+  background: white;
+  color: #007bff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.btn:hover {
+  background: #e7f3ff;
+}
+
+.btn-primary {
+  background: #4CAF50;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #388E3C;
+}
+
+.coupon {
+  background: #ffc107;
+  padding: 15px;
+  text-align: center;
+  border-radius: 6px;
+  font-weight: bold;
+}
+.coupon:hover {
+  background: #e6ac00;
+}
+
+
+
+/* Responsive */
+@media (max-width: 768px) {
+  .hide-md {
+    display: none;
+  }
+  
+  .pos {
+    flex-direction: column;
+  }
+  
+  .pos-rail {
+    width: 100%;
+  }
+  
+  .thead, .tbody > div {
+    grid-template-columns: 50px 100px 1fr 80px 90px 70px;
+  }
+}
+
+@media (max-width: 480px) {
+  .hide-sm {
+    display: none;
+  }
+  
+  .thead, .tbody > div {
+    grid-template-columns: 40px 90px 1fr 70px 80px;
+  }
+  .pos-rail {
+    width: 100%;
+  }
+}
