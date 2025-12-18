@@ -184,9 +184,6 @@
   transform: translateY(-1px);
 }
 
-.hidden-section {
-  display: none;
-}
 
 
 .addTile-nP {background-image: linear-gradient(to right, #000000 0%, #035a03  51%, #000000  100%)}
@@ -232,10 +229,14 @@
 }
 
 .db-edit-item3-container {
-  background-color: rgb(2, 2, 48);
+  background: linear-gradient(145deg, #0b1930, #102544);
   margin: 10px 10px 0 10px;
   padding-bottom: 20px;
   padding-left: 7px;
   padding-top: 7px;
   border-radius: 24px;
+}
+
+.hidden {
+  display: none;
 }

@@ -4,26 +4,32 @@
     <title>My Web Page</title>
     <link rel="stylesheet" type="text/css" href="../css/styles.css">
     <link rel="stylesheet" type="text/css" href="../css/db-edit/db-edit-main.css">
+    <link rel="stylesheet" type="text/css" href="../../css//db-edit//db-edit-main.css">
+    <link rel="stylesheet" type="text/css" href="../css/db-edit/edit-db-nP-modal.css">
+    <link rel="stylesheet" type="text/css" href="../css/db-edit/edit-db-nR-modal.css">
+    <link rel="stylesheet" type="text/css" href="../../css/Pos-page/Pos-main.css">
+    <link rel="stylesheet" type="text/css" href="../../css/Pos-page/Pos-modal.css">
   </head>
 
   <!--Report section-->
   <body class="page-body">
-    <div class="rx1011-form-container">
-      <!-- Report section: 1x3 grid no.1-->
-      <div class="biggest-grid-container">
-        <!-- Report section 3x1 subgrid = btn menu-->
+    <!-- Report section 3x1 subgrid = btn menu-->
         <div class="item0">
-          Row 1 Content
           <div class="item0-grid">
-            <button class="Report-btn">เอกสาร/รายงาน</button>
-            <button class="Pos-record-btn">ส่งมอบยา</button>
-            <button class="db-edit-btn">รับยาเข้า</button>
+            <button class="Report-btn" data-tab="report" type="button">เอกสาร/รายงาน</button>
+            <button class="Pos-record-btn" data-tab="pos" type="button">ส่งมอบยา</button>
+            <button class="db-edit-btn" data-tab="db-edit" type="button">รับยาเข้า</button>
           </div>
         </div>
 
-        <!-- Report section 1x3 grid no.2-->
-        <div class="item1 hidden-section">Row 2 Content
-          <!-- Report section 1x2 subgrid-->
+    <div class="rx1011-form-container" data-section="report" style="margin-bottom: 640px;">
+      <!-- Report section: 2x1 grid no.1-->
+      <div class="biggest-grid-container">
+      
+
+        <!-- Report section 2x1 grid no.2-->
+        <div class="item1">
+          <!-- Report section x2 subgrid-->
           <div class="grid">
             <div class="left">รายงานขย. 10 11</div>
             <div class="right">ศิริชัยเภสัช สาขา:
@@ -37,8 +43,8 @@
           </div>
         </div>
         
-        <!-- Report section 1x3 grid no.3-->
-        <div class="item2 hidden-section">Row 3 Content
+        <!-- Report section 2x1 grid no.3-->
+        <div class="item2">
           <!-- Report section 2x2 subgrid-->
           <div class="grid-container">
             <div class="grid-item1">
@@ -62,25 +68,27 @@
       </div>
     </div>
 
+    
+    <!-- pos section-->
+     <div data-include="../html/Pos-record/Pos-main.html"></div>
+
 
 
     <!-- The db-edit section-->
-      <div id="dbEditSection" class="db-edit">
-        <div data-include = "../html/edit-db/edit-db-main.html"></div>
-      </div>
-        
+    <div id="db-edit-main" data-include="../html/edit-db/edit-db-main.html"></div>
+    <div id="db-edit-modal" data-include="../html/edit-db/edit-db-nP-modal.html"></div>
+    
       
 
   </body>
   <!-- use version 0.20.3 -->
   <script type="text/javascript" src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-  <script type="module" src="../scripts/db-edit-main.js"></script>
-  <script type="module" src="./script.js">
-
-    
-  </script>
-
-  </script>
+  <script type="module" src="../scripts/db-edit/db-edit-includeHTML.js"></script>
+  <script type="module" src="../scripts/db-edit/db-edit-eventWiring.js"></script>
+  <script type="module" src="../scripts/script.js"></script>
   
+ 
+
+
 </html>
 

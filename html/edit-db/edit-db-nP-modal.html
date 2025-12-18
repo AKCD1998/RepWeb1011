@@ -1,0 +1,84 @@
+<body class="page-body">
+  
+<div id="myDbModal" class="modal">
+
+
+  <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="grid3x1Modal">
+
+      <!-- ITEM 1 modal header-->
+      <div class="modal__header">
+        <h2 id="modalTitle">เพิ่มสินค้าใหม่</h2>
+        <button class="modal__x" type="button" data-close>✕</button>
+      </div>
+
+      <!-- ITEM 2 modal body-->
+
+
+      <!-- common fields -->
+      <div class="grid2">
+        <label>Company ID
+          <input name="companyId" required placeholder="IC-000123">
+        </label>
+
+        <label>Product name
+          <input name="productName" required>
+        </label>
+
+        <label>Generic name
+          <input name="genericName">
+        </label>
+
+        <label>Strength
+          <input name="strength" placeholder="500 mg">
+        </label>
+
+        <label>Dosage form
+          <input name="dosageForm" placeholder="tablet/capsule">
+        </label>
+
+        <label>Route
+          <input name="routeOfAdministration" placeholder="oral/topical">
+        </label>
+
+        <label>Pack size
+          <input name="packSize" placeholder="1x10">
+        </label>
+
+        <label>Price (บาท)
+          <input name="price" type="number" step="0.01" min="0" required>
+        </label>
+
+        <label>Report type
+          <input name="reportType" placeholder="10/11/none">
+        </label>
+
+        <label>Limit qty/bill
+          <input name="limitedQtyperBill" type="number" step="1" min="0">
+        </label>
+
+        <label>Manufacturer
+          <input name="manufacturer">
+        </label>
+
+        <label>Product Barcode
+          <input name="barcode">
+        </label>
+      </div>
+
+
+      <!-- ITEM 3 modal footer-->
+        <div class="modal__footer">
+        <button type="button" id="modalCancelBtn" class="btn" data-close>Cancel</button>
+        <button type="submit" class="btn btn--primary">Save</button>
+
+    </form>
+    </div>
+
+  </div>
+</div>
+</div>
+
+
+</body>
+<script type="module" src="../../scripts/db-edit-main.js"></script>

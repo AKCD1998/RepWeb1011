@@ -176,6 +176,8 @@ import products from "./product-oop.js";
     }
 
 
+
+
     
     /*
     //helper function to download csv file เก็บไว้ก่อน เดี๋ยวค่อยใช้
@@ -193,3 +195,53 @@ import products from "./product-oop.js";
         document.body.removeChild(link);
       }
     }*/
+
+
+
+      
+
+      // ========== HANDLING index.html's button menu active state ==========
+
+      document.addEventListener('includes:done', () => {
+
+      const tabButtons = document.querySelectorAll('.item0-grid [data-tab]');
+      const sections   = document.querySelectorAll('[data-section]');
+
+      //console.log('sections found:', sections.length, [...sections].map(s => s.dataset.section));
+
+      //console.log('tabButtons count:', tabButtons.length);
+      tabButtons.forEach(b => console.log('button:', b.textContent.trim(), 'data-tab=', b.dataset.tab));
+
+      
+
+      function activateTab(tabName) {
+        //console.log('activateTab called with:', tabName);
+
+        const target = document.querySelector(`[data-section="${tabName}"]`);
+        //console.log('target section found?', !!target, target);
+
+        // button glow state only one button at a time
+        tabButtons.forEach(btn => {
+          btn.classList.toggle('is-active', btn.dataset.tab === tabName);
+        });
+
+        // sections : show/hide based on active tab
+        sections.forEach(section => {
+          const shouldHide = section.dataset.section !== tabName;
+          section.classList.toggle('hidden', shouldHide);
+        });
+      }
+
+      // wiring onclick event to each button
+      tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          //console.log('clicked:', btn.dataset.tab, btn);
+          activateTab(btn.dataset.tab);
+        });
+      });
+
+      // set default active tab to 'report'
+      activateTab('report');
+    });
+
+            

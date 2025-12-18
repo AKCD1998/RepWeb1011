@@ -1,0 +1,82 @@
+/*.hidden { display: none; 
+เก็บไว้ก่อน
+*/
+/* ===== Page (for your standalone test HTML) ===== */
+/* ตัด height: 100% ออก ไม่ต้องล็อกสูงเท่าจอ */
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+#myDbModal{
+  position: fixed;
+  inset: 0;
+  z-index: 999999;
+  display: grid;
+  place-items: center;
+  background: rgba(0,0,0,0.55);
+}
+
+
+
+/* ให้ background + min-height แค่ตัวนี้พอ */
+.page-body {
+  background: linear-gradient(145deg, #00040b, #03142d);
+  min-height: 100vh;   /* เริ่มต้นสูงเท่าจอ ถ้ามีเนื้อหาเยอะก็ยืดต่อได้ */
+}
+
+body{
+  margin: 0;
+  background: radial-gradient(1200px 700px at 20% 0%, rgba(39,225,193,0.10), transparent 55%),
+              radial-gradient(900px 600px at 85% 20%, rgba(255,77,77,0.10), transparent 55%),
+              var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  display: grid;
+  place-items: start center;
+  padding: 28px;
+}
+.modal { position: fixed; inset: 0; z-index: 1000; }
+.modal__panel{
+  position: relative;
+  width: min(900px, calc(100% - 24px));
+  margin: 40px auto;
+  border-radius: 14px;
+  background: #0f2132;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.12);
+  overflow: hidden;
+}
+.modal__header{
+  display:flex; justify-content:space-between; align-items:center;
+  padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.10);
+}
+.modal__x{ background: transparent; border: 0; color: #fff; font-size: 18px; cursor: pointer; }
+.modal__body{ padding: 14px 16px; }
+.modal__footer{
+  display:flex; justify-content:flex-end; align-items:center; gap:10px;
+  padding: 4px 6px; border-top: 1px solid rgba(255,255,255,.10);
+}
+
+.grid2{ display:grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.grid2 label{ display:flex; flex-direction:column; gap:6px; font-size: 14px; color: rgba(255,255,255,.85); }
+.grid2 input, .grid2 select{
+  padding: 10px 10px; border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(0,0,0,.18);
+  color: #fff;
+}
+.btn{ padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06); color:#fff; cursor:pointer; }
+.btn--primary{ background: rgba(255,77,77,.22); border-color: rgba(255,77,77,.45); }
+
+.grid3x1Modal{
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  max-height: 700px; /* ถ้าต้องการฐานความสูง */
+  min-height: 650px; /* ถ้าต้องการฐานความสูง */
+}
+
+.hidden {
+  display: none;
+}
+

@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+  <link rel="stylesheet" href="../../css/db-edit/edit-db-nR-modal.css">
+  
+</head>
+<body class="page-body">
+
+  <div id="modal" class="" aria-hidden="">
+
+    <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="db-page">
+      <!-- ROW 1: search + buttons -->
+      <header class="db-toolbar">
+        <div class="search">
+          <span class="search__icon" aria-hidden="true">⌕</span>
+          <input class="search__input" type="search" placeholder="ค้นหาการเคลื่อนไหวยา…" />
+        </div>
+
+        
+
+        <div class="toolbar-actions">
+          <button class="btn-for-toolbar btn--accent" type="button">ค้นหา</button>
+
+          <!-- new button -->
+          <button class="btn-for-toolbar btn--sm btn--blue" type="button">+ รับเข้า</button>
+          <button class="btn-for-toolbar btn--sm btn--red" type="button">- โอนออก</button>
+
+          
+        </div>
+
+      </header>
+
+      <!-- ROW 2: table header -->
+      <div class="table-header">
+        การเคลื่อนไหวรับเข้ายา
+      </div>
+
+      <!-- ROW 2: table -->
+      <section class="table-card" aria-label="Class table">
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+
+                <th class="col-transacId">รหัสการเคลื่อนไหว</th>
+                <th class="col-dateTime">วันที่-เวลา</th>
+                <th class="col-id">รหัสสินค้า</th>
+                <th class="col-name">ชื่อสินค้า</th>
+                <th class="col-level">รับเข้า/โอนออก</th>
+                <th class="col-Qty">จำนวน</th>
+                <th class="col-Qunit">หน่วย</th>
+                <th class="col-actions">จัดการ</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              <tr>
+                <td class="col-transacId">In-00000400</td>
+                <td class="col-dateTime">2024-06-01 10:30</td>
+                <td class="col-id">IC-000001</td>
+                <td class="col-name">ซีรีไทด์ แอคคูเฮดเลอร์</td>
+                <td class="col-level"><span class="pill">รับเข้า</span></td>
+                <td class="col-Qty">+10</td>
+                <td class="col-Qunit">กล่อง</td>
+                <td class="col-actions">
+                  <div class="row-actions">
+                    <button class="btn-for-toolbar btn--sm btn--blue" type="button">Edit</button>
+                    <button class="btn-for-toolbar btn--sm btn--red" type="button">Delete</button>
+                  </div>
+                </td>
+              </tr>
+
+              <tr>
+                <td class="col-transacId">Ot-0040000</td>
+                <td class="col-dateTime">2024-06-02 14:15</td>
+                <td class="col-id">IC-000000</td>
+                <td class="col-name">อนาแลป 1x10 เม็ด</td>
+                <td class="col-level"><span class="pill pill--teal">โอนออก</span></td>
+                <td class="col-Qty">-2</td>
+                <td class="col-Qunit">แผง</td>
+                <td class="col-actions">
+                  <div class="row-actions">
+                    <button class="btn-for-toolbar btn--sm btn--blue" type="button">Edit</button>
+                    <button class="btn-for-toolbar btn--sm btn--red" type="button">Delete</button>
+                  </div>
+                </td>
+              </tr>
+
+              <tr>
+                <td class="col-transacId">In-00300200</td>
+                <td class="col-dateTime">2024-06-03 09:45</td>
+                <td class="col-id">IC-000000</td>
+                <td class="col-name">อนาแลป 1x10 เม็ด</td>
+                <td class="col-level"><span class="pill pill--amber">รับเข้า</span></td>
+                <td class="col-Qty">+1</td>
+                <td class="col-Qunit">แผง</td>
+                <td class="col-actions">
+                  <div class="row-actions">
+                    <button class="btn-for-toolbar btn--sm btn--blue" type="button">Edit</button>
+                    <button class="btn-for-toolbar btn--sm btn--red" type="button">Delete</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+    </div>
+
+
+    <!---รับย้าย--->
+    <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="grid3x1Modal">
+        <div class="modal__header">
+          <h2 id="modalTitle item1">รับสินค้าเข้า</h2>
+          <button class="modal__x" type="button" data-close>✕</button>
+        </div>
+
+    
+          <!-- common fields -->
+          <div class="grid2">
+            <label>Company ID
+              <input name="companyId" required placeholder="IC-000123">
+            </label>
+
+            <label>Product name
+              <input name="productName" required>
+            </label>
+
+            <label>Generic name
+              <input name="genericName">
+            </label>
+
+            <label>Strength
+              <input name="strength" placeholder="500 mg">
+            </label>
+
+            <label>Dosage form
+              <input name="dosageForm" placeholder="tablet/capsule">
+            </label>
+
+            <label>Route
+              <input name="routeOfAdministration" placeholder="oral/topical">
+            </label>
+
+            <label>Pack size
+              <input name="packSize" placeholder="1x10">
+            </label>
+
+            <label>Price (บาท)
+              <input name="price" type="number" step="0.01" min="0" required>
+            </label>
+
+            <label>Report type
+              <input name="reportType" placeholder="10/11/none">
+            </label>
+
+            <label>Limit qty/bill
+              <input name="limitedQtyperBill" type="number" step="1" min="0">
+            </label>
+
+            <label>Manufacturer
+              <input name="manufacturer">
+            </label>
+
+            <label>Product Barcode
+              <input name="barcode">
+            </label>
+          </div>
+  
+
+        
+
+      
+
+
+
+          <!-- stock-only fields -->
+          <fieldset id="stockFields stillItem2" class="grid2">
+            <legend>Stock info (Receive Lot)</legend>
+
+            <label>รับมาจาก
+              <select name="branchId">
+                <option value="001">001</option>
+                <option value="003">003</option>
+                <option value="004">004</option>
+                <option value="000">สำนักงานใหญ่</option>
+              </select>
+            </label>
+
+            <label>Product barcode
+              <input name="productBarcode" placeholder="LOT1234">
+            </label>
+
+
+
+            <label>Batch number
+              <input name="batchNumber" placeholder="LOT1234">
+            </label>
+
+            <label>Qty on hand
+              <input name="qtyOnHand" type="number" step="1" min="0">
+            </label>
+
+            <label>จำนวนรับเข้า
+              <input name="qtyReceived" type="number" step="1" min="0">
+            </label>
+          </fieldset>
+
+
+          <div class="modal__footer item3">
+            <button type="button" class="btn" data-close>Cancel</button>
+            <button type="submit" class="btn btn--primary">Save</button>
+          </div>
+      </div>
+    </div>
+
+
+
+    <!---โอนสินค้าออก--->
+    <div class="modal__panel2" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="grid3x1Modal">
+        <div class="modal__header">
+          <h2 id="modalTitle item1">โอนสินค้าออก</h2>
+          <button class="modal__x" type="button" data-close>✕</button>
+        </div>
+
+    
+          <!-- common fields -->
+          <div class="grid2">
+            <label>Company ID
+              <input name="companyId" required placeholder="IC-000123">
+            </label>
+
+            <label>Product name
+              <input name="productName" required>
+            </label>
+
+            <label>Generic name
+              <input name="genericName">
+            </label>
+
+            <label>Strength
+              <input name="strength" placeholder="500 mg">
+            </label>
+
+            <label>Dosage form
+              <input name="dosageForm" placeholder="tablet/capsule">
+            </label>
+
+            <label>Route
+              <input name="routeOfAdministration" placeholder="oral/topical">
+            </label>
+
+            <label>Pack size
+              <input name="packSize" placeholder="1x10">
+            </label>
+
+            <label>Price (บาท)
+              <input name="price" type="number" step="0.01" min="0" required>
+            </label>
+
+            <label>Report type
+              <input name="reportType" placeholder="10/11/none">
+            </label>
+
+            <label>Limit qty/bill
+              <input name="limitedQtyperBill" type="number" step="1" min="0">
+            </label>
+
+            <label>Manufacturer
+              <input name="manufacturer">
+            </label>
+
+            <label>Product Barcode
+              <input name="barcode">
+            </label>
+          </div>
+  
+
+        
+
+      
+
+
+
+          <!-- stock-only fields -->
+          <fieldset id="stockFields stillItem2" class="grid2">
+            <legend>Stock info (Receive Lot)</legend>
+
+            <label>รายการโอนไปยัง
+              <select name="branchId">
+                <option value="001">001</option>
+                <option value="003">003</option>
+                <option value="004">004</option>
+                <option value="000">สำนักงานใหญ่</option>
+              </select>
+            </label>
+
+            <label>Product barcode
+              <input name="productBarcode" placeholder="LOT1234">
+            </label>
+
+
+
+            <label>Batch number
+              <input name="batchNumber" placeholder="LOT1234">
+            </label>
+
+            <label>Qty on hand
+              <input name="qtyOnHand" type="number" step="1" min="0">
+            </label>
+
+            <label>จำนวนรับเข้า
+              <input name="qtyReceived" type="number" step="1" min="0">
+            </label>
+          </fieldset>
+
+
+          <div class="modal__footer item3">
+            <button type="button" class="btn" data-close>Cancel</button>
+            <button type="submit" class="btn btn--primary">Save</button>
+          </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
