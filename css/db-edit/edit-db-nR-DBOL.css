@@ -1,0 +1,57 @@
+/* General Modal and Overlay Styling */
+.modal, .overlay {
+    display: none; /* Hidden by default */
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.overlay {
+    background-color: rgba(0,0,0,0.5); /* Semi-transparent black background */
+}
+
+/* z-index management */
+#overlayOne {
+    z-index: 10; /* Lower z-index for the first overlay */
+}
+
+#modalOne {
+    z-index: 20; /* Lower z-index for the first modal */
+}
+
+#overlayTwo {
+    z-index: 30; /* Higher z-index for the second overlay */
+}
+
+#modalTwo {
+    z-index: 40; /* Highest z-index for the second modal */
+}
+
+/* Modal Content Styling */
+.modal-content {
+    background-color: #fefefe;
+    margin: 15% auto; /* Centered vertically and horizontally */
+    padding: 20px;
+    border: 1px solid #888;
+    width: 80%;
+    max-width: 500px;
+    position: relative;
+}
+
+.close {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.close:hover,
+.close:focus {
+    color: #000;
+    text-decoration: none;
+    cursor: pointer;
+}
+/* Show the modal when active */

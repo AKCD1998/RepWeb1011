@@ -1,17 +1,16 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Document</title>
-  <link rel="stylesheet" href="../../css/db-edit/edit-db-nR-modal.css">
-  
-</head>
-<body class="page-body">
+<!-- Button to open the first modal -->
+<button onclick="openModal('modal-nR-main')">Open First Modal</button>
 
-  <div id="modal" class="" aria-hidden="">
+<!-- The First Modal -->
 
-    <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+
+
+  <div id="modal-nR-main" class="overlay layer-1 hidden" aria-hidden="true">
+  <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="nRMainTitle">
+    <button class="modal__x" type="button" data-close>✕</button>
+
+    <h2 id="nRMainTitle" class="sr-only">การเคลื่อนไหวยา</h2>
+
     <div class="db-page">
       <!-- ROW 1: search + buttons -->
       <header class="db-toolbar">
@@ -26,12 +25,11 @@
           <button class="btn-for-toolbar btn--accent" type="button">ค้นหา</button>
 
           <!-- new button -->
-          <button class="btn-for-toolbar btn--sm btn--blue" type="button">+ รับเข้า</button>
-          <button class="btn-for-toolbar btn--sm btn--red" type="button">- โอนออก</button>
+          <button class="btn-nR-received btn--sm btn--blue" type="button">+ รับเข้า</button>
+          <button class="btn-nR-transferred btn--sm btn--red" type="button">- โอนออก</button>
 
           
         </div>
-
       </header>
 
       <!-- ROW 2: table header -->
@@ -113,14 +111,20 @@
     </div>
 
 
-    <!---รับย้าย--->
-    <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-      <div class="grid3x1Modal">
-        <div class="modal__header">
-          <h2 id="modalTitle item1">รับสินค้าเข้า</h2>
-          <button class="modal__x" type="button" data-close>✕</button>
-        </div>
+  </div>
+</body>
 
+<!-- The Second Modal (on top of the first) -->
+
+
+    <!---รับเข้า--->
+    <!-- Modal layer 1 (fake overlay) -->
+    <div id="modal-nR-receive" class="overlay layer-2 hidden" aria-hidden="true">
+  <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="receiveTitle">
+    <header class="modal__header">
+      <h2 id="receiveTitle">รับสินค้าเข้า</h2>
+      <button class="modal__x" type="button" data-close>✕</button>
+    </header>
     
           <!-- common fields -->
           <div class="grid2">
@@ -213,7 +217,7 @@
           </fieldset>
 
 
-          <div class="modal__footer item3">
+          <div class="modal__footer">
             <button type="button" class="btn" data-close>Cancel</button>
             <button type="submit" class="btn btn--primary">Save</button>
           </div>
@@ -222,112 +226,56 @@
 
 
 
-    <!---โอนสินค้าออก--->
-    <div class="modal__panel2" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-      <div class="grid3x1Modal">
-        <div class="modal__header">
-          <h2 id="modalTitle item1">โอนสินค้าออก</h2>
-          <button class="modal__x" type="button" data-close>✕</button>
-        </div>
+<!-- Overlays -->
+<div id="overlayOne" class="overlay"></div>
+<div id="overlayTwo" class="overlay"></div>
 
-    
-          <!-- common fields -->
-          <div class="grid2">
-            <label>Company ID
-              <input name="companyId" required placeholder="IC-000123">
-            </label>
+<script>
+function openModal(modalId) {
+  const modal = document.getElementById(modalId);
+  const overlay = document.getElementById('overlay' + (modalId === 'modal-nR-main' ? 'One' : 'Two'));
 
-            <label>Product name
-              <input name="productName" required>
-            </label>
+  if (modal && overlay) {
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+    overlay.style.display = 'block';
+  }
+}
 
-            <label>Generic name
-              <input name="genericName">
-            </label>
+function closeModal(modalId) {
+  const modal = document.getElementById(modalId);
+  const overlay = document.getElementById('overlay' + (modalId === 'modal-nR-main' ? 'One' : 'Two'));
 
-            <label>Strength
-              <input name="strength" placeholder="500 mg">
-            </label>
+  if (modal && overlay) {
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+    overlay.style.display = 'none';
+  }
+}
 
-            <label>Dosage form
-              <input name="dosageForm" placeholder="tablet/capsule">
-            </label>
+// Optional: Close the modal if the user clicks outside of the content area
+window.onclick = function(event) {
+  if (event.target.classList.contains('overlay')) {
+    // Find which overlay was clicked and close its associated modal
+    if (event.target.id === 'overlayTwo') {
+      closeModal('modal-nR-receive');
+    } else if (event.target.id === 'overlayOne') {
+      closeModal('modal-nR-main');
+    }
+  }
+}
 
-            <label>Route
-              <input name="routeOfAdministration" placeholder="oral/topical">
-            </label>
+// Handle close button clicks
+document.addEventListener('click', function(event) {
+  if (event.target.hasAttribute('data-close')) {
+    const modal = event.target.closest('.overlay');
+    if (modal) {
+      closeModal(modal.id);
+    }
+  }
+});
 
-            <label>Pack size
-              <input name="packSize" placeholder="1x10">
-            </label>
-
-            <label>Price (บาท)
-              <input name="price" type="number" step="0.01" min="0" required>
-            </label>
-
-            <label>Report type
-              <input name="reportType" placeholder="10/11/none">
-            </label>
-
-            <label>Limit qty/bill
-              <input name="limitedQtyperBill" type="number" step="1" min="0">
-            </label>
-
-            <label>Manufacturer
-              <input name="manufacturer">
-            </label>
-
-            <label>Product Barcode
-              <input name="barcode">
-            </label>
-          </div>
-  
-
-        
-
-      
-
-
-
-          <!-- stock-only fields -->
-          <fieldset id="stockFields stillItem2" class="grid2">
-            <legend>Stock info (Receive Lot)</legend>
-
-            <label>รายการโอนไปยัง
-              <select name="branchId">
-                <option value="001">001</option>
-                <option value="003">003</option>
-                <option value="004">004</option>
-                <option value="000">สำนักงานใหญ่</option>
-              </select>
-            </label>
-
-            <label>Product barcode
-              <input name="productBarcode" placeholder="LOT1234">
-            </label>
-
-
-
-            <label>Batch number
-              <input name="batchNumber" placeholder="LOT1234">
-            </label>
-
-            <label>Qty on hand
-              <input name="qtyOnHand" type="number" step="1" min="0">
-            </label>
-
-            <label>จำนวนรับเข้า
-              <input name="qtyReceived" type="number" step="1" min="0">
-            </label>
-          </fieldset>
-
-
-          <div class="modal__footer item3">
-            <button type="button" class="btn" data-close>Cancel</button>
-            <button type="submit" class="btn btn--primary">Save</button>
-          </div>
-      </div>
-    </div>
-  </div>
-</body>
-</html>
+// Handle button clicks to open modals
+document.querySelector('.btn-nR-received')?.addEventListener('click', () => openModal('modal-nR-receive'));
+document.querySelector('.btn-nR-transferred')?.addEventListener('click', () => openModal('modal-nR-transfer'));
+</script>

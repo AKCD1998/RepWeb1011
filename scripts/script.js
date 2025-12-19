@@ -245,3 +245,39 @@ import products from "./product-oop.js";
     });
 
             
+
+    document.getElementById('loginForm').addEventListener('submit', function(event) {
+    event.preventDefault();
+
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+    const messageArea = document.getElementById('message');
+
+    // Replace with your actual back-end login API endpoint
+    const apiEndpoint = 'https://api.example.com/login';
+
+    fetch(apiEndpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username: username, password: password }),
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.accessToken) {
+            // Store the JWT securely (e.g., in localStorage)
+            localStorage.setItem('jwt', data.accessToken);
+            messageArea.style.color = 'green';
+            messageArea.textContent = 'Login successful! Redirecting...';
+            // Redirect to a protected page (e.g., index.html)
+            window.location.href = 'index.html'; 
+        } else {
+            messageArea.textContent = data.message || 'Login failed';
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        messageArea.textContent = 'An error occurred. Please try again.';
+    });
+});

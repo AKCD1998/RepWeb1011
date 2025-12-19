@@ -1,10 +1,12 @@
-.db-edit-main-grid {
+.db-edit-main-grid{
   display: grid;
-  grid-template-columns: 1fr; /* 1 column */
-  grid-template-rows: 180px 50px 1000px 100px; /* 4 rows */
+  grid-template-columns: 1fr;
+  grid-template-rows: auto auto 1fr auto; /* instead of fixed px */
   gap: 15px;
   width: 100%;
+  min-height: 100dvh; /* optional if you want full screen */
 }
+
 .db-edit-addNsearch {
   display: grid;
   grid-template-columns: 1fr 500px 1fr; /* 1 row, 3 columns */

@@ -19,11 +19,6 @@ html, body {
   padding: 0;
 }
 
-/* ให้ background + min-height แค่ตัวนี้พอ */
-.page-body {
-  background: linear-gradient(145deg, #00040b, #03142d);
-  min-height: 100vh;   /* เริ่มต้นสูงเท่าจอ ถ้ามีเนื้อหาเยอะก็ยืดต่อได้ */
-}
 body{
   margin: 0;
   background: radial-gradient(1200px 700px at 20% 0%, rgba(39,225,193,0.10), transparent 55%),
@@ -36,8 +31,17 @@ body{
   padding: 28px;
 }
 
+#modal{
+  position: fixed;
+  inset: 0;
+  z-index: 999999;
+  display: grid;
+  place-items: center;
+  background: rgba(0,0,0,0.55);
+}
 
-.modal { position: fixed; inset: 0; z-index: 1000; overflow-y: auto; }
+
+
 .modal__panel{
   position: relative;
   width: 1080px;
@@ -272,7 +276,9 @@ legend{
 }
 
 /* ===== Buttons ===== */
-.btn-for-toolbar {
+.btn-for-toolbar,
+.btn-nR-received,
+.btn-nR-transferred {
   border: 1px solid var(--line-soft);
   background: rgba(255,255,255,0.06);
   color: var(--text);
