@@ -246,6 +246,9 @@ import products from "./product-oop.js";
 
             
 
+    /* ========== HANDLING login form submission ========== */
+    /* ยังไม่ได้เชื่อมต่อกับ back-end จริง แค่ตัวอย่างโค้ดเฉยๆ 
+
     document.getElementById('loginForm').addEventListener('submit', function(event) {
     event.preventDefault();
 
@@ -281,3 +284,4 @@ import products from "./product-oop.js";
         messageArea.textContent = 'An error occurred. Please try again.';
     });
 });
+*/

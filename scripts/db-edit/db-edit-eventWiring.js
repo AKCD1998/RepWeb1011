@@ -1,52 +1,56 @@
 document.addEventListener('includes:done', () => {
-  // ===== modal elements (KEEP your names, but select the REAL overlays) =====
-  const dbEditNpModal = document.getElementById('db-edit-nP-modal');        // ✅ overlay root inside nP include
-  const dbEditNrModal = document.getElementById('modal-nR-main');    // ✅ overlay root inside nR include
+  // ===== overlay roots (your modals ARE the overlays) =====
+  const npModal = document.getElementById('myDbModal');
+  const nrMain  = document.getElementById('modal-nR-main');
+  const nrRcv   = document.getElementById('modal-nR-receive');
+  const nrTrf   = document.getElementById('modal-nR-transfer');
 
-  // ===== second-layer overlays =====
-  const nrReceiveModal  = document.getElementById('slot-nR-rcv-sec-modal');   // ✅ overlay root inside nR-receive include
-  const nrTransferModal = document.getElementById('slot-nR-trfr-sec-modal');  // ✅ overlay root inside nR-transfer include
+  // ===== open buttons =====
+  document.getElementById('btnAddNewNp')?.addEventListener('click', () => open(npModal));
+  document.getElementById('btnAddNewNr')?.addEventListener('click', () => open(nrMain));
 
-  // ===== button elements (as you wrote) =====
-  const openNpBtn = document.getElementById('btnAddNew');
-  const openNrBtn = document.querySelector('.addTile-nR');
+  // inside nrMain
+  document.querySelector('.btn-nR-received')?.addEventListener('click', () => open(nrRcv));
+  document.querySelector('.btn-nR-transferred')?.addEventListener('click', () => open(nrTrf));
 
-  // these buttons exist inside nR main modal content (after include)
-  const openNrRcvModal = document.querySelector('.btn-nR-received');
-  const openNrTrfModal = document.querySelector('.btn-nR-transferred');
+  function open(modalEl) {
+    if (!modalEl) return;
+    modalEl.classList.remove('hidden');
+    modalEl.setAttribute('aria-hidden', 'false');
+  }
 
-  // cancel/exit: don’t hardcode IDs; close by data-close is cleaner
-  const exitBtnNp = document.querySelector('#myDbModal [data-close], #myDbModal .modal__x');
-  const exitBtnNr = document.querySelector('#modal-nR-main [data-close], #modal-nR-main .modal__x');
+  function close(modalEl) {
+    if (!modalEl) return;
+    modalEl.classList.add('hidden');
+    modalEl.setAttribute('aria-hidden', 'true');
+  }
 
-  console.log({
-    openNpBtn, openNrBtn,
-    dbEditNpModal, dbEditNrModal,
-    openNrRcvModal, openNrTrfModal,
-    nrReceiveModal, nrTransferModal
-  });
+  function wireModal(modalEl) {
+    if (!modalEl) return;
 
-  // ===== event listeners =====
-  openNpBtn?.addEventListener('click', () => dbEditNpModal?.classList.remove('hidden'));
-  openNrBtn?.addEventListener('click', () => dbEditNrModal?.classList.remove('hidden'));
+    // ✅ close buttons inside this modal (✕, Cancel, etc.)
+    modalEl.querySelectorAll('[data-close], .modal__x').forEach(btn => {
+      btn.addEventListener('click', () => close(modalEl));
+    });
 
-  // open layer-2 modals on top of layer-1
-  openNrRcvModal?.addEventListener('click', () => nrReceiveModal?.classList.remove('hidden'));
-  openNrTrfModal?.addEventListener('click', () => nrTransferModal?.classList.remove('hidden'));
+    // ✅ click backdrop (ONLY if click hits the overlay root itself)
+    modalEl.addEventListener('click', (e) => {
+      if (e.target === modalEl) close(modalEl);
+    });
+  }
 
-  // close buttons (your original style)
-  exitBtnNp?.addEventListener('click', () => dbEditNpModal?.classList.add('hidden'));
-  exitBtnNr?.addEventListener('click', () => dbEditNrModal?.classList.add('hidden'));
+  // wire each modal once
+  [npModal, nrMain, nrRcv, nrTrf].forEach(wireModal);
 
-  // OPTIONAL: Esc closes topmost (super useful)
+  // ✅ ESC closes topmost
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
 
-    if (nrReceiveModal && !nrReceiveModal.classList.contains('hidden')) return nrReceiveModal.classList.add('hidden');
-    if (nrTransferModal && !nrTransferModal.classList.contains('hidden')) return nrTransferModal.classList.add('hidden');
-    if (dbEditNrModal && !dbEditNrModal.classList.contains('hidden')) return dbEditNrModal.classList.add('hidden');
-    if (dbEditNpModal && !dbEditNpModal.classList.contains('hidden')) return dbEditNpModal.classList.add('hidden');
+    if (nrRcv && !nrRcv.classList.contains('hidden')) return close(nrRcv);
+    if (nrTrf && !nrTrf.classList.contains('hidden')) return close(nrTrf);
+    if (nrMain && !nrMain.classList.contains('hidden')) return close(nrMain);
+    if (npModal && !npModal.classList.contains('hidden')) return close(npModal);
   });
+
+  console.log('✅ modal system wired:', { npModal, nrMain, nrRcv, nrTrf });
 });
-
-

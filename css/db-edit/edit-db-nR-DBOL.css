@@ -1,6 +1,5 @@
 /* General Modal and Overlay Styling */
 .modal, .overlay {
-    display: none; /* Hidden by default */
     position: fixed;
     top: 0;
     left: 0;
@@ -24,6 +23,10 @@
 #overlayTwo {
     z-index: 30; /* Higher z-index for the second overlay */
 }
+
+
+
+
 
 #modalTwo {
     z-index: 40; /* Highest z-index for the second modal */
@@ -55,3 +58,9 @@
     cursor: pointer;
 }
 /* Show the modal when active */
+
+#overlayOne, #overlayTwo { display: none; }
+.hidden { display: none !important; }
+
+
+

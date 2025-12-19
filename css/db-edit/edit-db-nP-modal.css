@@ -18,9 +18,6 @@ html, body {
 }
 
 
-
-
-
 body{
   margin: 0;
   background: radial-gradient(1200px 700px at 20% 0%, rgba(39,225,193,0.10), transparent 55%),
@@ -50,6 +47,15 @@ body{
 .modal__footer{
   display:flex; justify-content:flex-end; align-items:center; gap:10px;
   padding: 4px 6px; border-top: 1px solid rgba(255,255,255,.10);
+}
+
+#modalCancelBtn{
+  background: red; border: 1px solid rgba(255, 255, 255, 0.303);
+  color: #fff; padding: 8px 12px; border-radius: 8px; cursor: pointer;
+}
+#modalSaveBtn{
+  background: green; border: 1px solid rgba(255, 255, 255, 0.303);
+  color: #fff; padding: 8px 12px; border-radius: 8px; cursor: pointer;
 }
 
 .grid2{ display:grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
