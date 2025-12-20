@@ -64,3 +64,25 @@
 
 
 
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+}
+
+.modal__x {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    fill: var(--text-secondary);
+}
+
+.modal__x{ background: transparent; border: 0; color: #fff; font-size: 18px; cursor: pointer; }

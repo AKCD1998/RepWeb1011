@@ -1,13 +1,9 @@
-<!-- Button to open the first modal -->
-<button onclick="openModal('modal-nR-main')">Open First Modal</button>
+
 
 <!-- The First Modal -->
-
-
-
   <div id="modal-nR-main" class="overlay layer-1 hidden" aria-hidden="true">
   <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="nRMainTitle">
-    <button class="modal__x" type="button" data-close>✕</button>
+  <button class="modal__x" type="button" data-close>✕</button>
 
     <h2 id="nRMainTitle" class="sr-only">การเคลื่อนไหวยา</h2>
 
@@ -128,8 +124,8 @@
     
           <!-- common fields -->
           <div class="grid2">
-            <label>Company ID
-              <input name="companyId" required placeholder="IC-000123">
+            <label>รหัสสินค้า (Company ID)
+              <input name="companyId" required placeholder="IC-000123 หรือ 630000123">
             </label>
 
             <label>Product name
@@ -222,7 +218,7 @@
     
     <!---โอนสินค้าออก--->
 <div id="modal-nR-transfer" class="overlay layer-2 hidden" aria-hidden="true">
-  <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="transferTitle">
+  <div class="modal__panel2" role="dialog" aria-modal="true" aria-labelledby="transferTitle">
     <header class="modal__header">
       <h2 id="transferTitle">โอนสินค้าออก</h2>
       <button class="modal__x" type="button" data-close>✕</button>
