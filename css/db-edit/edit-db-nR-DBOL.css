@@ -1,6 +1,6 @@
 /* General Modal and Overlay Styling */
 .modal, .overlay {
-    position: fixed;
+    position: absolute;
     top: 0;
     left: 0;
     width: 100%;
@@ -42,6 +42,7 @@
     max-width: 500px;
     position: relative;
 }
+
 
 .close {
     color: #aaa;
@@ -86,3 +87,96 @@
 }
 
 .modal__x{ background: transparent; border: 0; color: #fff; font-size: 18px; cursor: pointer; }
+
+
+
+#modal-nR-Re-cancelBtn:hover,
+#modal-nR-Tr-cancelBtn:hover,
+#modal-nR-transfer #modal-nR-Tr-cancelBtn:hover
+ {
+    background-color: red !important;
+}
+
+ #modal-nR-Re-saveBtn:hover,
+ #modal-nR-Tr-saveBtn:hover,
+ button#modal-nR-Tr-saveBtn.btn.btn--primary:hover {
+    background-color: #07df0e !important;
+}
+
+button#modal-nR-Tr-cancelBtn,
+#modal-nR-Re-cancelBtn,
+#modal-nR-transfer #modal-nR-Tr-cancelBtn {
+    padding: 12px !important;
+    background-color: darkred !important;
+    color: white !important;
+    border: 1px solid rgb(255, 0, 0) !important;
+    border-radius: 5px !important;
+    cursor: pointer !important;
+}
+
+button#modal-nR-Tr-saveBtn.btn.btn--primary {
+    margin: 10px !important;
+    background-color: #027608 !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 5px !important;
+    cursor: pointer !important;
+}
+
+
+
+
+
+.modal__panel{
+  position: relative;
+  top: 120px;
+  width: 1280px;
+  margin: 40px auto;
+  border-radius: 14px;
+  background: #0f2132;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.12);
+  overflow: visible;
+  min-height: min-content;
+}
+
+.modal__panel__ovl1{
+  position: relative;
+  width: 1280px;
+  margin: 40px auto;
+  border-radius: 14px;
+  background: #0f2132;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.12);
+  overflow: visible;
+  min-height: min-content;
+}
+.modal__panel2{
+  position: relative;
+  top: 120px;
+  width: 1080px;
+  margin: 40px auto;
+  border-radius: 14px;
+  background: #430000;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.12);
+  overflow: visible;
+  min-height: min-content;
+}
+
+.modal__panel3{
+  position: relative;
+  top: 120px;
+  width: 1080px;
+  margin: 40px auto;
+  border-radius: 14px;
+  background: #001e00;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.12);
+  overflow-y: auto !important; /* vertical scroll when needed */ 
+  min-height: min-content;
+  max-height: 90vh !important; /* allow almost full viewport height */
+  padding: 1rem !important;    /* optional for spacing */
+}
+
+

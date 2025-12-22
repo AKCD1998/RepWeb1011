@@ -7,15 +7,38 @@ html, body {
   margin: 0;
   padding: 0;
 }
+body{
+  display: grid;
+  place-items: start center;
+  padding: 28px;
+}
+body{ position: relative; }
+
 
 #myDbModal{
-  position: fixed;
-  inset: 0;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+
+  /* ✅ สำคัญ: ให้ครอบทั้งเอกสาร ไม่ใช่แค่ viewport */
+  min-height: 100vh;
+  height: max(100vh, 100%);
+
   z-index: 999999;
-  display: grid;
-  place-items: center;
   background: rgba(0,0,0,0.55);
+
+  /* ✅ ทำให้สกรอลเกิดที่ overlay */
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+
+  /* ✅ ห้าม center ด้วย grid ไม่งั้นสกรอลเพี้ยน */
+  display: block;
+
+  /* ✅ padding รอบๆ modal ตอนสกรอล */
+  padding: 16px;
 }
+
 
 
 body{
@@ -32,12 +55,11 @@ body{
 /* panel */
 .modal__panel{
   width: min(1080px, calc(100vw - 32px));
-  max-height: calc(100vh - 32px);
-  overflow: auto;
-  border-radius: 14px;
-  background: var(--card);
-  border: 1px solid rgba(255,255,255,.12);
+  max-height: none;          /* ✅ ปล่อยให้ panel สูงได้ */
+  overflow: visible;         /* ✅ ให้ overlay เป็นคนสกรอล */
+  margin: 0 auto;            /* ✅ center แนวนอน */
 }
+
 .modal__header{
   display:flex; justify-content:space-between; align-items:center;
   padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.10);
@@ -50,12 +72,25 @@ body{
 }
 
 #modalCancelBtn{
-  background: red; border: 1px solid rgba(255, 255, 255, 0.303);
-  color: #fff; padding: 8px 12px; border-radius: 8px; cursor: pointer;
+  padding: 12px !important;
+    background-color: darkred !important;
+    color: white !important;
+    border: 1px solid rgb(255, 0, 0) !important;
+    border-radius: 5px !important;
+    cursor: pointer !important;
 }
 #modalSaveBtn{
-  background: green; border: 1px solid rgba(255, 255, 255, 0.303);
-  color: #fff; padding: 8px 12px; border-radius: 8px; cursor: pointer;
+    margin: 10px !important;
+    background-color: #027608 !important;
+    color: white !important;
+    border: 1px solid #07df0e !important;
+    border-radius: 5px !important;
+    cursor: pointer !important;
+
+}
+
+#modalSaveBtn:hover {
+    background-color: #07df0e !important;
 }
 
 .grid2{ display:grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
@@ -72,7 +107,7 @@ body{
 .grid3x1Modal{
   display: grid;
   grid-template-rows: auto 1fr auto;
-  max-height: 700px; /* ถ้าต้องการฐานความสูง */
+  max-height: 950px; /* ถ้าต้องการฐานความสูง */
   min-height: 650px; /* ถ้าต้องการฐานความสูง */
   overflow: auto;
 }

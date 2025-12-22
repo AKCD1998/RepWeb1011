@@ -70,6 +70,10 @@
   border-radius: 8px;
   cursor: pointer;
 }
+#searchButton:hover {
+  background-color: rgb(255, 223, 0);
+}
+
 #searchInput {
   padding: 8px;
   border: 1px solid #ccc;

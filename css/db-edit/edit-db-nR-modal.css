@@ -42,29 +42,7 @@ body{
 
 
 
-.modal__panel{
-  position: relative;
-  width: 1280px;
-  margin: 40px auto;
-  border-radius: 14px;
-  background: #0f2132;
-  color: #fff;
-  border: 1px solid rgba(255,255,255,.12);
-  overflow: visible;
-  min-height: min-content;
-}
 
-.modal__panel2{
-  position: relative;
-  width: 1080px;
-  margin: 40px auto;
-  border-radius: 14px;
-  background: #430000;
-  color: #fff;
-  border: 1px solid rgba(255,255,255,.12);
-  overflow: visible;
-  min-height: min-content;
-}
 
 
 .modal__header{
@@ -197,8 +175,8 @@ legend{
 
 /* Primary (matches your accent red vibe) */
 .btn--primary{
-  background: rgba(255,77,77,0.22);
-  border-color: rgba(255,77,77,0.45);
+  background: rgba(2, 129, 8, 0.738);
+  border-color: rgba(2, 129, 8, 0.738);
   color: rgba(255,255,255,0.95);
 }
 
@@ -401,3 +379,4 @@ legend{
     justify-content: flex-start;
   }
 }
+
