@@ -74,9 +74,102 @@ body{
   grid-template-rows: auto 1fr auto;
   max-height: 700px; /* ถ้าต้องการฐานความสูง */
   min-height: 650px; /* ถ้าต้องการฐานความสูง */
+  overflow: auto;
 }
 
 .hidden {
   display: none;
 }
+
+
+.input-area {
+    margin-bottom: 20px;
+}
+
+.input-row{
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.input-row input[type="number"]{
+  flex: 1;          /* ช่องตัวเลขกินพื้นที่หลัก */
+  min-width: 0;
+}
+
+.input-row select{
+  flex: 0 0 90px;   /* ความกว้าง unit คงที่ */
+}
+
+
+select, input[type="text"],
+#add-repType-btn,
+#add-pack-btn,
+#add-route-btn {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+}
+
+#add-repType-btn,
+#add-custom-manu-btn,
+#add-pack-btn,
+#add-route-btn {
+    background-color: #007BFF;
+    padding: 10px;
+    font-size: 12px;
+    color: white;
+    border: none;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+ul {
+    list-style-type: none;
+    padding: 0;
+}
+
+li {
+    background: #030337;
+    margin-bottom: 10px;
+    padding: 10px;
+    border-radius: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.delete-btn {
+    background-color: #dc3545;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+
+  .genericNameAutocomplete{ position: relative; }
+  .ac__list{
+    position:absolute; left:0; right:0; top:100%;
+    margin-top:6px;
+    border:1px solid rgba(255,255,255,.14);
+    background:#0f2132;
+    border-radius:12px;
+    max-height:260px;
+    overflow:auto;
+    box-shadow: 0 16px 40px rgba(0,0,0,.35);
+    z-index: 9999;
+  }
+  .ac__item{
+    padding:10px 12px;
+    cursor:pointer;
+    color: rgba(255,255,255,.92);
+  }
+  .ac__item:hover, .ac__item.is-active{
+    background: rgba(255,255,255,.08);
+  }
+  .ac__muted{ color: rgba(255,255,255,.7); }
 

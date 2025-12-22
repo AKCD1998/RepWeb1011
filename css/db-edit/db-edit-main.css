@@ -49,10 +49,41 @@
   gap: 5px;
 }
 
+.subgrid2-search2 input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+
+.subgrid2-search3 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0;
+}
+
+#searchButton {
+  padding: 9px 16px;
+  background-color: rgb(247, 254, 58);
+  color: rgb(0, 0, 0);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+#searchInput {
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  margin: 0;
+}
+  
+
 .subgrid2-container {
   background-color: rgb(6, 6, 55);
   margin-bottom: 11px;
   border-radius: 24px;
+  padding-bottom: 16px;
+  
 }
 
 .subgrid2-header {
@@ -68,12 +99,16 @@
 .subgrid2-search-container {
   background-color: rgb(10, 10, 90);
   margin: 10px 10px 0 10px;
-  padding: 5px;
-  padding-top: 10px;
-  padding-left: 10px;
+  padding: 10px;
   height: 100%;
   border-radius: 14px;
+  display: grid;
+  grid-template-columns: 1.5fr auto 1fr;
+  gap: 20px;               /* tighten spacing if needed */
+  align-items: center;     /* vertical align */
+  justify-items: center;   /* horizontal align within each column */
 }
+
 
 
 
@@ -107,6 +142,36 @@
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
+}
+/* Column boilerplate - customize width/align per column */
+.data-table thead th:nth-child(1),
+.data-table tbody td:nth-child(1) {
+  width: 80px;
+  text-align: left;
+}
+
+.data-table thead th:nth-child(2),
+.data-table tbody td:nth-child(2) {
+  width: 150px;
+  text-align: left;
+}
+
+.data-table thead th:nth-child(3),
+.data-table tbody td:nth-child(3) {
+  width: 200px;
+  text-align: left;
+}
+
+.data-table thead th:nth-child(4),
+.data-table tbody td:nth-child(4) {
+  width: 120px;
+  text-align: right;
+}
+
+.data-table thead th:nth-child(5),
+.data-table tbody td:nth-child(5) {
+  width: 100px;
+  text-align: center;
 }
 
 /* Header */
