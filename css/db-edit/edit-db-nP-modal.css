@@ -79,6 +79,11 @@ body{
     border-radius: 5px !important;
     cursor: pointer !important;
 }
+
+#modalCancelBtn:hover {
+    background-color: red !important;
+}
+
 #modalSaveBtn{
     margin: 10px !important;
     background-color: #027608 !important;
