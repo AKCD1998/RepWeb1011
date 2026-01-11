@@ -7,7 +7,7 @@ document.addEventListener('includes:done', () => {
   const nrRcv   = document.getElementById('modal-nR-receive');
   const nrTrf   = document.getElementById('modal-nR-transfer');
   const productsTableBody = document.getElementById('productsTableBody');
-  const API_BASE = 'http://localhost:3001';
+  const API_BASE = 'https://repweb1011-production.up.railway.app';
 
   // ===== open buttons =====
   document.getElementById('btnAddNewNp')?.addEventListener('click', () => open(npModal));
