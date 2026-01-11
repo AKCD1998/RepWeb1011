@@ -7,7 +7,13 @@ import { pool } from "./db.js";
 dotenv.config();
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: [
+    "https://akcd1998.github.io",
+    "https://repweb1011-production.up.railway.app"
+  ]
+}));
+
 app.use(express.json());
 app.use(morgan("dev"));
 
