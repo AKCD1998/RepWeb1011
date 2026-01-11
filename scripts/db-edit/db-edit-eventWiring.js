@@ -6,6 +6,7 @@ document.addEventListener('includes:done', () => {
   const nrMain  = document.getElementById('modal-nR-main');
   const nrRcv   = document.getElementById('modal-nR-receive');
   const nrTrf   = document.getElementById('modal-nR-transfer');
+  const productsTableBody = document.getElementById('productsTableBody');
 
   // ===== open buttons =====
   document.getElementById('btnAddNewNp')?.addEventListener('click', () => open(npModal));
@@ -61,6 +62,52 @@ document.addEventListener('includes:done', () => {
     if (npModal && !npModal.classList.contains('hidden')) return close(npModal);
     if (posModal && !posModal.classList.contains('hidden')) return close(posModal);
   });
+
+  async function loadProductsTable() {
+    if (!productsTableBody) {
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/products/list');
+      if (!res.ok) {
+        throw new Error(`failed to load products (${res.status})`);
+      }
+      const products = await res.json();
+      productsTableBody.innerHTML = '';
+
+      if (!Array.isArray(products) || products.length === 0) {
+        productsTableBody.innerHTML =
+          '<tr><td class="col-name" colspan="5">ไม่มีข้อมูลสินค้า</td></tr>';
+        return;
+      }
+
+      for (const product of products) {
+        const row = document.createElement('tr');
+        const price =
+          product.price_baht === null || product.price_baht === undefined
+            ? ''
+            : Number(product.price_baht).toFixed(2);
+
+        row.innerHTML = `
+          <td class="col-actions">
+            <button class="kebab" aria-label="Row menu"><span aria-hidden="true">⋮</span></button>
+          </td>
+          <td class="col-itemid">${product.id ?? ''}</td>
+          <td class="col-name">${product.brand_name ?? ''}</td>
+          <td class="col-code">${product.product_code ?? ''}</td>
+          <td class="col-price">${price}</td>
+        `;
+        productsTableBody.appendChild(row);
+      }
+    } catch (err) {
+      console.error(err);
+      productsTableBody.innerHTML =
+        '<tr><td class="col-name" colspan="5">โหลดข้อมูลไม่สำเร็จ</td></tr>';
+    }
+  }
+
+  loadProductsTable();
 
   console.log('✅ modal system wired:', { posModal, npModal, nrMain, nrRcv, nrTrf });
 });

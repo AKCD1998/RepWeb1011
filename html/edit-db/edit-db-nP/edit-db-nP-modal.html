@@ -14,6 +14,7 @@
 
 
       <!-- common fields -->
+      <form id="npForm" class="modal__form">
       <div class="grid2">
         <label>รหัสสินค้า
           <input name="companyId" required placeholder="IC-000123 หรือ 630000123">
@@ -27,7 +28,7 @@
         <!--dropdown ที่มีช่องให้กรอก ถ้าเลือก อื่นๆ-->
         <label>ชื่อสามัญทางยา (Generic name)
           <div class="genericNameAutocomplete">
-            <input id="genericInput" type="text" placeholder="พิมพ์ชื่อยา..." autocomplete="off">
+            <input id="genericInput" name="genericName" type="text" placeholder="พิมพ์ชื่อยา..." autocomplete="off">
             <div id="genericList" class="ac__list" hidden></div>
           </div>
         </label>
@@ -37,8 +38,8 @@
         <label>
         Strength
         <div class="input-row">
-          <input type="number" step="any" placeholder="500">
-          <select class="units" style="margin-bottom: 0;">
+          <input name="strengthValue" type="number" step="any" placeholder="500">
+          <select class="units" name="strengthUnit" style="margin-bottom: 0;">
             <option>mg</option>
             <option>g</option>
             <option>mcg</option>
