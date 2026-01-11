@@ -7,6 +7,7 @@ document.addEventListener('includes:done', () => {
   const nrRcv   = document.getElementById('modal-nR-receive');
   const nrTrf   = document.getElementById('modal-nR-transfer');
   const productsTableBody = document.getElementById('productsTableBody');
+  const API_BASE = 'http://localhost:3001';
 
   // ===== open buttons =====
   document.getElementById('btnAddNewNp')?.addEventListener('click', () => open(npModal));
@@ -69,7 +70,7 @@ document.addEventListener('includes:done', () => {
     }
 
     try {
-      const res = await fetch('/api/products/list');
+      const res = await fetch(`${API_BASE}/api/products/list`);
       if (!res.ok) {
         throw new Error(`failed to load products (${res.status})`);
       }
