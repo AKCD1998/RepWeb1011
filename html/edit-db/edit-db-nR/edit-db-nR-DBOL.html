@@ -1,0 +1,776 @@
+
+
+<!-- The First Modal -->
+  <div id="modal-nR-main" class="overlay layer-1 hidden" aria-hidden="true">
+  <div class="modal__panel__ovl1" role="dialog" aria-modal="true" aria-labelledby="nRMainTitle">
+  <button class="modal__x" type="button" data-close>✕</button>
+
+    <h2 id="nRMainTitle" class="sr-only">การเคลื่อนไหวยา</h2>
+
+    <div class="db-page">
+      <!-- ROW 1: search + buttons -->
+      <header class="db-toolbar">
+        <div class="search">
+          <span class="search__icon" aria-hidden="true">⌕</span>
+          <input class="search__input" type="search" placeholder="ค้นหาการเคลื่อนไหวยา…" />
+        </div>
+
+        
+
+        <div class="toolbar-actions">
+          <button class="btn-for-toolbar btn--accent" type="button">ค้นหา</button>
+
+          <!-- new button -->
+          <button class="btn-nR-received btn--sm btn--blue" type="button">+ รับเข้า</button>
+          <button class="btn-nR-transferred btn--sm btn--red" type="button">- โอนออก</button>
+
+          
+        </div>
+      </header>
+
+      <!-- ROW 2: table header -->
+      <div class="table-header">
+        การเคลื่อนไหวรับเข้ายา
+      </div>
+
+      <!-- ROW 2: table -->
+      <section class="table-card" aria-label="Class table">
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+
+                <th class="col-transacId">รหัสการเคลื่อนไหว</th>
+                <th class="col-dateTime">วันที่-เวลา</th>
+                <th class="col-id">รหัสสินค้า</th>
+                <th class="col-name">ชื่อสินค้า</th>
+                <th class="col-level">รับเข้า/โอนออก</th>
+                <th class="col-Qty">จำนวน</th>
+                <th class="col-Qunit">หน่วย</th>
+                <th class="col-actions">จัดการ</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              <tr>
+                <td class="col-transacId">In-00000400</td>
+                <td class="col-dateTime">2024-06-01 10:30</td>
+                <td class="col-id">IC-000001</td>
+                <td class="col-name">ซีรีไทด์ แอคคูเฮดเลอร์</td>
+                <td class="col-level"><span class="pill">รับเข้า</span></td>
+                <td class="col-Qty">+10</td>
+                <td class="col-Qunit">กล่อง</td>
+                <td class="col-actions">
+                  <div class="row-actions">
+                    <button class="btn-for-toolbar btn--sm btn--blue" type="button">Edit</button>
+                    <button class="btn-for-toolbar btn--sm btn--red" type="button">Delete</button>
+                  </div>
+                </td>
+              </tr>
+
+              <tr>
+                <td class="col-transacId">Ot-0040000</td>
+                <td class="col-dateTime">2024-06-02 14:15</td>
+                <td class="col-id">IC-000000</td>
+                <td class="col-name">อนาแลป 1x10 เม็ด</td>
+                <td class="col-level"><span class="pill pill--teal">โอนออก</span></td>
+                <td class="col-Qty">-2</td>
+                <td class="col-Qunit">แผง</td>
+                <td class="col-actions">
+                  <div class="row-actions">
+                    <button class="btn-for-toolbar btn--sm btn--blue" type="button">Edit</button>
+                    <button class="btn-for-toolbar btn--sm btn--red" type="button">Delete</button>
+                  </div>
+                </td>
+              </tr>
+
+              <tr>
+                <td class="col-transacId">In-00300200</td>
+                <td class="col-dateTime">2024-06-03 09:45</td>
+                <td class="col-id">IC-000000</td>
+                <td class="col-name">อนาแลป 1x10 เม็ด</td>
+                <td class="col-level"><span class="pill pill--amber">รับเข้า</span></td>
+                <td class="col-Qty">+1</td>
+                <td class="col-Qunit">แผง</td>
+                <td class="col-actions">
+                  <div class="row-actions">
+                    <button class="btn-for-toolbar btn--sm btn--blue" type="button">Edit</button>
+                    <button class="btn-for-toolbar btn--sm btn--red" type="button">Delete</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+    </div>
+
+
+  </div>
+</body>
+
+<!-- The Second Modal (on top of the first) -->
+
+
+    <!---รับเข้า--->
+    <!-- Modal layer 1 (fake overlay) -->
+    
+    <div id="modal-nR-receive" class="overlay layer-2 hidden" aria-hidden="true">
+      <div class="modal__panel3" role="dialog" aria-modal="true" aria-labelledby="transferTitle">
+        <div class="grid3x1Modal">
+        
+        <header class="modal__header">
+          <h2 id="transferTitle">โอนสินค้าออก</h2>
+          <button class="modal__x" type="button" data-close>✕</button>
+        </header>
+        
+              <!-- common fields -->
+              <div class="grid2">
+                <label>รหัสสินค้า
+                  <input name="companyId" required placeholder="IC-000123 หรือ 630000123">
+                </label>
+                
+                <!-- ชื่อการค้าเท่านั้น-->
+                <label>ชื่อสินค้า ชื่อการค้า (Product name)
+                  <input name="productName" required>
+                </label>
+
+                <!--dropdown ที่มีช่องให้กรอก ถ้าเลือก อื่นๆ-->
+                <label>ชื่อสามัญทางยา (Generic name)
+                  <div class="genericNameAutocomplete">
+                    <input id="genericInput" type="text" placeholder="พิมพ์ชื่อยา..." autocomplete="off">
+                    <div id="genericList" class="ac__list" hidden></div>
+                  </div>
+                </label>
+
+                <!--dropdown ที่มีช่องให้กรอก ถ้าเลือก อื่นๆ--> <!-- มี drop down 2 อัน อันแรก เป็นขนาดยา อันที่ สอง เป็นหน่วย-->
+                <label>
+                Strength
+                <div class="input-row">
+                  <input type="number" step="any" placeholder="500">
+                  <select class="units" style="margin-bottom: 0;">
+                    <option>mg</option>
+                    <option>g</option>
+                    <option>mcg</option>
+                    <option>% w/w</option>
+                  </select>
+                </div>
+              </label>
+
+                <!--dropdown ที่มีช่องให้กรอก ถ้าเลือก อื่นๆ-->
+                <!-- Pack size (เลือกได้หลายรายการ) -->
+                <label id="pack-grid">Pack size
+                  <div id="pack-genHTML">
+                    <div class="input-area">
+                      <select id="pack-select">
+                        <option value="">--เลือกได้มากกว่า 1 รายการ--</option>
+
+                        <option value="1 ขวด x 60 mL">1 ขวด x 60 mL</option>
+                        <option value="1 ขวด x 30 mL">1 ขวด x 30 mL</option>
+                        <option value="1 แผง x 10 เม็ด">1 แผง x 10 เม็ด</option>
+                        <option value="1 กระปุก x 60 เม็ด">1 กระปุก x 60 เม็ด</option>
+                        <option value="1 หลอด x 120 metered actuations">1 หลอด x 120 metered actuations</option>
+                        <option value="1 ตลับ x 60 inhalations">1 ตลับ x 60 inhalations</option>
+                        <option value="1 หลอด x 10 กรัม">1 หลอด x 10 กรัม</option>
+
+                        <option value="Other">Other โปรดระบุด้านล่าง</option>
+                      </select>
+
+                      <input type="text" id="custom-pack-input"
+                            placeholder="โปรดระบุ Pack size"
+                            style="display:none;">
+
+                      <button id="add-pack-btn" type="button">เพิ่ม Pack size</button>
+                    </div>
+
+                    <ul id="pack-list"></ul>
+                  </div>
+                </label>
+
+                <!--dropdown ที่มีช่องให้กรอก ถ้าเลือก อื่นๆ-->
+                <!-- Route of administration (เลือกได้หลายรายการ) -->
+                <label id="route-grid">เส้นทางการให้ยา (Route of administration)
+                  <div id="route-genHTML">
+                    <div class="input-area">
+                      <select id="route-select">
+                        <option value="">--เลือกได้มากกว่า 1 รายการ--</option>
+                        <option>ทางปาก (oral)</option>
+                        <option>ยาเฉพาะที่ (local administration)</option>
+                        <option>ทางตา (ophthalmic)</option>
+                        <option>ยาสูดพ่น (inhalation)</option>
+                        <option>ยาฉีด (injection)</option>
+                        <option>ยาทา (topical)</option>
+                        <option>ทางช่องคลอด (intravaginal administration)</option>
+                        <option>ทางทวารหนัก (rectal administration)</option>
+                        <option value="Other">Other โปรดระบุด้านล่าง</option>
+                      </select>
+
+                      <input type="text" id="custom-route-input"
+                            placeholder="โปรดระบุ Route of administration"
+                            style="display:none;">
+
+                      <button id="add-route-btn" type="button">เพิ่ม Route</button>
+                    </div>
+
+                    <ul id="route-list"></ul>
+                  </div>
+                </label>
+
+                <!-- dosage form -->
+                <label id="dosageF">รูปแบบยา (Dosage form)
+                <div id="dosageF-genHTML">
+                  <div class="input-area">
+                    <select id="dosageF-select" name="dosageForm">
+                      <option value="">-- เลือกได้เพียง 1 รายการ --</option>
+
+                      <!-- กลุ่ม Tablet / Capsule -->
+                      <optgroup label="Tablet / Capsule">
+                        <option value="tablet">ยาเม็ด (Tablets)</option>
+                        <option value="capsule">ยาแคปซูล (Capsules)</option>
+                        <option value="orally-disintegrating-tablets">ยาเม็ดแตกตัวในปาก</option>
+                        <option value="lozenges">ยาอม (Lozenges)</option>
+                        <option value="effervescent-tablets">ยาเม็ดฟู่</option>
+                      </optgroup>
+
+                      <!-- กลุ่มของเหลว -->
+                      <optgroup label="ของเหลว / Liquid">
+                        <option value="syrups">ยาน้ำเชื่อม (Syrups)</option>
+                        <option value="solutions">ยาน้ำใส (Solutions)</option>
+                        <option value="elixirs">ยาอีลิกเซอร์ (Elixirs)</option>
+                        <option value="emulsions">ยาอิมัลชัน (Emulsions)</option>
+                        <option value="suspensions">ยาสารแขวนลอย (Suspensions)</option>
+                        <option value="tinctures">ยาทิงเจอร์ (Tinctures)</option>
+                      </optgroup>
+
+                      <!-- กลุ่มผง -->
+                      <optgroup label="ผง / Powder">
+                        <option value="powders">ยาผง (Powders)</option>
+                      </optgroup>
+
+                      <!-- กลุ่มหยอด -->
+                      <optgroup label="หยอดตา / หยอดหู">
+                        <option value="eye-drops">ยาหยอดตา</option>
+                        <option value="ear-drops">ยาหยอดหู</option>
+                      </optgroup>
+
+                      <!-- กลุ่มทาผิว -->
+                      <optgroup label="ทาผิว / Topical">
+                        <option value="lotions">ยาโลชั่น (Lotions)</option>
+                        <option value="creams">ยาครีม (Creams)</option>
+                        <option value="ointments">ยาขี้ผึ้ง (Ointments)</option>
+                        <option value="liniments">ยาทาผิวชนิดน้ำ (Liniments)</option>
+                        <option value="gels">ยาเจล (Gels)</option>
+                        <option value="transdermal">ยาแผ่นแปะผิวหนัง (Transdermal)</option>
+                        <option value="suppositories">ยาเหน็บ (Suppositories)</option>
+                      </optgroup>
+
+                      <!-- กลุ่มการสูด / พ่น -->
+                      <optgroup label="สูด / พ่น (Inhalation)">
+                        <option value="aerosolized-inhaler">ยาสูดพ่นชนิดละอองลอย</option>
+                        <option value="dry-powder-inhaler">ยาสูดผงแห้ง</option>
+                        <option value="metered-dose-inhalers">ยาสูดชนิดกดพ่น</option>
+                        <option value="nebulizer">ยาพ่นด้วยเครื่องพ่นฝอยละออง</option>
+                      </optgroup>
+
+                    </select>
+                  </div>
+                </div>
+              </label>
+
+                <label>Price (บาท)
+                  <input name="price" type="number" step="0.01" min="0" required>
+                </label>
+
+                <!--dropdown ที่เมื่อติ๊กแล้วจัดการเอาออกเอาเข้าเพิ่มได้แบบ todolist project-->
+                <label id="report-grid">รายงานที่เกี่ยวข้อง
+                  <div id="report-type-genHTML">
+                    <div class="input-area">
+                      <select id="repType-select">
+                        <option value="">--เลือกได้มากกว่า 1 รายการ--</option>
+                        <option value="rxTypeTen">(ขย.10) บัญชีการขายยาควบคุมพิเศษ</option>
+                        <option value="rxTypeEleven">(ขย. 11) บัญชีการขายยาอันตราย เฉพาะรายการยาที่เลขาธิการคณะกรรมการอาหารและยากำหนด</option>
+                        <option value="Other">Other โปรดระบุด้านล่าง</option>
+                      </select>
+
+                      <input type="text" id="custom-repType-input"
+                            placeholder="โปรดระบุรายงานที่เกี่ยวข้อง"
+                            style="display:none;">
+
+                      <button id="add-repType-btn" type="button">เพิ่มรายงาน</button>
+                    </div>
+
+                    <ul id="repType-list"></ul>
+                  </div>
+                </label>
+
+                <!--dropdown ที่มีช่องให้กรอก ถ้าเลือก อื่นๆ-->
+                <label for="limitedQtyperBill">จำกัดจำนวนซื้อ/ใบสั่งยา
+                <select id="limitedQtyperBill" name="limitedQtyperBill">
+                  <option value="">-- เลือกจำนวนจำกัด --</option>
+
+                  <!-- สำหรับยาเม็ด/แคปซูล -->
+                  <option value="≤20">≤ 20 เม็ด/ครั้ง</option>
+
+                  <!-- สำหรับยาน้ำ -->
+                  <option value="≤180">≤ 180 มล. (3 ขวด)/ครั้ง</option>
+
+                  <!-- ถ้าต้องการ “อื่นๆ” ให้ใส่ช่องกรอก -->
+                  <option value="other">อื่นๆ</option>
+                </select>
+                </label>
+
+                <!-- ช่องกรอกเมื่อเลือก “อื่นๆ” -->
+                <div id="otherQtyDiv" style="display:none; margin-top:8px;">
+                  <label>ระบุจำนวนอื่น:
+                    <input type="number" name="otherQty" min="0" step="1">
+                  </label>
+                </div>
+
+                <!--dropdown ที่มีช่องให้กรอก ถ้าเลือก อื่นๆ-->
+                <label>ผู้ผลิต (Manufacturer)
+                  <select name="manufacturer">
+                    <option value="">-- เลือกผู้ผลิต --</option>
+                    <option value="Other">Other โปรดระบุด้านล่าง</option>
+                    <option>บริษัท บี.เอ็ล.ฮั้ว จำกัด</option>
+                    <option>บริษัท เคนยากุ (ประเทศไทย) จำกัด</option>
+                    <option>บริษัท โรงงานเภสัชกรรม เกร๊ทเตอร์ฟาร์ม่า จำกัด</option>
+                    <option>แอดวานซ์ ฟาร์มาซูติคอล แมนูเฟคเจอริ่ง จำกัด</option>
+                    <option>บริษัท ไทยนครพัฒนา จำกัด</option>
+                    <option>ห้างหุ้นส่วนจำกัดโรงงาน เลิศสิงห์เภสัชกรรม</option>
+                    <option>บริษัท แมคโครฟาร์ จำกัด</option>
+                    <option>บริษัท วี.เอส.ฟาร์ม่า (1971) จำกัด</option>
+                    <option>บริษัท บี.เอม.ฟาร์มาซี จำกัด</option>
+                    <option>บริษัท สยามฟาร์มาซูติคอล จำกัด</option>
+                    <option>บริษัท บูรพาโอสถ จำกัด</option>
+                    <option>บริษัท  อังกฤษตรางู (แอล.พี.) จำกัด</option>
+                    <option>บริษัท โอสถ อินเตอร์ แลบบอราทอรีส์ จำกัด</option>
+                    <option>บริษัท ยูนิแล็บ ฟาร์มาซูติคอลส์ จำกัด</option>
+                    <option>บริษัท โอลิค (ประเทศไทย) จำกัด</option>
+                    <option>บริษัท เจริญเภสัช จำกัด</option>
+                    <option>บริษัท ยูเมด้า จำกัด</option>
+                    <option>บริษัท เบอร์ลินฟาร์มาซูติคอลอินดัสตรี้ จำกัด</option>
+                    <option>บริษัท ดีเคเอสเอช (ประเทศไทย) จำกัด</option>
+                    <option>บริษัท เมก้า ไลฟ์ไซแอ็นซ์ จำกัด (มหาชน)</option>
+                    <option>บริษัท อินแพคฟาร์มา จำกัด</option>
+                    <option>บริษัท แกล็กโซสมิทไคล์น (ประเทศไทย) จำกัด</option>
+                    <option>บริษัท แอสตร้าเซนเนก้า (ประเทศไทย) จำกัด</option>
+                  </select>
+
+                  <input type="text" id="custom-manu-input"
+                            placeholder="โปรดระบุผู้ผลิต"
+                            style="display:none;">
+
+                  <button id="add-custom-manu-btn" type="button">บันทึก</button>
+
+                </label>
+
+                <label>รหัสบาร์โค้ด (Barcode)
+                <input name="barcode">
+              </label>
+            </div>
+            <!-- stock-only fields -->
+              <fieldset id="stockFields stillItem2" class="grid2">
+                <legend>Stock info (Receive Lot)</legend>
+
+                <label>รายการโอนไปยัง
+                  <select name="branchId">
+                    <option value="001">001</option>
+                    <option value="003">003</option>
+                    <option value="004">004</option>
+                    <option value="000">สำนักงานใหญ่</option>
+                  </select>
+                </label>
+
+                <label>Product barcode
+                  <input name="productBarcode" placeholder="LOT1234">
+                </label>
+
+
+
+                <label>Batch number
+                  <input name="batchNumber" placeholder="LOT1234">
+                </label>
+
+                <label>Qty on hand
+                  <input name="qtyOnHand" type="number" step="1" min="0">
+                </label>
+
+                <label>จำนวนรับเข้า
+                  <input name="qtyReceived" type="number" step="1" min="0">
+                </label>
+              </fieldset>
+
+
+              <div class="modal__footer">
+                <button type="button" id="modal-nR-Re-cancelBtn" class="btn" data-close>Cancel</button>
+                <button type="submit" id="modal-nR-Re-saveBtn" class="btn btn--primary">Save</button>
+              </div>
+          </div>
+      </div>
+    </div>
+
+    
+    <!---โอนสินค้าออก--->
+<div id="modal-nR-transfer" class="overlay layer-2 hidden" aria-hidden="true">
+  <div class="modal__panel2" role="dialog" aria-modal="true" aria-labelledby="transferTitle">
+    <div class="grid3x1Modal">
+    
+    
+    <header class="modal__header">
+      <h2 id="transferTitle">โอนสินค้าออก</h2>
+      <button class="modal__x" type="button" data-close>✕</button>
+    </header>
+    
+          <!-- common fields -->
+          <div class="grid2">
+            <label>รหัสสินค้า
+              <input name="companyId" required placeholder="IC-000123 หรือ 630000123">
+            </label>
+            
+            <!-- ชื่อการค้าเท่านั้น-->
+            <label>ชื่อสินค้า ชื่อการค้า (Product name)
+              <input name="productName" required>
+            </label>
+
+            <!--dropdown ที่มีช่องให้กรอก ถ้าเลือก อื่นๆ-->
+            <label>ชื่อสามัญทางยา (Generic name)
+              <div class="genericNameAutocomplete">
+                <input id="genericInput" type="text" placeholder="พิมพ์ชื่อยา..." autocomplete="off">
+                <div id="genericList" class="ac__list" hidden></div>
+              </div>
+            </label>
+
+            <!--dropdown ที่มีช่องให้กรอก ถ้าเลือก อื่นๆ--> <!-- มี drop down 2 อัน อันแรก เป็นขนาดยา อันที่ สอง เป็นหน่วย-->
+            <label>
+            Strength
+            <div class="input-row">
+              <input type="number" step="any" placeholder="500">
+              <select class="units" style="margin-bottom: 0;">
+                <option>mg</option>
+                <option>g</option>
+                <option>mcg</option>
+                <option>% w/w</option>
+              </select>
+            </div>
+          </label>
+
+            <!--dropdown ที่มีช่องให้กรอก ถ้าเลือก อื่นๆ-->
+            <!-- Pack size (เลือกได้หลายรายการ) -->
+            <label id="pack-grid">Pack size
+              <div id="pack-genHTML">
+                <div class="input-area">
+                  <select id="pack-select">
+                    <option value="">--เลือกได้มากกว่า 1 รายการ--</option>
+
+                    <option value="1 ขวด x 60 mL">1 ขวด x 60 mL</option>
+                    <option value="1 ขวด x 30 mL">1 ขวด x 30 mL</option>
+                    <option value="1 แผง x 10 เม็ด">1 แผง x 10 เม็ด</option>
+                    <option value="1 กระปุก x 60 เม็ด">1 กระปุก x 60 เม็ด</option>
+                    <option value="1 หลอด x 120 metered actuations">1 หลอด x 120 metered actuations</option>
+                    <option value="1 ตลับ x 60 inhalations">1 ตลับ x 60 inhalations</option>
+                    <option value="1 หลอด x 10 กรัม">1 หลอด x 10 กรัม</option>
+
+                    <option value="Other">Other โปรดระบุด้านล่าง</option>
+                  </select>
+
+                  <input type="text" id="custom-pack-input"
+                        placeholder="โปรดระบุ Pack size"
+                        style="display:none;">
+
+                  <button id="add-pack-btn" type="button">เพิ่ม Pack size</button>
+                </div>
+
+                <ul id="pack-list"></ul>
+              </div>
+            </label>
+
+            <!--dropdown ที่มีช่องให้กรอก ถ้าเลือก อื่นๆ-->
+            <!-- Route of administration (เลือกได้หลายรายการ) -->
+            <label id="route-grid">เส้นทางการให้ยา (Route of administration)
+              <div id="route-genHTML">
+                <div class="input-area">
+                  <select id="route-select">
+                    <option value="">--เลือกได้มากกว่า 1 รายการ--</option>
+                    <option>ทางปาก (oral)</option>
+                    <option>ยาเฉพาะที่ (local administration)</option>
+                    <option>ทางตา (ophthalmic)</option>
+                    <option>ยาสูดพ่น (inhalation)</option>
+                    <option>ยาฉีด (injection)</option>
+                    <option>ยาทา (topical)</option>
+                    <option>ทางช่องคลอด (intravaginal administration)</option>
+                    <option>ทางทวารหนัก (rectal administration)</option>
+                    <option value="Other">Other โปรดระบุด้านล่าง</option>
+                  </select>
+
+                  <input type="text" id="custom-route-input"
+                        placeholder="โปรดระบุ Route of administration"
+                        style="display:none;">
+
+                  <button id="add-route-btn" type="button">เพิ่ม Route</button>
+                </div>
+
+                <ul id="route-list"></ul>
+              </div>
+            </label>
+
+            <!-- dosage form -->
+            <label id="dosageF">รูปแบบยา (Dosage form)
+            <div id="dosageF-genHTML">
+              <div class="input-area">
+                <select id="dosageF-select" name="dosageForm">
+                  <option value="">-- เลือกได้เพียง 1 รายการ --</option>
+
+                  <!-- กลุ่ม Tablet / Capsule -->
+                  <optgroup label="Tablet / Capsule">
+                    <option value="tablet">ยาเม็ด (Tablets)</option>
+                    <option value="capsule">ยาแคปซูล (Capsules)</option>
+                    <option value="orally-disintegrating-tablets">ยาเม็ดแตกตัวในปาก</option>
+                    <option value="lozenges">ยาอม (Lozenges)</option>
+                    <option value="effervescent-tablets">ยาเม็ดฟู่</option>
+                  </optgroup>
+
+                  <!-- กลุ่มของเหลว -->
+                  <optgroup label="ของเหลว / Liquid">
+                    <option value="syrups">ยาน้ำเชื่อม (Syrups)</option>
+                    <option value="solutions">ยาน้ำใส (Solutions)</option>
+                    <option value="elixirs">ยาอีลิกเซอร์ (Elixirs)</option>
+                    <option value="emulsions">ยาอิมัลชัน (Emulsions)</option>
+                    <option value="suspensions">ยาสารแขวนลอย (Suspensions)</option>
+                    <option value="tinctures">ยาทิงเจอร์ (Tinctures)</option>
+                  </optgroup>
+
+                  <!-- กลุ่มผง -->
+                  <optgroup label="ผง / Powder">
+                    <option value="powders">ยาผง (Powders)</option>
+                  </optgroup>
+
+                  <!-- กลุ่มหยอด -->
+                  <optgroup label="หยอดตา / หยอดหู">
+                    <option value="eye-drops">ยาหยอดตา</option>
+                    <option value="ear-drops">ยาหยอดหู</option>
+                  </optgroup>
+
+                  <!-- กลุ่มทาผิว -->
+                  <optgroup label="ทาผิว / Topical">
+                    <option value="lotions">ยาโลชั่น (Lotions)</option>
+                    <option value="creams">ยาครีม (Creams)</option>
+                    <option value="ointments">ยาขี้ผึ้ง (Ointments)</option>
+                    <option value="liniments">ยาทาผิวชนิดน้ำ (Liniments)</option>
+                    <option value="gels">ยาเจล (Gels)</option>
+                    <option value="transdermal">ยาแผ่นแปะผิวหนัง (Transdermal)</option>
+                    <option value="suppositories">ยาเหน็บ (Suppositories)</option>
+                  </optgroup>
+
+                  <!-- กลุ่มการสูด / พ่น -->
+                  <optgroup label="สูด / พ่น (Inhalation)">
+                    <option value="aerosolized-inhaler">ยาสูดพ่นชนิดละอองลอย</option>
+                    <option value="dry-powder-inhaler">ยาสูดผงแห้ง</option>
+                    <option value="metered-dose-inhalers">ยาสูดชนิดกดพ่น</option>
+                    <option value="nebulizer">ยาพ่นด้วยเครื่องพ่นฝอยละออง</option>
+                  </optgroup>
+
+                </select>
+              </div>
+            </div>
+          </label>
+
+            <label>Price (บาท)
+              <input name="price" type="number" step="0.01" min="0" required>
+            </label>
+
+            <!--dropdown ที่เมื่อติ๊กแล้วจัดการเอาออกเอาเข้าเพิ่มได้แบบ todolist project-->
+            <label id="report-grid">รายงานที่เกี่ยวข้อง
+              <div id="report-type-genHTML">
+                <div class="input-area">
+                  <select id="repType-select">
+                    <option value="">--เลือกได้มากกว่า 1 รายการ--</option>
+                    <option value="rxTypeTen">(ขย.10) บัญชีการขายยาควบคุมพิเศษ</option>
+                    <option value="rxTypeEleven">(ขย. 11) บัญชีการขายยาอันตราย เฉพาะรายการยาที่เลขาธิการคณะกรรมการอาหารและยากำหนด</option>
+                    <option value="Other">Other โปรดระบุด้านล่าง</option>
+                  </select>
+
+                  <input type="text" id="custom-repType-input"
+                        placeholder="โปรดระบุรายงานที่เกี่ยวข้อง"
+                        style="display:none;">
+
+                  <button id="add-repType-btn" type="button">เพิ่มรายงาน</button>
+                </div>
+
+                <ul id="repType-list"></ul>
+              </div>
+            </label>
+
+            <!--dropdown ที่มีช่องให้กรอก ถ้าเลือก อื่นๆ-->
+            <label for="limitedQtyperBill">จำกัดจำนวนซื้อ/ใบสั่งยา
+            <select id="limitedQtyperBill" name="limitedQtyperBill">
+              <option value="">-- เลือกจำนวนจำกัด --</option>
+
+              <!-- สำหรับยาเม็ด/แคปซูล -->
+              <option value="≤20">≤ 20 เม็ด/ครั้ง</option>
+
+              <!-- สำหรับยาน้ำ -->
+              <option value="≤180">≤ 180 มล. (3 ขวด)/ครั้ง</option>
+
+              <!-- ถ้าต้องการ “อื่นๆ” ให้ใส่ช่องกรอก -->
+              <option value="other">อื่นๆ</option>
+            </select>
+            </label>
+
+            <!-- ช่องกรอกเมื่อเลือก “อื่นๆ” -->
+            <div id="otherQtyDiv" style="display:none; margin-top:8px;">
+              <label>ระบุจำนวนอื่น:
+                <input type="number" name="otherQty" min="0" step="1">
+              </label>
+            </div>
+
+            <!--dropdown ที่มีช่องให้กรอก ถ้าเลือก อื่นๆ-->
+            <label>ผู้ผลิต (Manufacturer)
+              <select name="manufacturer">
+                <option value="">-- เลือกผู้ผลิต --</option>
+                <option value="Other">Other โปรดระบุด้านล่าง</option>
+                <option>บริษัท บี.เอ็ล.ฮั้ว จำกัด</option>
+                <option>บริษัท เคนยากุ (ประเทศไทย) จำกัด</option>
+                <option>บริษัท โรงงานเภสัชกรรม เกร๊ทเตอร์ฟาร์ม่า จำกัด</option>
+                <option>แอดวานซ์ ฟาร์มาซูติคอล แมนูเฟคเจอริ่ง จำกัด</option>
+                <option>บริษัท ไทยนครพัฒนา จำกัด</option>
+                <option>ห้างหุ้นส่วนจำกัดโรงงาน เลิศสิงห์เภสัชกรรม</option>
+                <option>บริษัท แมคโครฟาร์ จำกัด</option>
+                <option>บริษัท วี.เอส.ฟาร์ม่า (1971) จำกัด</option>
+                <option>บริษัท บี.เอม.ฟาร์มาซี จำกัด</option>
+                <option>บริษัท สยามฟาร์มาซูติคอล จำกัด</option>
+                <option>บริษัท บูรพาโอสถ จำกัด</option>
+                <option>บริษัท  อังกฤษตรางู (แอล.พี.) จำกัด</option>
+                <option>บริษัท โอสถ อินเตอร์ แลบบอราทอรีส์ จำกัด</option>
+                <option>บริษัท ยูนิแล็บ ฟาร์มาซูติคอลส์ จำกัด</option>
+                <option>บริษัท โอลิค (ประเทศไทย) จำกัด</option>
+                <option>บริษัท เจริญเภสัช จำกัด</option>
+                <option>บริษัท ยูเมด้า จำกัด</option>
+                <option>บริษัท เบอร์ลินฟาร์มาซูติคอลอินดัสตรี้ จำกัด</option>
+                <option>บริษัท ดีเคเอสเอช (ประเทศไทย) จำกัด</option>
+                <option>บริษัท เมก้า ไลฟ์ไซแอ็นซ์ จำกัด (มหาชน)</option>
+                <option>บริษัท อินแพคฟาร์มา จำกัด</option>
+                <option>บริษัท แกล็กโซสมิทไคล์น (ประเทศไทย) จำกัด</option>
+                <option>บริษัท แอสตร้าเซนเนก้า (ประเทศไทย) จำกัด</option>
+              </select>
+
+              <input type="text" id="custom-manu-input"
+                        placeholder="โปรดระบุผู้ผลิต"
+                        style="display:none;">
+
+              <button id="add-custom-manu-btn" type="button">บันทึก</button>
+
+            </label>
+
+            <label>รหัสบาร์โค้ด (Barcode)
+            <input name="barcode">
+          </label>
+        </div>
+        <!-- stock-only fields -->
+          <fieldset id="stockFields stillItem2" class="grid2">
+            <legend>Stock info (Receive Lot)</legend>
+
+            <label>รายการโอนไปยัง
+              <select name="branchId">
+                <option value="001">001</option>
+                <option value="003">003</option>
+                <option value="004">004</option>
+                <option value="000">สำนักงานใหญ่</option>
+              </select>
+            </label>
+
+            <label>Product barcode
+              <input name="productBarcode" placeholder="LOT1234">
+            </label>
+
+
+
+            <label>Batch number
+              <input name="batchNumber" placeholder="LOT1234">
+            </label>
+
+            <label>Qty on hand
+              <input name="qtyOnHand" type="number" step="1" min="0">
+            </label>
+
+            <label>จำนวนรับเข้า
+              <input name="qtyReceived" type="number" step="1" min="0">
+            </label>
+          </fieldset>
+        </div>
+
+
+
+
+          <div class="modal__footer">
+            <button type="button" id="modal-nR-Tr-cancelBtn" class="btn" data-close>Cancel</button>
+            <button type="submit" id="modal-nR-Tr-saveBtn" class="btn btn--primary">Save</button>    
+          </div>
+      </div>
+    </div>
+  </div>
+
+  
+
+
+          
+
+
+    
+
+
+
+<!-- Overlays -
+<div id="overlayOne" class="overlay"></div>
+<div id="overlayTwo" class="overlay"></div>
+
+<script>
+function openModal(modalId) {
+  const modal = document.getElementById(modalId);
+  const overlay = document.getElementById('overlay' + (modalId === 'modal-nR-main' ? 'One' : 'Two'));
+
+  if (modal && overlay) {
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+    overlay.style.display = 'block';
+  }
+}
+
+function closeModal(modalId) {
+  const modal = document.getElementById(modalId);
+  const overlay = document.getElementById('overlay' + (modalId === 'modal-nR-main' ? 'One' : 'Two'));
+
+  if (modal && overlay) {
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+    overlay.style.display = 'none';
+  }
+}
+
+// Optional: Close the modal if the user clicks outside of the content area
+window.onclick = function(event) {
+  if (event.target.classList.contains('overlay')) {
+    // Find which overlay was clicked and close its associated modal
+    if (event.target.id === 'overlayTwo') {
+      closeModal('modal-nR-receive');
+    } else if (event.target.id === 'overlayOne') {
+      closeModal('modal-nR-main');
+    }
+  }
+}
+
+// Handle close button clicks
+document.addEventListener('click', function(event) {
+  if (event.target.hasAttribute('data-close')) {
+    const modal = event.target.closest('.overlay');
+    if (modal) {
+      closeModal(modal.id);
+    }
+  }
+});
+
+// Handle button clicks to open modals
+document.querySelector('.btn-nR-received')?.addEventListener('click', () => openModal('modal-nR-receive'));
+document.querySelector('.btn-nR-transferred')?.addEventListener('click', () => openModal('modal-nR-transfer'));
+</script>
+-->

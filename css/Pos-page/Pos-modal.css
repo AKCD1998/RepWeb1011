@@ -1,0 +1,207 @@
+/* The Modal (background) */
+.pos-modal {
+  position: fixed; /* Stay in place */
+  z-index: 10000; /* Sit on top */
+  left: 0;
+  top: 0;
+  width: 100%; /* Full width */
+  height: 100%; /* Full height */
+  background-color: rgb(0,0,0); /* Fallback color */
+  background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
+}
+.modal-cfHeadBox {
+  margin-top: 1px;
+  margin-right: 0px;
+  font-family: "kanit", sans-serif;
+  font-size: 5px;
+  color: white;
+  background-color: darkblue;
+  position: relative;
+  right: 120px;
+  bottom: 220px;
+  padding: 28px;
+  z-index: 1;
+  height: 560px;
+  width: 150%;
+  border-radius: 4px;
+  display: grid;
+  grid-template-rows: auto 1fr auto auto; /* หัวกับเนื้อหา */
+  gap: 10px;
+  padding-left: 20px;
+  padding-right: 20px;
+  padding-top: 20px;
+}
+
+.modal-head {
+  font-family: "kanit", sans-serif;
+  font-size: 25px;
+  background-color: rgb(4, 4, 49);
+  padding: 10px;
+  color: white;
+  text-align: left;
+  margin-top: 2px;
+  margin-left: 2px;
+  border-radius: 4px;
+
+}
+
+.modal-cfHead {
+  font-family: "kanit", sans-serif;
+  font-size: 25px;
+  background-color: darkblue;
+  padding: 10px;
+  min-width: 280px;
+  margin-left: 3px;
+  margin-right: 19px;
+  border-radius: 4px;
+}
+
+
+/* Modal Content/Box */
+.modal-content {
+  background-color: transparent;
+  color: white;
+  margin: 25% auto; /* 15% from the top and centered */
+  padding: 4px;
+  padding-bottom: 180px;
+  border: transparent;
+  width: 80%; /* Could be more or less, depending on screen size */
+  position: relative;
+  margin-top: 150px;
+  margin-bottom: 50px;
+  margin: 150px auto 50px; /* บน 150px ล่าง 50px ซ้าย-ขวา auto = กึ่งกลาง */
+  border-radius: 4px;
+  height: 400px; /* เพิ่มความสูงของ modal */
+
+}
+
+/* The Close Button */
+.close {
+  position: absolute;
+  top: 0px;
+  right: 8px;
+  color: #aaa;
+  float: right;
+  font-size: 28px;
+  font-weight: bold;
+  z-index: 2;
+}
+  
+.btn.btn-secondary.btn-sm {
+  background-color: #def608;
+  color: black;
+  font-size: 8px;
+  height: 22px;
+  padding: 4px;
+  border: none;
+  cursor: pointer;
+  vertical-align: top;
+  border-radius: 4px;
+}
+.btn.btn-secondary.btn-sm:hover {
+  background-color: #c4d205;
+}
+.in-modal-separate-compartment-patient {
+  background-color: rgb(27, 137, 201);
+  font-size: 25px;
+  color: black;
+  padding: 10px;
+  margin-left: 3px;
+  display: grid;
+  grid-template-columns: 20% 1fr;  /* ซ้าย label ขวา input */
+  gap: 8px 12px;                     /* row-gap / column-gap */
+  align-items: center;               /* ให้ label กับ input สูงเท่ากัน */
+  border-radius: 4px;
+}
+
+.in-modal-separate-compartment-medication {
+  background-color: rgb(27, 137, 201);
+  color: black;
+  font-size: 25px;
+  padding: 10px;
+  margin-left: 3px;
+  display: grid;
+  grid-template-columns: 20% 1fr;  /* ซ้าย label ขวา input */
+  gap: 8px 12px;                     /* row-gap / column-gap */
+  align-items: center;               /* ให้ label กับ input สูงเท่ากัน */
+  border-radius: 4px;
+}
+
+
+.close:hover,
+.close:focus {
+  color: black;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.h-description-text { 
+  font-family: "kanit", sans-serif;
+  font-size: 15px;
+  color: white;
+  padding: 10px;
+  padding-left: 0px;
+  margin-top: -30px;
+  margin-bottom: 10px;
+}
+
+.form-control {
+  font-family: "kanit", sans-serif;
+  background-color: rgb(245, 244, 244);
+  font-size: 15px;
+  color: black;
+  padding: 10px;
+  width: 100%;
+  box-sizing: border-box; /* ให้ padding ไม่ทำให้ขนาด input เกิน */
+  margin-top: 0px;
+  margin-bottom: 10px;
+  border-radius: 6px;
+}
+.modal-submit-btn {
+  background-color: #4CAF50; /* Green */
+  border: none;
+  color: white;
+  padding: 10px 20px;
+  text-align: center;
+  text-decoration: none;
+  font-size: 16px;
+  margin: 4px 2px;
+  cursor: pointer;
+  border-radius: 8px;
+  
+}
+.modal-cancel-btn {
+  background-color: #f44336; /* Red */
+  border: none;
+  color: white;
+  padding: 10px 20px;
+  text-align: center;
+  text-decoration: none;
+  font-size: 16px;
+  margin: 4px 2px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.modal-submit-btn:hover {
+  background-color: #45a049;
+}
+.modal-cancel-btn:hover {
+  background-color: #da190b;
+}
+.modal-button-group {
+  text-align: right;
+  margin-top: 10px;
+  margin-right: 15px;
+  margin-bottom: 10px;
+}
+
+.close {
+  position: relative;
+  top: -130px;
+  left: 145px;
+  color: #ff0000;
+  font-size: 28px;
+  font-weight: bold;
+  font-size: 65px;
+  cursor: pointer;
+}

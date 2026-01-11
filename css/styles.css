@@ -1,0 +1,246 @@
+/* ตัด height: 100% ออก ไม่ต้องล็อกสูงเท่าจอ */
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+/* ให้ background + min-height แค่ตัวนี้พอ */
+.page-body {
+  background: linear-gradient(145deg, #00040b, #03142d);
+  min-height: 100vh;   /* เริ่มต้นสูงเท่าจอ ถ้ามีเนื้อหาเยอะก็ยืดต่อได้ */
+}
+
+/* กล่องใหญ่ของฟอร์ม */
+.rx1011-form-container {
+  background: linear-gradient(145deg, #0b1930, #102544);
+  border-radius: 18px;
+  padding: 10px;
+  max-width: 95vw;
+  width: clamp(600px, 90vw, 1400px);
+  /* อย่าตั้ง height: 95%; ให้มันสูงตามเนื้อหาเอง */
+  margin: 56px auto 40px;   /* เริ่มจากตรงกลางก่อน */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: white;
+
+  box-shadow:
+   0 24px 50px rgba(0, 0, 0, 0.85),
+   0 0 0 1px rgba(30, 64, 175, 0.5);
+}
+
+.header-bar {
+  font-size: 2.5rem;
+  margin: 20px 0 10px 0;
+  text-align: center;
+  background-color: #00040b;
+}
+
+.biggest-grid-container {
+  display: grid;
+  grid-template-columns: 1fr; /* 1 column */
+  grid-template-rows: 100px 1fr; /* 2 rows */
+  gap: 20px;
+  width: 100%;
+}
+
+.grid{
+  display: grid;
+  grid-template-columns: 1fr 1fr; /* 1x2 */
+  gap: 400px;
+  vertical-align: center;
+}
+
+.item0 {
+  display: flex;
+  background: linear-gradient(145deg, #0b1930, #102544);
+  border-radius: 18px;
+  padding: 10px;
+  justify-content: center;
+  align-items: center;
+  height: 50px;
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(30, 64, 175, 0.3);
+  box-shadow: 0 18px 50px rgba(0,0,0,.55);
+}
+
+/* subtle glow layers */
+.item0::before{
+  content:"";
+  position:absolute; inset:-2px;
+  background:
+    radial-gradient(600px 220px at 15% 20%, rgba(30, 64, 175, 0.12), transparent 60%),
+    radial-gradient(520px 200px at 85% 30%, rgba(4, 55, 150, 0.10), transparent 60%);
+  filter: blur(2px);
+  pointer-events:none;
+}
+.item0::after{
+  content:"";
+  position:absolute; inset:0;
+  background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.01));
+  pointer-events:none;
+}
+
+/* grid container becomes a "pill bar" */
+.item0-grid{
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  gap: 14px;
+  padding: 12px;
+  margin: 0;
+  width: 100%;
+  height: auto;
+  border-radius: 16px;
+  border: 1px solid rgba(30, 64, 175, 0.25);
+  background: rgba(0, 4, 11, 0.35);
+  backdrop-filter: blur(10px);
+}
+
+/* Base button style */
+.item0-grid button{
+  appearance: none;
+  border: 1px solid rgba(30, 64, 175, 0.3);
+  background: linear-gradient(180deg, rgba(11, 25, 48, 0.4), rgba(16, 37, 68, 0.2));
+  color: rgba(255,255,255,.92);
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: .2px;
+  cursor: pointer;
+
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap: 10px;
+
+  box-shadow: 0 12px 28px rgba(0,0,0,.35);
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease, background .12s ease, filter .12s ease;
+  user-select: none;
+}
+
+/* Hover + active */
+.item0-grid button:hover{
+  transform: translateY(-2px);
+  border-color: rgba(30, 64, 175, 0.5);
+  background: linear-gradient(180deg, rgba(11, 25, 48, 0.6), rgba(16, 37, 68, 0.3));
+  box-shadow: 0 18px 40px rgba(0,0,0,.45);
+}
+.item0-grid button:active{
+  transform: translateY(0);
+  filter: brightness(0.98);
+}
+
+/* Focus for keyboard */
+.item0-grid button:focus-visible{
+  outline: 2px solid rgba(30, 64, 175, 0.75);
+  outline-offset: 3px;
+}
+
+.item0-grid button.is-active{
+  border-color: rgba(39,225,193,.45);
+  background: rgba(39,225,193,.12);
+  box-shadow: 0 0 0 1px rgba(39,225,193,.22), 0 18px 40px rgba(0,0,0,.45);
+  transform: translateY(-1px);
+}
+
+/* Different accent per button (uses your existing classes) */
+.Report-btn{
+  border-color: rgba(4, 55, 150, 0.664);
+  background: linear-gradient(180deg, rgba(5, 28, 129, 0.14), rgba(255,255,255,.05));
+}
+.Pos-record-btn{
+  border-color: rgba(255,255,255,.22);
+  background: linear-gradient(180deg, rgba(134, 4, 4, 0.1), rgba(255,255,255,.04));
+}
+.db-edit-btn{
+  border-color: rgba(12, 10, 141, 0.34);
+  background: linear-gradient(180deg, rgba(255,77,77,.16), rgba(255,255,255,.05));
+}
+
+/* Optional: simple icons without changing HTML (pure CSS) */
+.Report-btn::before{ content:"📄"; }
+.Pos-record-btn::before{ content:"💊"; }
+.db-edit-btn::before{ content:"➕"; }
+.item0-grid button::before{ font-size: 16px; }
+
+/* different sizes */
+.left{
+  font-size: 32px;
+  margin-left: 30px;   
+  margin-top: 6px;
+}
+.right{ 
+  font-size: 16px;
+  margin-top: 10px; 
+  margin-bottom: 10px;
+} 
+
+
+.grid-container {
+  margin-top:20px;
+  margin-bottom: 20px;
+  display: grid;
+  /* Defines two columns, each taking up an equal fraction (1fr) of the available space. */
+  grid-template-columns: 1fr 1fr;
+  /* Defines two rows, each taking up an equal fraction (1fr) of the available space. */
+  grid-template-rows: 1fr 1fr;
+  /* Optional: Adds a gap between grid items for spacing. */
+  gap: 20px; /* You can use any unit like px, em, or rem */
+  /* Optional: Sets a specific height for the container, adjust as needed */
+  height: 300px;
+  /* Optional: Adds a border to the container to visualize the grid area */
+  border: 1px solid #ccc;
+  border-radius: 12px;
+}
+
+.grid-item {
+  background-color: #f0f0f0;
+  padding: 20px;
+  text-align: center;
+  border: 1px solid #ddd;
+}
+
+
+
+/* Responsive: stack buttons on small screens */
+@media (max-width: 820px){
+  .item0-grid{
+    grid-template-columns: 1fr;
+  }
+  .item0-grid button{
+    justify-content: space-between;
+    padding: 12px 16px;
+  }
+  .grid-container {
+    grid-template-columns: 1fr; /* Stacks items in a single column on smaller screens */
+  }
+}
+
+.hidden {
+  display: none;
+}
+
+.overlay{
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+/* layer 1 = fake overlay */
+.layer-1{
+  z-index: 1000;
+  background: transparent;
+}
+
+/* layer 2 = real overlay */
+.layer-2{
+  z-index: 1100;
+  background: rgba(0,0,0,0.55);
+}
+

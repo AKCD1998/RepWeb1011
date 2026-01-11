@@ -1,0 +1,58 @@
+<!---------------- POS Section ------------------------>
+<div id="pos-main-page" class="rx1011-form-container" data-section="pos" style="margin-bottom: 640px;">
+ <section class="pos-section" >
+    <div class="wrap">
+
+      <!--
+      <a href="../html/index.html">
+        <button id="posBackBtn" class="pos-back-btn" type="button" title="ย้อนกลับไปแก้ไขแบบสอบถาม">
+          <span class="pos-back__icon" aria-hidden="true">
+            ↩</span> ย้อนกลับ
+        </button>
+      </a>
+    -->
+
+      <div id="posGuard" class="pos-alert hidden">
+        ยังกรอกแบบสอบถามไม่ครบ —
+        <button id="resumeFormBtn" type="button">ไปทำแบบสอบถามต่อ</button>
+      </div>
+
+      <div class="pos-panel">
+        <div class="pos-left">
+          
+          <div class="pos-table">
+            <div class="thead">
+              <div>ลำดับที่</div>
+              <div class="thead-barcode">บาร์โค้ด</div>
+              <div class="thead-product-name">รายการสินค้า</div>
+              <div class="hide-md">รหัสสินค้า</div>
+              <div class="hide-sm">ราคาต่อหน่วย</div>
+              <div class="amount">จำนวน</div>
+              <div class="sum">ราคารวม</div>
+              <div class="note-bin">NOTE</div>
+            </div>
+            <div class="tbody" id="items"></div>
+          </div>
+
+          <div class="pos-inputbar">
+            <div style="display:flex;align-items:center;gap:6px">
+              <input id="barcode-input-field" type="text" placeholder="พิมพ์จำนวน → กด 'คูณ (*)' หรือ PageDown → สแกน/พิมพ์บาร์โค้ด แล้วกด Enter" autocomplete="off">
+              <span class="mult" id="multChip"></span>
+            </div>
+            <div class="total"><span id="grand">0.00</span> บาท</div>
+          </div>
+        </div>
+
+        <aside class="pos-rail">
+          <div class="coupon" id="couponBox">
+            คูณ ( * )<br><small>PAGE DOWN</small>
+          </div>
+
+  
+          <button class="btn btn-primary" id="pos-confirmBtn" title="">ยืนยันการทำรายการ</button>
+        </aside>
+      </div>
+
+    </div>
+  </section>
+  </div>

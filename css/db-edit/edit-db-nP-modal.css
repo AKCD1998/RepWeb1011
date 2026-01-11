@@ -1,0 +1,215 @@
+/*.hidden { display: none; 
+เก็บไว้ก่อน
+*/
+/* ===== Page (for your standalone test HTML) ===== */
+/* ตัด height: 100% ออก ไม่ต้องล็อกสูงเท่าจอ */
+html, body {
+  margin: 0;
+  padding: 0;
+}
+body{
+  display: grid;
+  place-items: start center;
+  padding: 28px;
+}
+body{ position: relative; }
+
+
+#myDbModal{
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+
+  /* ✅ สำคัญ: ให้ครอบทั้งเอกสาร ไม่ใช่แค่ viewport */
+  min-height: 100vh;
+  height: max(100vh, 100%);
+
+  z-index: 999999;
+  background: rgba(0,0,0,0.55);
+
+  /* ✅ ทำให้สกรอลเกิดที่ overlay */
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+
+  /* ✅ ห้าม center ด้วย grid ไม่งั้นสกรอลเพี้ยน */
+  display: block;
+
+  /* ✅ padding รอบๆ modal ตอนสกรอล */
+  padding: 16px;
+}
+
+
+
+body{
+  margin: 0;
+  background: radial-gradient(1200px 700px at 20% 0%, rgba(39,225,193,0.10), transparent 55%),
+              radial-gradient(900px 600px at 85% 20%, rgba(255,77,77,0.10), transparent 55%),
+              var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  display: grid;
+  place-items: start center;
+  padding: 28px;
+}
+/* panel */
+.modal__panel{
+  width: min(1080px, calc(100vw - 32px));
+  max-height: none;          /* ✅ ปล่อยให้ panel สูงได้ */
+  overflow: visible;         /* ✅ ให้ overlay เป็นคนสกรอล */
+  margin: 0 auto;            /* ✅ center แนวนอน */
+}
+
+.modal__header{
+  display:flex; justify-content:space-between; align-items:center;
+  padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.10);
+}
+.modal__x{ background: transparent; border: 0; color: #fff; font-size: 18px; cursor: pointer; }
+.modal__body{ padding: 14px 16px; }
+.modal__footer{
+  display:flex; justify-content:flex-end; align-items:center; gap:10px;
+  padding: 4px 6px; border-top: 1px solid rgba(255,255,255,.10);
+}
+
+#modalCancelBtn{
+  padding: 12px !important;
+    background-color: darkred !important;
+    color: white !important;
+    border: 1px solid rgb(255, 0, 0) !important;
+    border-radius: 5px !important;
+    cursor: pointer !important;
+}
+
+#modalCancelBtn:hover {
+    background-color: red !important;
+}
+
+#modalSaveBtn{
+    margin: 10px !important;
+    background-color: #027608 !important;
+    color: white !important;
+    border: 1px solid #07df0e !important;
+    border-radius: 5px !important;
+    cursor: pointer !important;
+
+}
+
+#modalSaveBtn:hover {
+    background-color: #07df0e !important;
+}
+
+.grid2{ display:grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.grid2 label{ display:flex; flex-direction:column; gap:6px; font-size: 14px; color: rgba(255,255,255,.85); }
+.grid2 input, .grid2 select{
+  padding: 10px 10px; border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(0,0,0,.18);
+  color: #fff;
+}
+.btn{ padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06); color:#fff; cursor:pointer; }
+.btn--primary{ background: rgba(255,77,77,.22); border-color: rgba(255,77,77,.45); }
+
+.grid3x1Modal{
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  max-height: 950px; /* ถ้าต้องการฐานความสูง */
+  min-height: 650px; /* ถ้าต้องการฐานความสูง */
+  overflow: auto;
+}
+
+.hidden {
+  display: none;
+}
+
+
+.input-area {
+    margin-bottom: 20px;
+}
+
+.input-row{
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.input-row input[type="number"]{
+  flex: 1;          /* ช่องตัวเลขกินพื้นที่หลัก */
+  min-width: 0;
+}
+
+.input-row select{
+  flex: 0 0 90px;   /* ความกว้าง unit คงที่ */
+}
+
+
+select, input[type="text"],
+#add-repType-btn,
+#add-pack-btn,
+#add-route-btn {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+}
+
+#add-repType-btn,
+#add-custom-manu-btn,
+#add-pack-btn,
+#add-route-btn {
+    background-color: #007BFF;
+    padding: 10px;
+    font-size: 12px;
+    color: white;
+    border: none;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+ul {
+    list-style-type: none;
+    padding: 0;
+}
+
+li {
+    background: #030337;
+    margin-bottom: 10px;
+    padding: 10px;
+    border-radius: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.delete-btn {
+    background-color: #dc3545;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+
+  .genericNameAutocomplete{ position: relative; }
+  .ac__list{
+    position:absolute; left:0; right:0; top:100%;
+    margin-top:6px;
+    border:1px solid rgba(255,255,255,.14);
+    background:#0f2132;
+    border-radius:12px;
+    max-height:260px;
+    overflow:auto;
+    box-shadow: 0 16px 40px rgba(0,0,0,.35);
+    z-index: 9999;
+  }
+  .ac__item{
+    padding:10px 12px;
+    cursor:pointer;
+    color: rgba(255,255,255,.92);
+  }
+  .ac__item:hover, .ac__item.is-active{
+    background: rgba(255,255,255,.08);
+  }
+  .ac__muted{ color: rgba(255,255,255,.7); }
+

@@ -1,0 +1,48 @@
+<div id="posMyModal" class="pos-modal hidden " aria-hidden="true">
+  <div class="modal-content">
+    <span class="close" data-close>&times;</span>
+
+    <div class="modal-cfHeadBox">
+      <div class="modal-head">
+        <h2>บันทึกการส่งมอบยา</h2>
+        <h5 class="h-description-text">โปรดกรอกข้อมูลผู้ซื้อและรายการยาที่จ่ายก่อนส่งมอบยา</h5>
+      </div>
+    
+      <div class="in-modal-separate-compartment-patient">
+        <label for="recipient-name" class="col-form-label">
+          ชื่อผู้รับยา:
+        </label>
+        <input type="text" class="form-control" id="recipient-name">
+
+        <label for="recipient-id" class="col-form-label">
+          เลขประจำตัวประชาชน:
+        </label>
+        <input type="text" class="form-control" id="recipient-id">
+
+        <label for="recipient-age" class="col-form-label">
+          อายุของเจ้าของบัตร
+        </label>
+        <input type="text" class="form-control" id="recipient-age">
+      </div>
+
+      
+  
+
+      <div class="in-modal-separate-compartment-medication">
+        <label for="medication-name" class="col-form-label">
+          ยาที่ส่งมอบ:
+        </label>
+        <input type="text" class="form-control" id="medication-name">
+
+        <label for="medication-id" class="col-form-label">
+          เลขรุ่นที่ผลิต:
+        </label>
+        <input type="text" class="form-control" id="medication-id">
+      </div>
+      <div class="modal-button-group">
+      <button class="modal-submit-btn" id="modalSubmitBtn">บันทึกข้อมูล</button>
+      <button class="modal-cancel-btn" id="modalCancelBtn" data-close>ยกเลิก</button>
+      </div>
+    </div>
+  </div>
+</div>
