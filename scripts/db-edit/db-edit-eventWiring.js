@@ -1,3 +1,5 @@
+import { getApiBase } from '../api-base.js';
+
 document.addEventListener('includes:done', () => {
   // ===== overlay roots (your modals ARE the overlays) =====
   const posModal = document.getElementById('posMyModal');
@@ -7,7 +9,7 @@ document.addEventListener('includes:done', () => {
   const nrRcv   = document.getElementById('modal-nR-receive');
   const nrTrf   = document.getElementById('modal-nR-transfer');
   const productsTableBody = document.getElementById('productsTableBody');
-  const API_BASE = 'https://repweb1011-production.up.railway.app';
+  const API_BASE = getApiBase();
 
   // ===== open buttons =====
   document.getElementById('btnAddNewNp')?.addEventListener('click', () => open(npModal));
@@ -63,7 +65,7 @@ document.addEventListener('includes:done', () => {
     if (npModal && !npModal.classList.contains('hidden')) return close(npModal);
     if (posModal && !posModal.classList.contains('hidden')) return close(posModal);
   });
-/*
+
   async function loadProductsTable() {
     if (!productsTableBody) {
       return;
@@ -109,6 +111,6 @@ document.addEventListener('includes:done', () => {
   }
 
   loadProductsTable();
-*/
+
   console.log('✅ modal system wired:', { posModal, npModal, nrMain, nrRcv, nrTrf });
 });

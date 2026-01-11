@@ -1,9 +1,11 @@
+import { getApiBase } from '../api-base.js';
+
 document.addEventListener('includes:done', () => {
   const form = document.getElementById('npForm');
   const saveBtn = document.getElementById('modalSaveBtn');
   if (!form) return;
 
-  const API_BASE = 'http://localhost:3001';
+  const API_BASE = getApiBase();
 
   const readList = (selector) => {
     const list = form.querySelector(selector);

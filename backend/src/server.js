@@ -16,6 +16,10 @@ app.use(
     origin: [
       "https://akcd1998.github.io",
       "https://repweb1011-production.up.railway.app",
+      "http://localhost:5500",
+      "http://127.0.0.1:5500",
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
     ],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -423,16 +427,25 @@ app.use("/api", (req, res) => {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const publicDir = path.join(__dirname, "public");
+const serveFrontend =
+  process.env.SERVE_FRONTEND === "true" || process.env.SERVE_FRONTEND === "1";
 
-// ถ้ามีโฟลเดอร์ public อยู่จริง ค่อยเปิด static
-app.use(express.static(publicDir));
+if (serveFrontend) {
+  // ถ้ามีโฟลเดอร์ public อยู่จริง ค่อยเปิด static
+  app.use(express.static(publicDir));
 
-// ===== OPTIONAL: SPA fallback (ONLY for non-API paths) =====
-app.get(/^\/(?!api|health).*/, (req, res) => {
-  res.sendFile(path.join(publicDir, "index.html"));
-});
+  // ===== OPTIONAL: SPA fallback (ONLY for non-API paths) =====
+  app.get(/^\/(?!api|health).*/, (req, res) => {
+    res.sendFile(path.join(publicDir, "index.html"));
+  });
+} else {
+  // API-only mode: return JSON for unknown non-API paths too
+  app.use((req, res) => {
+    res.status(404).json({ error: "Route not found" });
+  });
+}
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
