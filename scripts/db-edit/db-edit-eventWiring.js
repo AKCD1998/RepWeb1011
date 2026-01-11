@@ -63,7 +63,7 @@ document.addEventListener('includes:done', () => {
     if (npModal && !npModal.classList.contains('hidden')) return close(npModal);
     if (posModal && !posModal.classList.contains('hidden')) return close(posModal);
   });
-
+/*
   async function loadProductsTable() {
     if (!productsTableBody) {
       return;
@@ -109,6 +109,6 @@ document.addEventListener('includes:done', () => {
   }
 
   loadProductsTable();
-
+*/
   console.log('✅ modal system wired:', { posModal, npModal, nrMain, nrRcv, nrTrf });
 });
