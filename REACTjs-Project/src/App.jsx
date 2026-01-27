@@ -1,5 +1,19 @@
-﻿import Report1011Page from "./Report1011Page";
+import { Route, Routes } from "react-router-dom";
+import AppLayout from "./layouts/AppLayout";
+import Deliver from "./pages/Deliver";
+import Home from "./pages/Home";
+import Receiving from "./pages/Receiving";
+import Reports from "./pages/Reports";
 
 export default function App() {
-  return <Report1011Page />;
+  return (
+    <Routes>
+      <Route path="/" element={<AppLayout />}>
+        <Route index element={<Home />} />
+        <Route path="reports" element={<Reports />} />
+        <Route path="deliver" element={<Deliver />} />
+        <Route path="receiving" element={<Receiving />} />
+      </Route>
+    </Routes>
+  );
 }
