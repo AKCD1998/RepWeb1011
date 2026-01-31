@@ -1,0 +1,422 @@
+.rx1011-form-container {
+  background: linear-gradient(145deg, #0b1930, #102544);
+  border-radius: 18px;
+  padding: 10px;
+  max-width: 95vw;
+  width: clamp(600px, 90vw, 1400px);
+  margin: 56px auto 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: white;
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.85),
+    0 0 0 1px rgba(30, 64, 175, 0.5);
+}
+
+.wrap {
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.pos-back-btn {
+  background: #d71717;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin: 15px 10px;
+  font-size: 14px;
+}
+
+.pos-back:hover {
+  background: #820404;
+}
+
+.pos-alert {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.hidden {
+  display: none;
+}
+
+.pos-panel {
+  background: linear-gradient(
+    191deg,
+    rgba(2, 0, 36, 1) 0%,
+    rgba(9, 9, 121, 1) 64%,
+    rgba(7, 59, 154, 1) 77%,
+    rgba(5, 95, 178, 1) 91%,
+    rgba(0, 212, 255, 1) 100%
+  );
+  padding: 10px;
+  margin: 20px;
+  display: flex;
+  min-height: 500px;
+  min-width: 1000px;
+  border-radius: 8px;
+  border: 2px solid #007bff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.pos-left {
+  flex: 1;
+  position: relative;
+  min-width: 800px;
+}
+
+.pos-rail {
+  width: 200px;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0px 15px 0px 15px;
+}
+
+.pos-table {
+  position: static;
+  width: 100%;
+  margin-bottom: 20px;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1f2937;
+}
+
+.thead,
+.tbody > div {
+  display: grid;
+  grid-template-columns: 60px 120px 1fr 100px 100px 80px 100px 80px;
+  gap: 6px;
+  padding: 10px;
+  vertical-align: top;
+}
+
+.thead-barcode,
+.thead-product-name,
+.amount,
+.sum,
+.note-bin {
+  display: flex;
+  vertical-align: top;
+  justify-content: center;
+}
+
+.thead {
+  background: darkblue;
+  color: white;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.tbody > div {
+  border-bottom: 1px solid #dee2e6;
+  align-items: center;
+}
+
+.tbody > div:last-child {
+  border-bottom: none;
+}
+
+.pos-inputbar {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  padding: 25px 30px 25px 20px;
+  max-width: 30px;
+  margin: 10px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  position: absolute;
+  bottom: 20px;
+  min-width: calc(100% - 60px);
+}
+
+.pos-inputbar input {
+  flex: 1;
+  padding: 10px;
+  margin-left: 20px;
+  margin-right: 20px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 14px;
+  min-width: 480px;
+}
+
+.mult {
+  background: #ffc107;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-weight: bold;
+}
+
+.total {
+  font-size: 24px;
+  font-weight: bold;
+  color: #007bff;
+  white-space: nowrap;
+}
+
+.btn {
+  width: 100%;
+  padding: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  border: none;
+}
+
+.btn:hover {
+  background: #e7f3ff;
+}
+
+.btn-primary {
+  background: #4caf50;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #388e3c;
+}
+
+.coupon {
+  background: #ffc107;
+  padding: 15px;
+  text-align: center;
+  border-radius: 6px;
+  font-weight: bold;
+  color: #1f2937;
+}
+
+.coupon:hover {
+  background: #e6ac00;
+}
+
+.item-delete {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.item-delete .icon-trash {
+  fill: #6b7280;
+}
+
+.item-delete:hover .icon-trash {
+  fill: #ef4444;
+}
+
+.pos-modal {
+  position: fixed;
+  z-index: 10000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.4);
+}
+
+.pos-modal .modal-content {
+  background-color: transparent;
+  color: white;
+  margin: 150px auto 50px;
+  padding: 4px;
+  padding-bottom: 180px;
+  border: transparent;
+  width: 80%;
+  position: relative;
+  border-radius: 4px;
+  height: 400px;
+}
+
+.pos-modal .modal-cfHeadBox {
+  margin-top: 1px;
+  margin-right: 0px;
+  font-family: "kanit", sans-serif;
+  font-size: 5px;
+  color: white;
+  background-color: darkblue;
+  position: relative;
+  right: 120px;
+  bottom: 220px;
+  padding: 28px;
+  z-index: 1;
+  height: 560px;
+  width: 150%;
+  border-radius: 4px;
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  gap: 10px;
+  padding-left: 20px;
+  padding-right: 20px;
+  padding-top: 20px;
+}
+
+.pos-modal .modal-head {
+  font-family: "kanit", sans-serif;
+  font-size: 25px;
+  background-color: rgb(4, 4, 49);
+  padding: 10px;
+  color: white;
+  text-align: left;
+  margin-top: 2px;
+  margin-left: 2px;
+  border-radius: 4px;
+}
+
+.pos-modal .close {
+  position: absolute;
+  top: 0px;
+  right: 8px;
+  color: #aaa;
+  font-size: 28px;
+  font-weight: bold;
+  z-index: 2;
+}
+
+.pos-modal .close:hover,
+.pos-modal .close:focus {
+  color: black;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.pos-modal .in-modal-separate-compartment-patient,
+.pos-modal .in-modal-separate-compartment-medication {
+  background-color: rgb(27, 137, 201);
+  font-size: 25px;
+  color: black;
+  padding: 10px;
+  margin-left: 3px;
+  display: grid;
+  grid-template-columns: 20% 1fr;
+  gap: 8px 12px;
+  align-items: center;
+  border-radius: 4px;
+}
+
+.pos-modal .h-description-text {
+  font-family: "kanit", sans-serif;
+  font-size: 15px;
+  color: white;
+  padding: 10px;
+  padding-left: 0px;
+  margin-top: -30px;
+  margin-bottom: 10px;
+}
+
+.pos-modal .form-control {
+  font-family: "kanit", sans-serif;
+  background-color: rgb(245, 244, 244);
+  font-size: 15px;
+  color: black;
+  padding: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0px;
+  margin-bottom: 10px;
+  border-radius: 6px;
+  border: none;
+}
+
+.pos-modal .modal-submit-btn {
+  background-color: #4caf50;
+  border: none;
+  color: white;
+  padding: 10px 20px;
+  text-align: center;
+  text-decoration: none;
+  font-size: 16px;
+  margin: 4px 2px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.pos-modal .modal-cancel-btn {
+  background-color: #f44336;
+  border: none;
+  color: white;
+  padding: 10px 20px;
+  text-align: center;
+  text-decoration: none;
+  font-size: 16px;
+  margin: 4px 2px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.pos-modal .modal-submit-btn:hover {
+  background-color: #45a049;
+}
+
+.pos-modal .modal-cancel-btn:hover {
+  background-color: #da190b;
+}
+
+.pos-modal .modal-button-group {
+  text-align: right;
+  margin-top: 10px;
+  margin-right: 15px;
+  margin-bottom: 10px;
+}
+
+.pos-modal .close {
+  position: relative;
+  top: -130px;
+  left: 145px;
+  color: #ff0000;
+  font-size: 65px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  .hide-md {
+    display: none;
+  }
+
+  .pos-panel {
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .pos-left {
+    min-width: 0;
+  }
+
+  .pos-rail {
+    width: 100%;
+  }
+
+  .thead,
+  .tbody > div {
+    grid-template-columns: 50px 100px 1fr 80px 90px 70px;
+  }
+}
+
+@media (max-width: 480px) {
+  .hide-sm {
+    display: none;
+  }
+
+  .thead,
+  .tbody > div {
+    grid-template-columns: 40px 90px 1fr 70px 80px;
+  }
+
+  .pos-rail {
+    width: 100%;
+  }
+}
