@@ -47,9 +47,11 @@ Apply migrations in order:
 ```bash
 psql "$DATABASE_URL" -f migrations/0001_ky1011_schema.sql
 psql "$DATABASE_URL" -f migrations/0002_ky1011_seed_reference.sql
-psql "$DATABASE_URL" -f migrations/0003_ky1011_example_queries.sql
 psql "$DATABASE_URL" -f migrations/0004_ky1011_report_groups.sql
 ```
+
+Important:
+- `migrations/0003_ky1011_example_queries.sql` is a reference/query snippet file (contains placeholders like `:product_id`), not a migration to execute directly.
 
 ## 5) Main API endpoints
 
