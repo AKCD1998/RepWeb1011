@@ -1,9 +1,10 @@
 import { NavLink } from "react-router-dom";
-import { FiDownload, FiFileText, FiHome, FiMenu, FiTruck } from "react-icons/fi";
+import { FiBox, FiDownload, FiFileText, FiHome, FiMenu, FiTruck } from "react-icons/fi";
 
 const navItems = [
   { to: "/", label: "หน้าหลัก", icon: FiHome, end: true },
   { to: "/reports", label: "หน้าเอกสารรายงาน", icon: FiFileText },
+  { to: "/products", label: "จัดการสินค้า", icon: FiBox },
   { to: "/deliver", label: "หน้าส่งมอบยา", icon: FiTruck },
   { to: "/receiving", label: "รับยาเข้า", icon: FiDownload },
 ];

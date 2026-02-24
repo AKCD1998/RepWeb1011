@@ -97,9 +97,7 @@ export default function Deliver() {
                     <div className="thead-barcode">บาร์โค้ด</div>
                     <div className="thead-product-name">รายการสินค้า</div>
                     <div className="hide-md">รหัสสินค้า</div>
-                    <div className="hide-sm">ราคาต่อหน่วย</div>
                     <div className="amount">จำนวน</div>
-                    <div className="sum">ราคารวม</div>
                     <div className="note-bin">NOTE</div>
                   </div>
                   <div className="tbody" id="items">
@@ -109,9 +107,7 @@ export default function Deliver() {
                         <div className="item-barcode">{item.barcode}</div>
                         <div className="item-name">{item.name}</div>
                         <div className="item-company">{item.companyCode}</div>
-                        <div className="item-price">{toMoney(item.price)}</div>
                         <div className="item-qty">{item.qty}</div>
-                        <div className="item-sum">{toMoney(item.qty * item.price)}</div>
                         <div className="item-note">
                           <button
                             className="item-delete"
@@ -136,19 +132,33 @@ export default function Deliver() {
                   </div>
                 </div>
 
-                <div className="pos-inputbar">
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                    <input
-                      id="barcode-input-field"
-                      type="text"
-                      placeholder="พิมพ์จำนวน → กด 'คูณ (*)' หรือ PageDown → สแกน/พิมพ์บาร์โค้ด แล้วกด Enter"
-                      autoComplete="off"
-                      onKeyDown={handleBarcodeKeyDown}
-                    />
-                    <span className="mult" id="multChip"></span>
+                <div className="pos-bottomstack">
+                  <div className="pos-inputbar">
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <input
+                        id="barcode-input-field"
+                        type="text"
+                        placeholder="พิมพ์จำนวน → กด 'คูณ (*)' หรือ PageDown → สแกน/พิมพ์บาร์โค้ด แล้วกด Enter"
+                        autoComplete="off"
+                        onKeyDown={handleBarcodeKeyDown}
+                      />
+                      <span className="mult" id="multChip"></span>
+                    </div>
+                    <div className="total">
+                      <span id="grand">{toMoney(grandTotal)}</span> บาท
+                    </div>
                   </div>
-                  <div className="total">
-                    <span id="grand">{toMoney(grandTotal)}</span> บาท
+
+                  <div className="pos-notes">
+                    <label className="sr-only" htmlFor="deliver-notes">
+                      หมายเหตุการส่งมอบ
+                    </label>
+                    <textarea
+                      id="deliver-notes"
+                      className="pos-notes-textarea"
+                      placeholder="หมายเหตุ (กด Enter เพื่อขึ้นบรรทัดใหม่ได้)"
+                      rows={4}
+                    />
                   </div>
                 </div>
               </div>
@@ -163,7 +173,7 @@ export default function Deliver() {
                   className="btn btn-primary"
                   id="pos-confirmBtn"
                   type="button"
-                  onClick={() => setIsModalOpen(true)}
+                  onClick={() => console.warn("Modal temporarily disabled")}
                   title=""
                 >
                   ยืนยันการทำรายการ
@@ -180,69 +190,7 @@ export default function Deliver() {
         aria-hidden={isModalOpen ? "false" : "true"}
         onClick={handleModalBackdrop}
       >
-        <div className="modal-content">
-          <span
-            className="close"
-            data-close
-            role="button"
-            aria-label="Close"
-            onClick={() => setIsModalOpen(false)}
-          >
-            &times;
-          </span>
-
-          <div className="modal-cfHeadBox">
-            <div className="modal-head">
-              <h2>บันทึกการส่งมอบยา</h2>
-              <h5 className="h-description-text">
-                โปรดกรอกข้อมูลผู้ซื้อและรายการยาที่จ่ายก่อนส่งมอบยา
-              </h5>
-            </div>
-
-            <div className="in-modal-separate-compartment-patient">
-              <label htmlFor="recipient-name" className="col-form-label">
-                ชื่อผู้รับยา:
-              </label>
-              <input type="text" className="form-control" id="recipient-name" />
-
-              <label htmlFor="recipient-id" className="col-form-label">
-                เลขประจำตัวประชาชน:
-              </label>
-              <input type="text" className="form-control" id="recipient-id" />
-
-              <label htmlFor="recipient-age" className="col-form-label">
-                อายุของเจ้าของบัตร
-              </label>
-              <input type="text" className="form-control" id="recipient-age" />
-            </div>
-
-            <div className="in-modal-separate-compartment-medication">
-              <label htmlFor="medication-name" className="col-form-label">
-                ยาที่ส่งมอบ:
-              </label>
-              <input type="text" className="form-control" id="medication-name" />
-
-              <label htmlFor="medication-id" className="col-form-label">
-                เลขรุ่นที่ผลิต:
-              </label>
-              <input type="text" className="form-control" id="medication-id" />
-            </div>
-            <div className="modal-button-group">
-              <button className="modal-submit-btn" id="modalSubmitBtn" type="button">
-                บันทึกข้อมูล
-              </button>
-              <button
-                className="modal-cancel-btn"
-                id="modalCancelBtn"
-                type="button"
-                data-close
-                onClick={() => setIsModalOpen(false)}
-              >
-                ยกเลิก
-              </button>
-            </div>
-          </div>
-        </div>
+        <div className="modal-content" />
       </div>
     </>
   );

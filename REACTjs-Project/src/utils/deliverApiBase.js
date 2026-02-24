@@ -1,5 +1,5 @@
 const PROD_API_BASE = "https://repweb1011-production.up.railway.app";
-const LOCAL_API_BASE = "http://localhost:3001";
+const LOCAL_API_BASE = "http://localhost:5050";
 
 const readMetaApiBase = () => {
   if (typeof document === "undefined") return "";

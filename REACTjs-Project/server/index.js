@@ -1,75 +1,123 @@
-﻿import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import express from "express";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import dotenv from "dotenv";
 import { parse } from "csv-parse/sync";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const projectRoot = path.join(__dirname, "..");
+
+const serverEnvPath = path.join(__dirname, ".env");
+const rootEnvPath = path.join(projectRoot, ".env");
+const envPath = fs.existsSync(serverEnvPath) ? serverEnvPath : rootEnvPath;
+dotenv.config({ path: envPath });
+
+const { healthCheck, hasDatabase, query } = await import("./db/pool.js");
+const productsRoutes = (await import("./routes/productsRoutes.js")).default;
+const inventoryRoutes = (await import("./routes/inventoryRoutes.js")).default;
+const dispenseRoutes = (await import("./routes/dispenseRoutes.js")).default;
+const reportingRoutes = (await import("./routes/reportingRoutes.js")).default;
 
 const app = express();
-const projectRoot = path.join(__dirname, "..");
-dotenv.config({ path: path.join(projectRoot, ".env") });
-const PORT = process.env.PORT || 3001;
-const API_KEY = process.env.API_KEY;
-const dataPath =
-  process.env.PATIENTS_CSV_PATH || path.join(projectRoot, "patients_rows.csv");
+const PORT = Number(process.env.PORT || 5050);
 
-let patients = [];
-let loadError = "";
+const corsOrigins = String(process.env.CORS_ORIGIN || "http://localhost:5173")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
 
-const loadPatients = () => {
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      if (!corsOrigins.length || corsOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error(`CORS blocked origin: ${origin}`));
+    },
+  })
+);
+app.use(express.json({ limit: "2mb" }));
+
+app.get("/api/health", async (_req, res) => {
+  const db = await healthCheck();
+  res.status(db.ok ? 200 : 503).json({
+    ok: db.ok,
+    envPathUsed: envPath,
+    database: db,
+  });
+});
+
+app.get("/api/patients", async (_req, res, next) => {
   try {
-    if (!fs.existsSync(dataPath)) {
-      throw new Error(`CSV not found at ${dataPath}`);
+    if (hasDatabase()) {
+      const result = await query(
+        `
+          SELECT
+            pid,
+            full_name
+          FROM patients
+          ORDER BY full_name
+          LIMIT 5000
+        `
+      );
+      return res.json(result.rows);
     }
-    const csvText = fs.readFileSync(dataPath, "utf8");
-    const records = parse(csvText, {
+
+    const csvPath = process.env.PATIENTS_CSV_PATH || path.join(projectRoot, "patients_rows.csv");
+    if (!fs.existsSync(csvPath)) {
+      return res.status(500).json({
+        error: "Patients source not available",
+        detail: "No database connection and CSV file not found",
+      });
+    }
+
+    const csvText = fs.readFileSync(csvPath, "utf8");
+    const rows = parse(csvText, {
       columns: true,
       skip_empty_lines: true,
       trim: true,
       bom: true,
-    });
-    patients = records
+    })
       .map((row) => ({
         pid: String(row.pid || row.PID || "").trim(),
         full_name: String(row.full_name || row.FULL_NAME || row.fullName || "").trim(),
       }))
       .filter((row) => row.pid && row.full_name);
-    loadError = "";
-    console.log(`Loaded ${patients.length} patients from CSV.`);
-  } catch (err) {
-    loadError = err.message || "Failed to load patients_rows.csv";
-    console.error("Failed to load patients_rows.csv:", loadError);
-    patients = [];
+    return res.json(rows);
+  } catch (error) {
+    return next(error);
   }
-};
-
-loadPatients();
-
-app.use((req, res, next) => {
-  const key = req.header("X-API-KEY");
-  if (!API_KEY || key !== API_KEY) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-  return next();
 });
 
-app.get("/api/patients", (_req, res) => {
-  if (loadError) {
-    return res.status(500).json({
-      error: "Patients CSV not loaded",
-      detail: loadError,
-      hint: "Set PATIENTS_CSV_PATH or place patients_rows.csv in the project root.",
-    });
+app.use("/api/products", productsRoutes);
+app.use("/api/inventory", inventoryRoutes);
+app.use("/api/dispense", dispenseRoutes);
+app.use("/api", reportingRoutes);
+
+app.use((_req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+
+app.use((error, _req, res, _next) => {
+  const status = Number(error?.status || 500);
+  const response = {
+    error: error?.message || "Internal Server Error",
+  };
+  if (error?.details !== undefined) {
+    response.details = error.details;
   }
-  res.json(patients);
+  if (status >= 500) {
+    console.error(error);
+  }
+  res.status(status).json(response);
 });
 
 app.listen(PORT, () => {
-  if (!API_KEY) {
-    console.warn("API_KEY is not set. Requests will be unauthorized.");
-  }
-  console.log(`Server listening on http://localhost:${PORT}`);
+  const dbState = hasDatabase() ? "ready" : "missing DATABASE_URL";
+  console.log(`Server listening on http://localhost:${PORT} (${dbState})`);
+  console.log(`Loaded env from: ${envPath}`);
 });
