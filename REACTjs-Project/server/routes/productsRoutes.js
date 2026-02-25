@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   createProduct,
   deleteProduct,
+  getReportGroups,
   getProductsSnapshot,
   getProductsVersion,
   listProducts,
@@ -12,6 +13,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 const router = Router();
 
 router.get("/", asyncHandler(listProducts));
+router.get("/report-groups", asyncHandler(getReportGroups));
 router.get("/snapshot", asyncHandler(getProductsSnapshot));
 router.get("/version", asyncHandler(getProductsVersion));
 router.post("/", asyncHandler(createProduct));

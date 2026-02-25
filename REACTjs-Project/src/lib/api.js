@@ -44,6 +44,9 @@ export const productsApi = {
     if (search.trim()) params.set("search", search.trim());
     return fetchJson(`/api/products?${params.toString()}`);
   },
+  reportGroups() {
+    return fetchJson("/api/products/report-groups");
+  },
   create(payload) {
     return fetchJson("/api/products", {
       method: "POST",

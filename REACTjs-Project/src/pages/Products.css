@@ -54,6 +54,7 @@
 }
 
 .products-grid input,
+.products-grid select,
 .products-grid textarea {
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -65,6 +66,54 @@
 
 .products-grid .products-note {
   grid-column: 1 / -1;
+}
+
+.products-ingredients {
+  grid-column: 1 / -1;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.products-ingredients-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.products-ingredients strong {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.products-ingredient-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 2fr) minmax(90px, 1fr) minmax(120px, 1fr) minmax(
+      90px,
+      1fr
+    ) minmax(120px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.products-ingredient-row input {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 10px;
+  font: inherit;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.products-ingredient-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .products-actions {
@@ -126,7 +175,7 @@
 .products-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 700px;
+  min-width: 1250px;
 }
 
 .products-table th,
@@ -150,5 +199,9 @@
 @media (max-width: 900px) {
   .products-grid {
     grid-template-columns: 1fr;
+  }
+
+  .products-ingredient-row {
+    grid-template-columns: repeat(2, minmax(140px, 1fr));
   }
 }
