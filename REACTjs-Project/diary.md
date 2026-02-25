@@ -192,3 +192,26 @@ How to verify:
   - Login -> call protected write endpoint with token -> non-401 response (e.g. expected validation error).
   - Logout -> retry same endpoint with old token -> `401 Token revoked`.
   - Login again -> new token works.
+
+## 2026-02-25 10:46:47 +07:00 - Sidebar logout button with fallback flow
+- Summary:
+  - Added a visible `ออกจากระบบ` button at the bottom of Sidebar.
+  - Wired button to AuthContext logout (preferred path) using optional auth context access.
+  - Added safe fallback logout when context is missing/fails:
+    - reads token from localStorage
+    - `POST http://localhost:5050/api/auth/logout` with Bearer token
+    - always clears `rx1011_auth_token` and `rx1011_auth_user`
+    - redirects to `/login`
+    - no uncaught errors on API/network failure
+  - Added sidebar footer/button styles and collapsed-mode alignment so logout stays anchored and readable on narrow widths.
+- Files changed:
+  - `src/components/Sidebar.jsx`
+  - `src/AppLayout.css`
+  - `src/context/AuthContext.jsx` (added `useOptionalAuth`)
+  - `diary.md`
+- Verification checklist:
+  - [ ] Login and confirm Sidebar shows `ออกจากระบบ` at bottom.
+  - [ ] Click logout and confirm redirect to `/login`.
+  - [ ] Try to open protected route after logout and confirm redirect/login guard.
+  - [ ] Confirm localStorage keys `rx1011_auth_token` and `rx1011_auth_user` are removed.
+  - [ ] Stop backend temporarily, click logout, and confirm UI still clears local session + redirects.

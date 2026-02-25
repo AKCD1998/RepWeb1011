@@ -1,5 +1,6 @@
-import { NavLink } from "react-router-dom";
-import { FiBox, FiDownload, FiFileText, FiHome, FiMenu, FiTruck } from "react-icons/fi";
+import { NavLink, useNavigate } from "react-router-dom";
+import { FiBox, FiDownload, FiFileText, FiHome, FiLogOut, FiMenu, FiTruck } from "react-icons/fi";
+import { useOptionalAuth } from "../context/AuthContext";
 
 const navItems = [
   { to: "/", label: "หน้าหลัก", icon: FiHome, end: true },
@@ -10,6 +11,43 @@ const navItems = [
 ];
 
 export default function Sidebar({ collapsed, onToggle }) {
+  const navigate = useNavigate();
+  const auth = useOptionalAuth();
+
+  async function fallbackLogout() {
+    const token = String(window.localStorage.getItem("rx1011_auth_token") || "").trim();
+
+    try {
+      if (token) {
+        await fetch("http://localhost:5050/api/auth/logout", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      }
+    } catch {
+      // Ignore network/backend errors for safe client-side logout.
+    } finally {
+      window.localStorage.removeItem("rx1011_auth_token");
+      window.localStorage.removeItem("rx1011_auth_user");
+      navigate("/login", { replace: true });
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      if (auth?.logout) {
+        await auth.logout();
+        return;
+      }
+    } catch {
+      // Fall back to local cleanup if context logout fails unexpectedly.
+    }
+
+    await fallbackLogout();
+  }
+
   return (
     <aside className="app-sidebar">
       <div className="sidebar-header">
@@ -47,6 +85,20 @@ export default function Sidebar({ collapsed, onToggle }) {
           );
         })}
       </nav>
+      <div className="sidebar-footer">
+        <button
+          type="button"
+          className="sidebar-logout"
+          onClick={handleLogout}
+          aria-label="ออกจากระบบ"
+          title="ออกจากระบบ"
+        >
+          <span className="sidebar-icon">
+            <FiLogOut />
+          </span>
+          <span className="sidebar-label">ออกจากระบบ</span>
+        </button>
+      </div>
     </aside>
   );
 }
