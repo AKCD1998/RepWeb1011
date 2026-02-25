@@ -23,6 +23,12 @@ function normalizeRole(rawRole) {
   return String(rawRole || "").trim().toUpperCase();
 }
 
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || "").trim()
+  );
+}
+
 function assertOperatorWriteBlocked(req, role) {
   if (role === "OPERATOR" && !isReadMethod(req.method)) {
     throw httpError(403, "OPERATOR role is read-only");
@@ -74,7 +80,7 @@ function forceFieldCode(target, field, expectedCode) {
   target[field] = expectedCode;
 }
 
-export function verifyToken(req, _res, next) {
+export async function verifyToken(req, _res, next) {
   const authHeader = String(req.headers?.authorization || "").trim();
   const [scheme, token] = authHeader.split(" ");
 
@@ -82,16 +88,44 @@ export function verifyToken(req, _res, next) {
     return next(httpError(401, "Missing or invalid Authorization header"));
   }
 
+  let decoded;
   try {
-    const decoded = jwt.verify(token, getJwtSecret());
+    decoded = jwt.verify(token, getJwtSecret());
+  } catch {
+    return next(httpError(401, "Invalid or expired token"));
+  }
+
+  try {
+    const jti = String(decoded?.jti || "").trim();
+    if (!isUuid(jti)) {
+      throw httpError(401, "Invalid token jti");
+    }
+
+    const revoked = await query(
+      `
+        SELECT 1
+        FROM revoked_tokens
+        WHERE jti = $1
+          AND expires_at > now()
+        LIMIT 1
+      `,
+      [jti]
+    );
+    if (revoked.rows[0]) {
+      throw httpError(401, "Token revoked");
+    }
+
     req.user = {
       id: decoded.id,
       role: decoded.role,
       location_id: decoded.location_id ?? null,
+      jti,
+      iat: decoded?.iat ?? null,
+      exp: decoded?.exp ?? null,
     };
     return next();
-  } catch {
-    return next(httpError(401, "Invalid or expired token"));
+  } catch (error) {
+    return next(error);
   }
 }
 

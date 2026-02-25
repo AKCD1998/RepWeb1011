@@ -58,8 +58,9 @@ authApiClient.interceptors.response.use(
     const status = Number(error?.response?.status || 0);
     const requestUrl = String(error?.config?.url || "");
     const isLoginRequest = requestUrl.includes("/api/auth/login");
+    const isLogoutRequest = requestUrl.includes("/api/auth/logout");
 
-    if (status === 401 && !isLoginRequest) {
+    if (status === 401 && !isLoginRequest && !isLogoutRequest) {
       clearAuthStorage();
       emitUnauthorized();
     }
@@ -70,5 +71,10 @@ authApiClient.interceptors.response.use(
 
 export async function loginRequest(credentials) {
   const response = await authApiClient.post("/api/auth/login", credentials);
+  return response.data;
+}
+
+export async function logoutRequest() {
+  const response = await authApiClient.post("/api/auth/logout");
   return response.data;
 }

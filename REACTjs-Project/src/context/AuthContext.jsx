@@ -1,10 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   AUTH_TOKEN_KEY,
   AUTH_UNAUTHORIZED_EVENT,
   AUTH_USER_KEY,
   clearAuthStorage,
   loginRequest,
+  logoutRequest,
 } from "../lib/authApi";
 
 const AuthContext = createContext(null);
@@ -44,6 +46,7 @@ function readInitialAuthState() {
 }
 
 export function AuthProvider({ children }) {
+  const navigate = useNavigate();
   const [auth, setAuth] = useState(readInitialAuthState);
 
   const saveAuth = useCallback((token, user) => {
@@ -76,17 +79,40 @@ export function AuthProvider({ children }) {
     [saveAuth]
   );
 
-  const logout = useCallback(() => {
-    clearAuthStorage();
-    setAuth({
-      token: "",
-      user: null,
-    });
-  }, []);
+  const clearSession = useCallback(
+    (shouldRedirect = true) => {
+      clearAuthStorage();
+      setAuth({
+        token: "",
+        user: null,
+      });
+      if (shouldRedirect) {
+        navigate("/login", { replace: true });
+      }
+    },
+    [navigate]
+  );
+
+  const logout = useCallback(async (options = {}) => {
+    const shouldCallApi = options.callApi !== false;
+    const shouldRedirect = options.redirect !== false;
+
+    if (shouldCallApi) {
+      try {
+        await logoutRequest();
+      } catch {
+        // Intentionally ignore failures to keep logout flow safe.
+      }
+    }
+
+    clearSession(shouldRedirect);
+  }, [clearSession]);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
-    const handleUnauthorized = () => logout();
+    const handleUnauthorized = () => {
+      logout({ callApi: false, redirect: true });
+    };
     window.addEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
     return () => window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
   }, [logout]);

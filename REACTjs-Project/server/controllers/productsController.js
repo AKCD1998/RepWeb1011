@@ -971,10 +971,6 @@ export async function getProductsVersion(_req, res) {
         SELECT MAX(created_at) AS ts FROM product_unit_levels
         UNION ALL
         SELECT MAX(created_at) AS ts FROM product_prices
-        UNION ALL
-        SELECT MAX(created_at) AS ts FROM product_ingredients
-        UNION ALL
-        SELECT MAX(created_at) AS ts FROM product_report_groups
       ) q
     `
   );

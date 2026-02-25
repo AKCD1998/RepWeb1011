@@ -1,4 +1,5 @@
 import bcrypt from "bcrypt";
+import { randomUUID } from "crypto";
 import jwt from "jsonwebtoken";
 import { query } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
@@ -49,6 +50,7 @@ export async function login(req, res) {
     throw httpError(401, "Invalid username or password");
   }
 
+  const jti = randomUUID();
   const token = jwt.sign(
     {
       id: user.id,
@@ -56,7 +58,10 @@ export async function login(req, res) {
       location_id: user.location_id,
     },
     getJwtSecret(),
-    { expiresIn: "8h" }
+    {
+      expiresIn: "8h",
+      jwtid: jti,
+    }
   );
 
   return res.json({
@@ -68,4 +73,41 @@ export async function login(req, res) {
       location_id: user.location_id,
     },
   });
+}
+
+export async function logout(req, res) {
+  if (!req.user?.id) {
+    throw httpError(401, "Authentication required");
+  }
+
+  const tokenJti = String(req.user?.jti || "").trim();
+  if (!tokenJti) {
+    throw httpError(401, "Token is missing jti");
+  }
+
+  const tokenExp = Number(req.user?.exp || 0);
+  if (!Number.isFinite(tokenExp) || tokenExp <= 0) {
+    throw httpError(401, "Token is missing exp");
+  }
+
+  await query(
+    `
+      INSERT INTO revoked_tokens (
+        jti,
+        user_id,
+        expires_at,
+        reason
+      )
+      VALUES (
+        $1::uuid,
+        $2::uuid,
+        to_timestamp($3),
+        'LOGOUT'
+      )
+      ON CONFLICT (jti) DO NOTHING
+    `,
+    [tokenJti, req.user.id, tokenExp]
+  );
+
+  return res.json({ ok: true });
 }

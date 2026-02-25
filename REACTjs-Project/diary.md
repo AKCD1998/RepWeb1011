@@ -167,3 +167,28 @@ How to verify:
 - Next steps:
   - Add logout action in UI (e.g. header/sidebar button) to clear session manually.
   - Add role-aware route visibility (hide/disable pages by role).
+
+## 2026-02-25 10:17:09 +07:00 - JWT revocation blacklist + safe logout
+- Summary:
+  - Added token revocation data model for logout invalidation before JWT expiry.
+  - Added migration `0006_auth_revoked_tokens.sql` with `revoked_tokens` table, unique `jti`, FK to `users`, and lookup indexes.
+  - Updated login to issue JWT with unique `jti` claim (`jwtid`) while keeping normal `iat`/`exp`.
+  - Added `POST /api/auth/logout` (auth required) to blacklist current token `jti` with `expires_at` and reason `LOGOUT`.
+  - Updated `verifyToken` middleware to reject revoked tokens (`401 Token revoked`) by checking `revoked_tokens`.
+  - Updated frontend auth flow:
+    - `AuthContext.logout()` now calls backend logout endpoint first.
+    - logout always clears local auth state/storage even if API call fails.
+    - logout redirects to `/login`.
+    - interceptor ignores `/api/auth/logout` 401 loop and still auto-logs-out on other `401`s.
+- Files added/changed:
+  - `migrations/0006_auth_revoked_tokens.sql`
+  - `server/controllers/authController.js`
+  - `server/routes/authRoutes.js`
+  - `server/middleware/authMiddleware.js`
+  - `src/lib/authApi.js`
+  - `src/context/AuthContext.jsx`
+  - `diary.md`
+- How to verify:
+  - Login -> call protected write endpoint with token -> non-401 response (e.g. expected validation error).
+  - Logout -> retry same endpoint with old token -> `401 Token revoked`.
+  - Login again -> new token works.
