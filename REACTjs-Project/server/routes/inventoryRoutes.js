@@ -1,5 +1,9 @@
 import { Router } from "express";
-import { receiveInventory, transferInventory } from "../controllers/inventoryController.js";
+import {
+  createMovement,
+  receiveInventory,
+  transferInventory,
+} from "../controllers/inventoryController.js";
 import { requireBranchAccess, requireRole, verifyToken } from "../middleware/authMiddleware.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
@@ -24,6 +28,12 @@ router.post(
     forceBodyFields: ["fromBranchCode"],
   }),
   asyncHandler(transferInventory)
+);
+router.post(
+  "/movements",
+  verifyToken,
+  requireRole("ADMIN", "PHARMACIST"),
+  asyncHandler(createMovement)
 );
 
 export default router;

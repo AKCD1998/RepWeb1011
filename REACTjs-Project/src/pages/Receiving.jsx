@@ -49,32 +49,62 @@ function formatQty(value) {
   return numeric.toFixed(3).replace(/\.?0+$/, "");
 }
 
-function isPositiveMovement(movementType) {
-  return movementType === "RECEIVE" || movementType === "TRANSFER_IN";
+function toCleanText(value) {
+  return String(value || "").trim();
 }
 
-function getMovementTypeClass(movementType) {
-  if (movementType === "RECEIVE") return "movement-type-receive";
-  if (movementType === "TRANSFER_OUT") return "movement-type-transfer";
-  if (movementType === "DISPENSE") return "movement-type-dispense";
-  return "movement-type-unknown";
+function normalizeRole(value) {
+  return toCleanText(value).toUpperCase();
 }
 
-function getDeltaClass(movementType) {
-  return isPositiveMovement(movementType) ? "delta-positive" : "delta-negative";
+function buildLocationLabel(location) {
+  const code = toCleanText(location?.code);
+  const name = toCleanText(location?.name);
+  if (code && name) return `${code} : ${name}`;
+  return code || name || toCleanText(location?.id) || "-";
 }
 
-function getDeltaText(movement) {
-  const qtyText = formatQty(movement?.qtyValue);
-  const unit = String(movement?.unit || "").trim();
-  const sign = isPositiveMovement(movement?.movementType) ? "+" : "-";
-  return `${sign}${qtyText}${unit ? ` ${unit}` : ""}`;
+function getLockedLocations(movementType, branchLocationId, isAdmin) {
+  if (isAdmin) {
+    return {
+      fromLocationId: "",
+      toLocationId: "",
+    };
+  }
+
+  if (movementType === "RECEIVE") {
+    return {
+      fromLocationId: "",
+      toLocationId: branchLocationId,
+    };
+  }
+
+  if (movementType === "TRANSFER_OUT") {
+    return {
+      fromLocationId: branchLocationId,
+      toLocationId: "",
+    };
+  }
+
+  if (movementType === "DISPENSE") {
+    return {
+      fromLocationId: branchLocationId,
+      toLocationId: "",
+    };
+  }
+
+  return {
+    fromLocationId: "",
+    toLocationId: "",
+  };
 }
 
-function createInitialMovementForm() {
+function createInitialMovementForm({ isAdmin, branchLocationId }) {
+  const locked = getLockedLocations("RECEIVE", branchLocationId, isAdmin);
   return {
     movementType: "RECEIVE",
-    locationText: "",
+    fromLocationId: locked.fromLocationId || "",
+    toLocationId: locked.toLocationId || "",
     productSearch: "",
     productId: "",
     productName: "",
@@ -97,34 +127,98 @@ function mapMovementRecord(row) {
   };
 }
 
+function isPositiveMovement(movementType) {
+  return movementType === "RECEIVE" || movementType === "TRANSFER_IN";
+}
+
+function getMovementTypeClass(movementType) {
+  if (movementType === "RECEIVE") return "movement-type-receive";
+  if (movementType === "TRANSFER_OUT") return "movement-type-transfer";
+  if (movementType === "DISPENSE") return "movement-type-dispense";
+  return "movement-type-unknown";
+}
+
+function getDeltaClass(movementType) {
+  return isPositiveMovement(movementType) ? "delta-positive" : "delta-negative";
+}
+
+function getDeltaText(movement) {
+  const qtyText = formatQty(movement?.qtyValue);
+  const unit = String(movement?.unit || "").trim();
+  const sign = isPositiveMovement(movement?.movementType) ? "+" : "-";
+  return `${sign}${qtyText}${unit ? ` ${unit}` : ""}`;
+}
+
 export default function Receiving() {
   const { user } = useAuth();
-  const branchLocationId = String(user?.location_id || "").trim();
+  const userRole = normalizeRole(user?.role);
+  const isAdmin = userRole === "ADMIN";
+  const branchLocationId = toCleanText(user?.location_id);
 
   const [movements, setMovements] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [isLoadingMovements, setIsLoadingMovements] = useState(false);
+  const [isLoadingLocations, setIsLoadingLocations] = useState(false);
   const [isMovementModalOpen, setIsMovementModalOpen] = useState(false);
   const [isSavingMovement, setIsSavingMovement] = useState(false);
   const [isSearchingProduct, setIsSearchingProduct] = useState(false);
   const [productSearchResults, setProductSearchResults] = useState([]);
   const [productSearchError, setProductSearchError] = useState("");
-  const [movementForm, setMovementForm] = useState(createInitialMovementForm);
+  const [locationLoadError, setLocationLoadError] = useState("");
+  const [movementForm, setMovementForm] = useState(() =>
+    createInitialMovementForm({ isAdmin, branchLocationId })
+  );
   const [formErrors, setFormErrors] = useState({});
   const [pageError, setPageError] = useState("");
   const [productSearchStatus, setProductSearchStatus] = useState("");
 
   const tableColumns = ["เวลา", "สินค้า", "รหัสสินค้า", "ประเภท", "การเปลี่ยนแปลงสต๊อก"];
-
-  const showLocationField = movementForm.movementType !== "DISPENSE";
-  const locationLabel = movementForm.movementType === "RECEIVE" ? "แหล่งที่มา" : "ปลายทาง (รหัสสาขา)";
-  const locationPlaceholder =
-    movementForm.movementType === "RECEIVE"
-      ? "เช่น สำนักงานใหญ่ / ร้านขายส่ง / บริษัทยา"
-      : "เช่น 001 หรือ 003";
   const totalText = useMemo(() => `รวม ${movements.length} รายการ`, [movements.length]);
+  const locationMap = useMemo(() => {
+    return new Map(
+      locations.map((location) => {
+        const id = toCleanText(location?.id);
+        return [id, location];
+      })
+    );
+  }, [locations]);
+  const locationOptions = useMemo(() => {
+    return locations.filter((location) => toCleanText(location?.id));
+  }, [locations]);
+
+  const lockedLocations = useMemo(() => {
+    return getLockedLocations(movementForm.movementType, branchLocationId, isAdmin);
+  }, [movementForm.movementType, branchLocationId, isAdmin]);
+
+  const isFromLocked = Boolean(lockedLocations.fromLocationId);
+  const isToLocked = Boolean(lockedLocations.toLocationId);
+  const showToLocationField = movementForm.movementType !== "DISPENSE";
+  const isFromRequired =
+    movementForm.movementType === "TRANSFER_OUT" || movementForm.movementType === "DISPENSE";
+  const isToRequired =
+    movementForm.movementType === "RECEIVE" || movementForm.movementType === "TRANSFER_OUT";
+  const effectiveFromLocationId = isFromLocked
+    ? lockedLocations.fromLocationId
+    : toCleanText(movementForm.fromLocationId);
+  const effectiveToLocationId = showToLocationField
+    ? isToLocked
+      ? lockedLocations.toLocationId
+      : toCleanText(movementForm.toLocationId)
+    : "";
+
+  const getLocationLabel = useCallback(
+    (locationId) => {
+      const id = toCleanText(locationId);
+      if (!id) return "-";
+      const location = locationMap.get(id);
+      if (!location) return `ID: ${id}`;
+      return buildLocationLabel(location);
+    },
+    [locationMap]
+  );
 
   const loadMovements = useCallback(async () => {
-    if (!branchLocationId) {
+    if (!isAdmin && !branchLocationId) {
       setMovements([]);
       return;
     }
@@ -132,7 +226,7 @@ export default function Receiving() {
     setIsLoadingMovements(true);
     try {
       const rows = await inventoryApi.listMovements({
-        location_id: branchLocationId,
+        location_id: isAdmin ? undefined : branchLocationId,
         limit: 100,
       });
       const normalized = (Array.isArray(rows) ? rows : [])
@@ -145,11 +239,38 @@ export default function Receiving() {
     } finally {
       setIsLoadingMovements(false);
     }
-  }, [branchLocationId]);
+  }, [branchLocationId, isAdmin]);
+
+  const loadLocations = useCallback(async () => {
+    setIsLoadingLocations(true);
+    try {
+      const rows = await inventoryApi.listLocations({ includeInactive: false });
+      const normalized = (Array.isArray(rows) ? rows : [])
+        .map((row) => ({
+          id: toCleanText(row?.id),
+          code: toCleanText(row?.code),
+          name: toCleanText(row?.name),
+          type: toCleanText(row?.type || row?.location_type),
+          isActive: row?.is_active !== false && row?.isActive !== false,
+        }))
+        .filter((row) => row.id);
+      setLocations(normalized);
+      setLocationLoadError("");
+    } catch (error) {
+      setLocationLoadError(error?.message || "ไม่สามารถโหลดรายการสถานที่ได้");
+      setLocations([]);
+    } finally {
+      setIsLoadingLocations(false);
+    }
+  }, []);
 
   useEffect(() => {
     void loadMovements();
   }, [loadMovements]);
+
+  useEffect(() => {
+    void loadLocations();
+  }, [loadLocations]);
 
   useEffect(() => {
     if (!isMovementModalOpen) return undefined;
@@ -165,11 +286,16 @@ export default function Receiving() {
   }, [isMovementModalOpen]);
 
   function openMovementModal() {
-    if (!branchLocationId) {
+    if (!isAdmin && !branchLocationId) {
       setPageError("ไม่พบ location_id ของผู้ใช้ กรุณาเข้าสู่ระบบใหม่");
       return;
     }
-    setMovementForm(createInitialMovementForm());
+
+    if (!locationOptions.length && !isLoadingLocations) {
+      void loadLocations();
+    }
+
+    setMovementForm(createInitialMovementForm({ isAdmin, branchLocationId }));
     setFormErrors({});
     setProductSearchResults([]);
     setProductSearchError("");
@@ -228,15 +354,36 @@ export default function Receiving() {
 
   function handleMovementTypeChange(event) {
     const nextType = event.target.value;
-    setMovementForm((prev) => ({
-      ...prev,
-      movementType: nextType,
-      locationText: nextType === "DISPENSE" ? "" : prev.locationText,
-    }));
+    setMovementForm((prev) => {
+      const previousLocked = getLockedLocations(prev.movementType, branchLocationId, isAdmin);
+      const nextLocked = getLockedLocations(nextType, branchLocationId, isAdmin);
+
+      const nextFromLocationId = nextLocked.fromLocationId
+        ? nextLocked.fromLocationId
+        : previousLocked.fromLocationId
+        ? ""
+        : prev.fromLocationId;
+      const nextToLocationId =
+        nextType === "DISPENSE"
+          ? ""
+          : nextLocked.toLocationId
+          ? nextLocked.toLocationId
+          : previousLocked.toLocationId
+          ? ""
+          : prev.toLocationId;
+
+      return {
+        ...prev,
+        movementType: nextType,
+        fromLocationId: nextFromLocationId,
+        toLocationId: nextToLocationId,
+      };
+    });
     setFormErrors((prev) => ({
       ...prev,
       movementType: "",
-      locationText: "",
+      fromLocationId: "",
+      toLocationId: "",
     }));
   }
 
@@ -320,12 +467,41 @@ export default function Receiving() {
     if (!movementForm.movementType) {
       errors.movementType = "กรุณาเลือกประเภทการเคลื่อนไหว";
     }
-    if (movementForm.movementType === "DISPENSE") {
-      errors.movementType = "ยังไม่รองรับการบันทึกแบบส่งมอบลูกค้าในหน้านี้";
+
+    if (isFromRequired && !effectiveFromLocationId) {
+      errors.fromLocationId = "กรุณาเลือกสถานที่ต้นทาง";
     }
-    if (showLocationField && !String(movementForm.locationText || "").trim()) {
-      errors.locationText = `กรุณาระบุ${locationLabel}`;
+
+    if (isToRequired && !effectiveToLocationId) {
+      errors.toLocationId = "กรุณาเลือกสถานที่ปลายทาง";
     }
+
+    if (
+      effectiveFromLocationId &&
+      effectiveToLocationId &&
+      effectiveFromLocationId === effectiveToLocationId
+    ) {
+      errors.toLocationId = "สถานที่ต้นทางและปลายทางต้องไม่ซ้ำกัน";
+    }
+
+    if (!isLoadingLocations && !locationOptions.length) {
+      if (!isFromLocked && isFromRequired) {
+        errors.fromLocationId = "ไม่พบรายการสถานที่ กรุณาลองใหม่";
+      }
+      if (!isToLocked && isToRequired) {
+        errors.toLocationId = "ไม่พบรายการสถานที่ กรุณาลองใหม่";
+      }
+    }
+
+    if (locationOptions.length > 0) {
+      if (effectiveFromLocationId && !locationMap.has(effectiveFromLocationId)) {
+        errors.fromLocationId = "ไม่พบสถานที่ต้นทางที่เลือก";
+      }
+      if (effectiveToLocationId && !locationMap.has(effectiveToLocationId)) {
+        errors.toLocationId = "ไม่พบสถานที่ปลายทางที่เลือก";
+      }
+    }
+
     if (!movementForm.productId) {
       errors.productId = "กรุณาค้นหาและเลือกสินค้า";
     }
@@ -347,7 +523,7 @@ export default function Receiving() {
     event.preventDefault();
     setPageError("");
 
-    if (!branchLocationId) {
+    if (!isAdmin && !branchLocationId) {
       setPageError("ไม่พบ location_id ของผู้ใช้ กรุณาเข้าสู่ระบบใหม่");
       return;
     }
@@ -355,17 +531,30 @@ export default function Receiving() {
 
     setIsSavingMovement(true);
     try {
-      await inventoryApi.createMovement({
+      const payload = {
         movementType: movementForm.movementType,
         productId: movementForm.productId,
         qty: Number(movementForm.qty),
         unitLabel: movementForm.unit,
         occurredAt: movementForm.occurredAt,
-        locationText: movementForm.locationText,
-        toBranchCode:
-          movementForm.movementType === "TRANSFER_OUT" ? movementForm.locationText : undefined,
-      });
+      };
 
+      if (isAdmin) {
+        if (effectiveFromLocationId) {
+          payload.from_location_id = effectiveFromLocationId;
+        }
+        if (effectiveToLocationId) {
+          payload.to_location_id = effectiveToLocationId;
+        }
+      } else if (movementForm.movementType === "RECEIVE") {
+        if (toCleanText(movementForm.fromLocationId)) {
+          payload.from_location_id = toCleanText(movementForm.fromLocationId);
+        }
+      } else if (movementForm.movementType === "TRANSFER_OUT") {
+        payload.to_location_id = effectiveToLocationId;
+      }
+
+      await inventoryApi.createMovement(payload);
       await loadMovements();
       closeMovementModal();
     } catch (error) {
@@ -523,23 +712,66 @@ export default function Receiving() {
                 ) : null}
               </div>
 
-              {showLocationField ? (
-                <div className="field-block">
-                  <label htmlFor="locationText">{locationLabel}</label>
-                  <input
-                    id="locationText"
-                    type="text"
+              <div className="field-block">
+                <label htmlFor="movementFromLocation">จากสถานที่</label>
+                {isFromLocked ? (
+                  <div className="location-readonly">{getLocationLabel(effectiveFromLocationId)}</div>
+                ) : (
+                  <select
+                    id="movementFromLocation"
                     className="qinput"
-                    value={movementForm.locationText}
-                    onChange={(event) => setField("locationText", event.target.value)}
-                    placeholder={locationPlaceholder}
-                    required={showLocationField}
-                  />
-                  {formErrors.locationText ? (
-                    <div className="field-error">{formErrors.locationText}</div>
+                    value={movementForm.fromLocationId}
+                    onChange={(event) => setField("fromLocationId", event.target.value)}
+                    disabled={isLoadingLocations || !locationOptions.length}
+                    required={isFromRequired}
+                  >
+                    <option value="">
+                      {isFromRequired ? "เลือกสถานที่ต้นทาง" : "ไม่ระบุ (ถ้ามี)"}
+                    </option>
+                    {locationOptions.map((location) => (
+                      <option key={location.id} value={location.id}>
+                        {buildLocationLabel(location)}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {formErrors.fromLocationId ? (
+                  <div className="field-error">{formErrors.fromLocationId}</div>
+                ) : null}
+              </div>
+
+              {showToLocationField ? (
+                <div className="field-block">
+                  <label htmlFor="movementToLocation">ไปยัง</label>
+                  {isToLocked ? (
+                    <div className="location-readonly">{getLocationLabel(effectiveToLocationId)}</div>
+                  ) : (
+                    <select
+                      id="movementToLocation"
+                      className="qinput"
+                      value={movementForm.toLocationId}
+                      onChange={(event) => setField("toLocationId", event.target.value)}
+                      disabled={isLoadingLocations || !locationOptions.length}
+                      required={isToRequired}
+                    >
+                      <option value="">{isToRequired ? "เลือกสถานที่ปลายทาง" : "ไม่ระบุ"}</option>
+                      {locationOptions.map((location) => (
+                        <option key={location.id} value={location.id}>
+                          {buildLocationLabel(location)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {formErrors.toLocationId ? (
+                    <div className="field-error">{formErrors.toLocationId}</div>
                   ) : null}
                 </div>
               ) : null}
+
+              {isLoadingLocations ? (
+                <div className="movement-search-status">กำลังโหลดรายการสถานที่...</div>
+              ) : null}
+              {locationLoadError ? <div className="field-error">{locationLoadError}</div> : null}
 
               <div className="field-block">
                 <label htmlFor="movementProductSearch">ค้นหาสินค้า</label>

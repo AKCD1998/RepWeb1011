@@ -49,6 +49,10 @@ export const inventoryApi = {
     const productId = String(payload.productId || "").trim();
     const qty = Number(payload.qty);
     const unitLabel = String(payload.unitLabel || payload.unit || "").trim();
+    const fromLocationId = String(
+      payload.from_location_id ?? payload.fromLocationId ?? ""
+    ).trim();
+    const toLocationId = String(payload.to_location_id ?? payload.toLocationId ?? "").trim();
 
     if (!movementType) {
       throw new Error("movementType is required");
@@ -65,58 +69,27 @@ export const inventoryApi = {
 
     const occurredAt = payload.occurredAt;
     const note = String(payload.note || "").trim() || null;
-    const locationText = String(payload.locationText || "").trim();
+    const requestPayload = {
+      movementType,
+      productId,
+      qty,
+      unitLabel,
+      occurredAt,
+      note,
+    };
 
-    if (movementType === "RECEIVE") {
-      const now = new Date();
-      const expDate = new Date(now);
-      expDate.setFullYear(now.getFullYear() + 2);
-      const lotNo = `UI-${Date.now()}`;
-      const receiveNote = locationText
-        ? [note, `source: ${locationText}`].filter(Boolean).join(" | ")
-        : note;
-
-      return this.receive({
-        occurredAt,
-        note: receiveNote || null,
-        items: [
-          {
-            productId,
-            qty,
-            unitLabel,
-            lotNo,
-            expDate: expDate.toISOString().slice(0, 10),
-            manufacturer: locationText || null,
-          },
-        ],
-      });
+    if (fromLocationId) {
+      requestPayload.from_location_id = fromLocationId;
+    }
+    if (toLocationId) {
+      requestPayload.to_location_id = toLocationId;
     }
 
-    if (movementType === "TRANSFER_OUT") {
-      const toBranchCode = String(payload.toBranchCode || locationText).trim();
-      if (!toBranchCode) {
-        throw new Error("toBranchCode is required for TRANSFER_OUT");
-      }
-
-      return this.transfer({
-        toBranchCode,
-        occurredAt,
-        note,
-        items: [
-          {
-            productId,
-            qty,
-            unitLabel,
-          },
-        ],
-      });
-    }
-
-    if (movementType === "DISPENSE") {
-      throw new Error("DISPENSE is not supported in Receiving movement form yet");
-    }
-
-    throw new Error(`Unsupported movement type: ${movementType}`);
+    return requestJson({
+      method: "POST",
+      url: "/api/inventory/movements",
+      data: requestPayload,
+    });
   },
   receive(payload) {
     return requestJson({
@@ -175,6 +148,21 @@ export const inventoryApi = {
     return requestJson({
       method: "GET",
       url: "/api/movements",
+      params: Object.keys(params).length ? params : undefined,
+    });
+  },
+  listLocations({ includeInactive, locationType } = {}) {
+    const params = {};
+    if (includeInactive !== undefined) {
+      params.includeInactive = includeInactive ? "true" : "false";
+    }
+    if (locationType) {
+      params.locationType = String(locationType).trim();
+    }
+
+    return requestJson({
+      method: "GET",
+      url: "/api/locations",
       params: Object.keys(params).length ? params : undefined,
     });
   },

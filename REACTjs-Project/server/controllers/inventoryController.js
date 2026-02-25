@@ -12,6 +12,77 @@ import {
 } from "./helpers.js";
 import { httpError } from "../utils/httpError.js";
 
+const MOVEMENT_TYPES = new Set(["RECEIVE", "TRANSFER_OUT", "DISPENSE"]);
+const LOCATION_TYPES = new Set([
+  "BRANCH",
+  "OFFICE",
+  "MANUFACTURER",
+  "WHOLESALER",
+  "VENDOR",
+  "WAREHOUSE",
+  "OTHER",
+]);
+
+function normalizeText(value) {
+  return String(value || "").trim();
+}
+
+function normalizeRole(role) {
+  return normalizeText(role).toUpperCase();
+}
+
+function toNullableText(value) {
+  const normalized = normalizeText(value);
+  return normalized || "";
+}
+
+function parseBoolean(value, fallback = false) {
+  if (value === undefined || value === null || String(value).trim() === "") return fallback;
+  if (typeof value === "boolean") return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (["true", "1", "yes"].includes(normalized)) return true;
+  if (["false", "0", "no"].includes(normalized)) return false;
+  return fallback;
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || "").trim()
+  );
+}
+
+async function resolveActiveLocationById(client, locationId, fieldName) {
+  const normalizedId = normalizeText(locationId);
+  if (!normalizedId) return null;
+  if (!isUuid(normalizedId)) {
+    throw httpError(400, `${fieldName} must be a valid UUID`);
+  }
+
+  const result = await client.query(
+    `
+      SELECT
+        id,
+        code,
+        name,
+        location_type AS "locationType",
+        is_active AS "isActive"
+      FROM locations
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [normalizedId]
+  );
+
+  if (!result.rows[0]) {
+    throw httpError(404, `${fieldName} not found`);
+  }
+  if (!result.rows[0].isActive) {
+    throw httpError(400, `${fieldName} is inactive`);
+  }
+
+  return result.rows[0];
+}
+
 export async function receiveInventory(req, res) {
   const toBranchCode = String(req.body?.toBranchCode || "").trim();
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
@@ -187,6 +258,262 @@ export async function transferInventory(req, res) {
     ok: true,
     ...result,
   });
+}
+
+export async function createMovement(req, res) {
+  const movementType = normalizeText(req.body?.movementType).toUpperCase();
+  const productId = normalizeText(req.body?.productId);
+  const qty = toPositiveNumeric(req.body?.qty, "qty");
+  const unitLabel = normalizeText(req.body?.unitLabel || req.body?.unit);
+  const occurredAt = toIsoTimestamp(req.body?.occurredAt);
+  const note = req.body?.note || null;
+  const createdByUserId = req.user?.id || req.body?.createdByUserId || null;
+  const userRole = normalizeRole(req.user?.role);
+  const userLocationId = toNullableText(req.user?.location_id);
+  const fromLocationIdInput = toNullableText(req.body?.from_location_id ?? req.body?.fromLocationId);
+  const toLocationIdInput = toNullableText(req.body?.to_location_id ?? req.body?.toLocationId);
+  const isAdmin = userRole === "ADMIN";
+
+  if (!MOVEMENT_TYPES.has(movementType)) {
+    throw httpError(400, `Unsupported movementType: ${movementType || "-"}`);
+  }
+  if (!productId) throw httpError(400, "productId is required");
+  if (!unitLabel) throw httpError(400, "unitLabel is required");
+
+  if (!isAdmin && !userLocationId) {
+    throw httpError(403, "Branch-scoped access requires location_id");
+  }
+
+  if (!isAdmin) {
+    if (movementType === "RECEIVE" && toLocationIdInput && toLocationIdInput !== userLocationId) {
+      throw httpError(403, "Forbidden: to_location_id mismatch");
+    }
+    if (
+      (movementType === "TRANSFER_OUT" || movementType === "DISPENSE") &&
+      fromLocationIdInput &&
+      fromLocationIdInput !== userLocationId
+    ) {
+      throw httpError(403, "Forbidden: from_location_id mismatch");
+    }
+  }
+
+  let effectiveFromLocationId = fromLocationIdInput;
+  let effectiveToLocationId = toLocationIdInput;
+
+  if (!isAdmin) {
+    if (movementType === "RECEIVE") {
+      effectiveToLocationId = userLocationId;
+    } else if (movementType === "TRANSFER_OUT") {
+      effectiveFromLocationId = userLocationId;
+    } else if (movementType === "DISPENSE") {
+      effectiveFromLocationId = userLocationId;
+      effectiveToLocationId = "";
+    }
+  }
+
+  if (movementType === "RECEIVE" && !effectiveToLocationId) {
+    throw httpError(400, "to_location_id is required for RECEIVE");
+  }
+  if (movementType === "TRANSFER_OUT" && !effectiveFromLocationId) {
+    throw httpError(400, "from_location_id is required for TRANSFER_OUT");
+  }
+  if (movementType === "TRANSFER_OUT" && !effectiveToLocationId) {
+    throw httpError(400, "to_location_id is required for TRANSFER_OUT");
+  }
+  if (movementType === "DISPENSE" && !effectiveFromLocationId) {
+    throw httpError(400, "from_location_id is required for DISPENSE");
+  }
+  if (movementType === "DISPENSE") {
+    effectiveToLocationId = "";
+  }
+
+  if (
+    effectiveFromLocationId &&
+    effectiveToLocationId &&
+    effectiveFromLocationId === effectiveToLocationId
+  ) {
+    throw httpError(400, "from_location_id and to_location_id must be different");
+  }
+
+  const result = await withTransaction(async (client) => {
+    const actorUserId = await resolveActorUserId(client, createdByUserId);
+    await ensureProductExists(client, productId);
+    const unitLevel = await ensureProductUnitLevel(client, productId, unitLabel);
+    const fromLocation = await resolveActiveLocationById(
+      client,
+      effectiveFromLocationId,
+      "from_location_id"
+    );
+    const toLocation = await resolveActiveLocationById(client, effectiveToLocationId, "to_location_id");
+    let movementCount = 0;
+
+    if (movementType === "RECEIVE") {
+      await client.query(
+        `
+          INSERT INTO stock_movements (
+            movement_type,
+            from_location_id,
+            to_location_id,
+            product_id,
+            lot_id,
+            quantity,
+            unit_level_id,
+            occurred_at,
+            created_by,
+            note_text
+          )
+          VALUES (
+            'RECEIVE',
+            $1,
+            $2,
+            $3,
+            NULL,
+            $4,
+            $5,
+            $6::timestamptz,
+            $7,
+            $8
+          )
+        `,
+        [fromLocation?.id || null, toLocation?.id || null, productId, qty, unitLevel.id, occurredAt, actorUserId, note]
+      );
+
+      await applyStockDelta(client, {
+        branchId: toLocation.id,
+        productId,
+        lotId: null,
+        unitLevelId: unitLevel.id,
+        deltaQty: qty,
+      });
+
+      movementCount = 1;
+    } else if (movementType === "TRANSFER_OUT") {
+      await applyStockDelta(client, {
+        branchId: fromLocation.id,
+        productId,
+        lotId: null,
+        unitLevelId: unitLevel.id,
+        deltaQty: -qty,
+      });
+      await applyStockDelta(client, {
+        branchId: toLocation.id,
+        productId,
+        lotId: null,
+        unitLevelId: unitLevel.id,
+        deltaQty: qty,
+      });
+
+      await client.query(
+        `
+          INSERT INTO stock_movements (
+            movement_type,
+            from_location_id,
+            to_location_id,
+            product_id,
+            lot_id,
+            quantity,
+            unit_level_id,
+            occurred_at,
+            created_by,
+            note_text
+          )
+          VALUES
+            ('TRANSFER_OUT', $1, $2, $3, NULL, $4, $5, $6::timestamptz, $7, $8),
+            ('TRANSFER_IN',  $1, $2, $3, NULL, $4, $5, $6::timestamptz, $7, $8)
+        `,
+        [fromLocation.id, toLocation.id, productId, qty, unitLevel.id, occurredAt, actorUserId, note]
+      );
+
+      movementCount = 2;
+    } else {
+      await applyStockDelta(client, {
+        branchId: fromLocation.id,
+        productId,
+        lotId: null,
+        unitLevelId: unitLevel.id,
+        deltaQty: -qty,
+      });
+
+      await client.query(
+        `
+          INSERT INTO stock_movements (
+            movement_type,
+            from_location_id,
+            to_location_id,
+            product_id,
+            lot_id,
+            quantity,
+            unit_level_id,
+            occurred_at,
+            created_by,
+            note_text
+          )
+          VALUES (
+            'DISPENSE',
+            $1,
+            NULL,
+            $2,
+            NULL,
+            $3,
+            $4,
+            $5::timestamptz,
+            $6,
+            $7
+          )
+        `,
+        [fromLocation.id, productId, qty, unitLevel.id, occurredAt, actorUserId, note]
+      );
+
+      movementCount = 1;
+    }
+
+    return {
+      movementType,
+      movementCount,
+      from_location_id: fromLocation?.id || null,
+      to_location_id: toLocation?.id || null,
+    };
+  });
+
+  return res.status(201).json({
+    ok: true,
+    ...result,
+  });
+}
+
+export async function listLocations(req, res) {
+  const includeInactive = parseBoolean(req.query.includeInactive, false);
+  const locationType = normalizeText(req.query.locationType || req.query.type).toUpperCase();
+  if (locationType && !LOCATION_TYPES.has(locationType)) {
+    throw httpError(400, `Unsupported locationType: ${locationType}`);
+  }
+
+  const params = [];
+  const where = [];
+  if (!includeInactive) {
+    where.push("is_active = true");
+  }
+  if (locationType) {
+    params.push(locationType);
+    where.push(`location_type = $${params.length}::location_type`);
+  }
+
+  const result = await query(
+    `
+      SELECT
+        id,
+        code,
+        name,
+        location_type AS type,
+        is_active AS "is_active"
+      FROM locations
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY location_type ASC, code ASC, name ASC
+    `,
+    params
+  );
+
+  return res.json(result.rows);
 }
 
 export async function getStockOnHand(req, res) {

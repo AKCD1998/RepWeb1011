@@ -350,3 +350,35 @@ How to verify:
   - [ ] Click one product and confirm `ยังไม่ได้เลือกสินค้า` changes to selected product text.
   - [ ] Try saving without selecting product and confirm validation error appears.
   - [ ] Save with selected product and confirm movement is created and table refreshes.
+
+## 2026-02-25 15:21:29 +07:00 - Receiving movement modal: admin location selector + branch lock enforcement
+- Summary:
+  - Fixed modal gate so `ADMIN` users without `location_id` (e.g. `admin000`) can open movement modal.
+  - Added role-aware location flow in Receiving modal:
+    - `ADMIN`: can choose `จากสถานที่` (`from_location_id`) and `ไปยัง` (`to_location_id`) from location selector.
+    - Branch user (`PHARMACIST`): locked to own `location_id` by movement type (`RECEIVE` locks `to`, `TRANSFER_OUT`/`DISPENSE` lock `from`).
+  - Added frontend location loading/caching via new API call `GET /api/locations`.
+  - Refactored movement submit to use unified endpoint `POST /api/inventory/movements` and send role-appropriate payload.
+  - Backend added movement endpoint enforcement:
+    - Non-admin branch context enforced from `req.user.location_id`; override attempts on locked fields return `403`.
+    - Admin can submit selected locations (validated as active IDs).
+    - Validation rules enforced by type: `RECEIVE` requires `to`, `TRANSFER_OUT` requires `from`+`to`, `DISPENSE` requires `from`.
+  - Added backend read-only locations endpoint `GET /api/locations` (`ADMIN`/`PHARMACIST`/`OPERATOR`).
+- Files changed:
+  - `src/pages/Receiving.jsx`
+  - `src/pages/Receiving.css`
+  - `src/lib/api.js`
+  - `server/controllers/inventoryController.js`
+  - `server/routes/inventoryRoutes.js`
+  - `server/routes/reportingRoutes.js`
+  - `diary.md`
+- Verification checklist:
+  - [ ] Login as `admin000`:
+    - click action tile -> modal opens
+    - can choose `from/to` location and save (or pass form validation)
+  - [ ] Login as `branch001`:
+    - modal opens
+    - location is locked to branch001 for `RECEIVE` / `TRANSFER_OUT` / `DISPENSE`
+  - [ ] Try to tamper payload in devtools as branch user:
+    - backend rejects mismatch (`403`) on locked field overrides or enforces user location context
+  - [ ] No regressions in other pages.
