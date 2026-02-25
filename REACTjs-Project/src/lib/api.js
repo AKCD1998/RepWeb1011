@@ -44,6 +44,80 @@ export const productsApi = {
 };
 
 export const inventoryApi = {
+  async createMovement(payload = {}) {
+    const movementType = String(payload.movementType || "").trim().toUpperCase();
+    const productId = String(payload.productId || "").trim();
+    const qty = Number(payload.qty);
+    const unitLabel = String(payload.unitLabel || payload.unit || "").trim();
+
+    if (!movementType) {
+      throw new Error("movementType is required");
+    }
+    if (!productId) {
+      throw new Error("productId is required");
+    }
+    if (!Number.isFinite(qty) || qty <= 0) {
+      throw new Error("qty must be a positive number");
+    }
+    if (!unitLabel) {
+      throw new Error("unitLabel is required");
+    }
+
+    const occurredAt = payload.occurredAt;
+    const note = String(payload.note || "").trim() || null;
+    const locationText = String(payload.locationText || "").trim();
+
+    if (movementType === "RECEIVE") {
+      const now = new Date();
+      const expDate = new Date(now);
+      expDate.setFullYear(now.getFullYear() + 2);
+      const lotNo = `UI-${Date.now()}`;
+      const receiveNote = locationText
+        ? [note, `source: ${locationText}`].filter(Boolean).join(" | ")
+        : note;
+
+      return this.receive({
+        occurredAt,
+        note: receiveNote || null,
+        items: [
+          {
+            productId,
+            qty,
+            unitLabel,
+            lotNo,
+            expDate: expDate.toISOString().slice(0, 10),
+            manufacturer: locationText || null,
+          },
+        ],
+      });
+    }
+
+    if (movementType === "TRANSFER_OUT") {
+      const toBranchCode = String(payload.toBranchCode || locationText).trim();
+      if (!toBranchCode) {
+        throw new Error("toBranchCode is required for TRANSFER_OUT");
+      }
+
+      return this.transfer({
+        toBranchCode,
+        occurredAt,
+        note,
+        items: [
+          {
+            productId,
+            qty,
+            unitLabel,
+          },
+        ],
+      });
+    }
+
+    if (movementType === "DISPENSE") {
+      throw new Error("DISPENSE is not supported in Receiving movement form yet");
+    }
+
+    throw new Error(`Unsupported movement type: ${movementType}`);
+  },
   receive(payload) {
     return requestJson({
       method: "POST",
@@ -74,6 +148,30 @@ export const inventoryApi = {
       if (!text) return;
       params[key] = text;
     });
+    return requestJson({
+      method: "GET",
+      url: "/api/movements",
+      params: Object.keys(params).length ? params : undefined,
+    });
+  },
+  listMovements({ location_id, limit, fromDate, toDate, productId } = {}) {
+    const params = {};
+    if (location_id) {
+      params.location_id = String(location_id).trim();
+    }
+    if (productId) {
+      params.productId = String(productId).trim();
+    }
+    if (fromDate) {
+      params.fromDate = String(fromDate).trim();
+    }
+    if (toDate) {
+      params.toDate = String(toDate).trim();
+    }
+    if (limit !== undefined && limit !== null && Number.isFinite(Number(limit))) {
+      params.limit = String(Math.min(Math.max(Math.floor(Number(limit)), 1), 1000));
+    }
+
     return requestJson({
       method: "GET",
       url: "/api/movements",

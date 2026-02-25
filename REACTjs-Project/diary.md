@@ -215,3 +215,138 @@ How to verify:
   - [ ] Try to open protected route after logout and confirm redirect/login guard.
   - [ ] Confirm localStorage keys `rx1011_auth_token` and `rx1011_auth_user` are removed.
   - [ ] Stop backend temporarily, click logout, and confirm UI still clears local session + redirects.
+
+## 2026-02-25 11:44:14 +07:00 - Receiving cleanup: remove Add New tile + table placeholders
+- Summary:
+  - Removed the `เพิ่มสินค้าใหม่` tile/button (`addTile`) from Receiving page top section.
+  - Kept layout blocks: action tile (`ลงข้อมูลรับเข้า ส่งออกสินค้า`), search panel, config bar, results card/table shell.
+  - Refactored table shell to React-rendered placeholders:
+    - added minimal state scaffold `movements`
+    - rendered header columns from array
+    - rendered placeholder row when no data exists
+  - Cleaned related CSS:
+    - updated top grid to 2 columns after removing tile
+    - removed now-unused `addTile` style rules
+    - added subtle placeholder-row style
+- Files changed:
+  - `src/pages/Receiving.jsx`
+  - `src/pages/Receiving.css`
+  - `diary.md`
+- Visual verification checklist:
+  - [ ] Receiving page no longer shows `เพิ่มสินค้าใหม่` tile.
+  - [ ] Action tile + search panel remain aligned on desktop and stack correctly on small screens.
+  - [ ] Config bar and results card still render below top section.
+  - [ ] Table area shows header labels and placeholder row text when empty.
+
+## 2026-02-25 11:48:28 +07:00 - Receiving movement entry modal (UI-only)
+- Summary:
+  - Added movement entry modal on Receiving page, opened by clicking action tile `ลงข้อมูลรับเข้า ส่งออกสินค้า`.
+  - Added UI-only form fields:
+    - movement type (`RECEIVE`, `TRANSFER_OUT`, `DISPENSE`) with Thai labels
+    - conditional location text field (source/destination; hidden for `DISPENSE`)
+    - product search input + `ค้นหา` button (mock selection only)
+    - product selected placeholder text
+    - quantity, unit, occurred date-time
+  - Added required-field validation messages and form submission behavior:
+    - validates required inputs
+    - appends one mock row to `movements` state
+    - closes modal on save
+  - Added modal UX:
+    - close by `Escape`
+    - close by backdrop click
+  - Added styles for modal form layout, field errors, and responsive behavior.
+- Files changed:
+  - `src/pages/Receiving.jsx`
+  - `src/pages/Receiving.css`
+  - `diary.md`
+- Verification checklist:
+  - [ ] Click action tile and confirm movement modal opens.
+  - [ ] Press `Escape` and backdrop click to confirm modal closes.
+  - [ ] Try save with empty required fields and confirm error messages appear.
+  - [ ] Fill required fields and save; confirm a new mock row appears in the table.
+  - [ ] Confirm layout is readable on narrow screens.
+
+## 2026-02-25 11:55:05 +07:00 - Receiving movement table rendering + delta color accents
+- Summary:
+  - Implemented real table rendering from `movements` state using 5 columns:
+    - เวลา
+    - สินค้า
+    - รหัสสินค้า
+    - ประเภท
+    - การเปลี่ยนแปลงสต๊อก
+  - Updated movement row model (mock save) to store:
+    - `movementType` as raw code (`RECEIVE`/`TRANSFER_OUT`/`DISPENSE`)
+    - `qtyValue`, `unit`, and placeholder `productCode`
+  - Added movement type badge display and delta rules:
+    - `RECEIVE` -> `+<qty> <unit>` with readable dark-mode green accent
+    - `TRANSFER_OUT` / `DISPENSE` -> `-<qty> <unit>` with readable dark-mode red accent
+  - Kept row background unchanged; only badge/text accent colors were added.
+  - `tableTotals` count remains bound to movement row count (`รวม N รายการ`).
+- Files changed:
+  - `src/pages/Receiving.jsx`
+  - `src/pages/Receiving.css`
+  - `diary.md`
+- Verification checklist:
+  - [ ] Add row via movement modal with type `รับเข้า` and confirm delta shows `+` in green.
+  - [ ] Add row via `โอนออก` or `ส่งมอบลูกค้า` and confirm delta shows `-` in red.
+  - [ ] Confirm movement type badges render per row.
+  - [ ] Confirm total counter updates to number of rows shown.
+
+## 2026-02-25 12:03:27 +07:00 - Receiving connected to backend movement APIs
+- Summary:
+  - Connected Receiving modal save flow to backend inventory endpoints and replaced mock-only table rows with server data.
+  - Endpoints used:
+    - `POST /api/inventory/receive`
+    - `POST /api/inventory/transfer`
+    - `GET /api/movements`
+  - Added frontend API helpers in `src/lib/api.js`:
+    - `inventoryApi.createMovement(payload)` (maps modal type to receive/transfer endpoints)
+    - `inventoryApi.listMovements({ location_id, limit, fromDate, toDate })`
+  - Updated Receiving page data flow:
+    - On mount: fetch recent movements for logged-in user location (`user.location_id`) via `listMovements`.
+    - On modal save: validate -> `createMovement` -> refresh list from DB.
+    - Product selection now uses backend product search (`GET /api/products?search=`) to get `productId` before save.
+  - Backend update for movement listing security/scope:
+    - `/api/movements` now requires auth (`verifyToken` + role check).
+    - `getMovements` accepts `location_id` and enforces non-admin users to their own `req.user.location_id` (rejects mismatch with `403`).
+  - Branch override safety:
+    - UI does not expose/submit origin branch override.
+    - Branch scope derives from authenticated user (`location_id`) and backend auth middleware/rules.
+- Files changed:
+  - `src/pages/Receiving.jsx`
+  - `src/pages/Receiving.css`
+  - `src/lib/api.js`
+  - `server/routes/reportingRoutes.js`
+  - `server/controllers/inventoryController.js`
+  - `diary.md`
+- Verification checklist:
+  - [ ] Login as branch user and open Receiving page; table should load recent branch movements.
+  - [ ] Create `RECEIVE` movement from modal and confirm new row appears after save.
+  - [ ] Create `TRANSFER_OUT` movement (destination branch code) and confirm row appears after save.
+  - [ ] Confirm totals update (`รวม N รายการ`) and delta color rule remains `+` green / `-` red.
+  - [ ] Confirm stock changes in backend snapshots (if unit/lot constraints are satisfied and stock update succeeds).
+
+## 2026-02-25 13:06:40 +07:00 - Receiving modal: product search + select from DB
+- Summary:
+  - Replaced movement modal product placeholder flow with real product search against backend (`GET /api/products?search=`).
+  - Added searchable result list (top 20) with clickable selection to set:
+    - `productId`
+    - `productName`
+    - `productCode`
+  - Updated save precondition so movement submission requires a selected `productId` from search results.
+  - Added UX states inside modal:
+    - loading (`กำลังค้นหาสินค้า...`)
+    - empty result message
+    - API error message
+    - selected product highlight in result list
+  - Kept flow lightweight (no pagination) and preserved existing movement create + refresh behavior.
+- Files changed:
+  - `src/pages/Receiving.jsx`
+  - `src/pages/Receiving.css`
+  - `diary.md`
+- Verification checklist:
+  - [ ] Open Receiving modal and type keyword (`ชื่อสามัญ/บริษัท/บาร์โค้ด`) then click `ค้นหา`.
+  - [ ] Confirm result list appears (max ~20 rows) and each row is clickable.
+  - [ ] Click one product and confirm `ยังไม่ได้เลือกสินค้า` changes to selected product text.
+  - [ ] Try saving without selecting product and confirm validation error appears.
+  - [ ] Save with selected product and confirm movement is created and table refreshes.

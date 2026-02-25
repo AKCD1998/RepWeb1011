@@ -230,8 +230,28 @@ export async function getStockOnHand(req, res) {
 export async function getMovements(req, res) {
   const productId = req.query.productId ? String(req.query.productId).trim() : "";
   const branchCode = req.query.branchCode ? String(req.query.branchCode).trim() : "";
-  const from = req.query.from ? new Date(String(req.query.from)) : null;
-  const to = req.query.to ? new Date(String(req.query.to)) : null;
+  const requestedLocationId =
+    req.query.location_id || req.query.locationId
+      ? String(req.query.location_id || req.query.locationId).trim()
+      : "";
+  const fromInput = req.query.from ?? req.query.fromDate;
+  const toInput = req.query.to ?? req.query.toDate;
+  const from = fromInput ? new Date(String(fromInput)) : null;
+  const to = toInput ? new Date(String(toInput)) : null;
+  const requestedLimit = Number(req.query.limit);
+  const safeLimit = Number.isFinite(requestedLimit)
+    ? Math.min(Math.max(Math.floor(requestedLimit), 1), 1000)
+    : 1000;
+  const userRole = String(req.user?.role || "").trim().toUpperCase();
+  const userLocationId = req.user?.location_id ? String(req.user.location_id).trim() : "";
+  const effectiveLocationId =
+    userRole === "ADMIN"
+      ? requestedLocationId
+      : userLocationId || requestedLocationId;
+
+  if (userRole !== "ADMIN" && requestedLocationId && requestedLocationId !== userLocationId) {
+    throw httpError(403, "Forbidden: location filter mismatch");
+  }
 
   if (from && Number.isNaN(from.getTime())) throw httpError(400, "Invalid from datetime");
   if (to && Number.isNaN(to.getTime())) throw httpError(400, "Invalid to datetime");
@@ -249,6 +269,11 @@ export async function getMovements(req, res) {
     where.push(`(from_l.code = $${params.length} OR to_l.code = $${params.length})`);
   }
 
+  if (effectiveLocationId) {
+    params.push(effectiveLocationId);
+    where.push(`(from_l.id = $${params.length}::uuid OR to_l.id = $${params.length}::uuid)`);
+  }
+
   if (from) {
     params.push(from.toISOString());
     where.push(`sm.occurred_at >= $${params.length}::timestamptz`);
@@ -258,6 +283,8 @@ export async function getMovements(req, res) {
     params.push(to.toISOString());
     where.push(`sm.occurred_at < $${params.length}::timestamptz`);
   }
+
+  params.push(safeLimit);
 
   const result = await query(
     `
@@ -285,7 +312,7 @@ export async function getMovements(req, res) {
       LEFT JOIN locations to_l ON to_l.id = sm.to_location_id
       WHERE ${where.join(" AND ")}
       ORDER BY sm.occurred_at DESC, sm.created_at DESC
-      LIMIT 1000
+      LIMIT $${params.length}
     `,
     params
   );
