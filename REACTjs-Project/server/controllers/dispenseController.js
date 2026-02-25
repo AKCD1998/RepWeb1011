@@ -16,7 +16,7 @@ export async function createDispense(req, res) {
   const branchCode = String(req.body?.branchCode || "").trim();
   const lines = Array.isArray(req.body?.lines) ? req.body.lines : [];
   const patient = req.body?.patient || {};
-  const pharmacistUserIdInput = req.body?.pharmacistUserId || null;
+  const pharmacistUserIdInput = req.user?.id || req.body?.pharmacistUserId || null;
   const occurredAt = toIsoTimestamp(req.body?.occurredAt);
   const note = req.body?.note || null;
 

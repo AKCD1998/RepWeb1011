@@ -16,6 +16,7 @@ const envPath = fs.existsSync(serverEnvPath) ? serverEnvPath : rootEnvPath;
 dotenv.config({ path: envPath });
 
 const { healthCheck, hasDatabase, query } = await import("./db/pool.js");
+const authRoutes = (await import("./routes/authRoutes.js")).default;
 const productsRoutes = (await import("./routes/productsRoutes.js")).default;
 const inventoryRoutes = (await import("./routes/inventoryRoutes.js")).default;
 const dispenseRoutes = (await import("./routes/dispenseRoutes.js")).default;
@@ -93,6 +94,7 @@ app.get("/api/patients", async (_req, res, next) => {
   }
 });
 
+app.use("/api/auth", authRoutes);
 app.use("/api/products", productsRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/dispense", dispenseRoutes);

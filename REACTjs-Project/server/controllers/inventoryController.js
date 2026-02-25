@@ -17,7 +17,7 @@ export async function receiveInventory(req, res) {
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
   const occurredAt = toIsoTimestamp(req.body?.occurredAt);
   const note = req.body?.note || null;
-  const createdByUserId = req.body?.createdByUserId || null;
+  const createdByUserId = req.user?.id || req.body?.createdByUserId || null;
 
   if (!toBranchCode) throw httpError(400, "toBranchCode is required");
   if (!items.length) throw httpError(400, "items must contain at least one item");
@@ -109,7 +109,7 @@ export async function transferInventory(req, res) {
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
   const occurredAt = toIsoTimestamp(req.body?.occurredAt);
   const note = req.body?.note || null;
-  const createdByUserId = req.body?.createdByUserId || null;
+  const createdByUserId = req.user?.id || req.body?.createdByUserId || null;
 
   if (!fromBranchCode) throw httpError(400, "fromBranchCode is required");
   if (!toBranchCode) throw httpError(400, "toBranchCode is required");

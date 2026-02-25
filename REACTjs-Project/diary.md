@@ -80,3 +80,90 @@ How to verify:
   - Add migration runner script (or npm script) to execute SQL files in order automatically.
   - Build dedicated Receive/Transfer/Deliver submit forms on top of new `src/lib/api.js` methods.
   - Add authentication middleware (JWT) and role-based authorization for write endpoints.
+
+## 2026-02-25 09:13:08 +07:00 - Auth fields migration for users table
+- Summary:
+  - Added `migrations/0005_auth_fields.sql` to prepare username/password login data shape in PostgreSQL.
+  - Ensured `users` has/keeps required auth columns and defaults: `username`, `password_hash`, `role`, `location_id`, `is_active`, `created_at`, `updated_at`.
+  - Added explicit unique index `idx_users_username_unique` for username lookups.
+  - Added rule constraint `ck_users_branch_user_requires_location`: `ADMIN` can be `location_id = NULL`, while branch roles (`PHARMACIST`/`OPERATOR`) must have a location.
+  - Seeded users with bcrypt(cost 10) hash for password `changeme`: `admin000`, `branch001`, `branch003`, `branch004`.
+- Files added/changed:
+  - `migrations/0005_auth_fields.sql`
+  - `diary.md`
+- Notes:
+  - `location_id` is nullable for ADMIN because central admin accounts may operate across all branches (global scope), while branch users must be pinned to a specific branch for auditability and access control boundaries.
+
+## 2026-02-25 09:19:20 +07:00 - JWT login endpoint and auth middleware
+- Summary:
+  - Added authentication module for login with username/password and JWT.
+  - Implemented `POST /api/auth/login` in `authController`:
+    - validates input (`username`, `password`)
+    - checks user existence + `is_active`
+    - verifies password with bcrypt compare
+    - returns JWT token (8h expiry) + normalized user payload (`id`, `username`, `role`, `location_id`)
+  - Added reusable `verifyToken` middleware to parse Bearer token, verify JWT, and attach `req.user`.
+  - Registered auth routes under `/api/auth` in server bootstrap.
+  - Updated `server/.env.example` to include `JWT_SECRET`.
+- Files added/changed:
+  - `server/controllers/authController.js`
+  - `server/routes/authRoutes.js`
+  - `server/middleware/authMiddleware.js`
+  - `server/index.js`
+  - `server/.env.example`
+  - `diary.md`
+
+## 2026-02-25 09:31:02 +07:00 - Role-based authorization + branch protection
+- Summary:
+  - Extended auth middleware with reusable RBAC/branch guards:
+    - `requireRole(...roles)`
+    - `requireBranchAccess(...)`
+  - Enforced role rules:
+    - `ADMIN` bypasses branch restrictions
+    - `PHARMACIST` must operate only on their own branch context
+    - `OPERATOR` is blocked for non-read methods (read-only behavior)
+  - Added branch protection that resolves branch from `req.user.location_id` and checks mismatch as `403`.
+  - Added branch field forcing for pharmacist routes so server-side branch is authoritative (never trusting client branch field blindly).
+  - Protected write routes:
+    - inventory: `/receive`, `/transfer`
+    - dispense: `POST /api/dispense`
+    - products write: `POST/PUT/DELETE /api/products`
+  - Updated controllers to prefer authenticated actor ID (`req.user.id`) over client-sent user IDs for create/movement attribution.
+- Files added/changed:
+  - `server/middleware/authMiddleware.js`
+  - `server/routes/inventoryRoutes.js`
+  - `server/routes/dispenseRoutes.js`
+  - `server/routes/productsRoutes.js`
+  - `server/controllers/inventoryController.js`
+  - `server/controllers/dispenseController.js`
+  - `diary.md`
+- Verification:
+  - `POST /api/products` without token -> `401`
+  - `POST /api/products` with `PHARMACIST` token -> `403`
+  - `POST /api/products` with `ADMIN` token -> `201`
+  - `POST /api/inventory/receive` with pharmacist + mismatched branch -> `403`
+  - `POST /api/dispense` with pharmacist + mismatched branch -> `403`
+
+## 2026-02-25 09:41:03 +07:00 - Frontend login/auth state + protected routes
+- Summary:
+  - Added client-side auth state via `AuthContext` with login/logout and localStorage persistence.
+  - Added `Login` page (`/login`) with username/password form and submit flow to backend `POST /api/auth/login`.
+  - Added Axios API client with interceptors:
+    - request: attach `Authorization: Bearer <token>` from localStorage
+    - response: on `401` clear auth storage and trigger auto-logout event
+  - Protected app routes in `App.jsx`:
+    - unauthenticated users are redirected to `/login`
+    - authenticated users visiting `/login` are redirected to `/`
+  - Refactored existing `src/lib/api.js` to use the shared Axios client so token is applied consistently to API calls.
+- Files added/changed:
+  - `src/context/AuthContext.jsx`
+  - `src/pages/Login.jsx`
+  - `src/pages/Login.css`
+  - `src/lib/authApi.js`
+  - `src/lib/api.js`
+  - `src/App.jsx`
+  - `src/main.jsx`
+  - `diary.md`
+- Next steps:
+  - Add logout action in UI (e.g. header/sidebar button) to clear session manually.
+  - Add role-aware route visibility (hide/disable pages by role).
