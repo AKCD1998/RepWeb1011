@@ -1,5 +1,4 @@
-const PROD_API_BASE = "https://repweb1011-production.up.railway.app";
-const LOCAL_API_BASE = "http://localhost:5050";
+const LOCAL_API_BASE = "";
 
 const readMetaApiBase = () => {
   if (typeof document === "undefined") return "";
@@ -12,14 +11,6 @@ const readBodyApiBase = () => {
   if (typeof document === "undefined") return "";
   const value = document.body?.dataset?.apiBase;
   return value ? String(value).trim() : "";
-};
-
-const isLocalHost = () => {
-  if (typeof window === "undefined") return false;
-  return (
-    window.location.hostname === "localhost" ||
-    window.location.hostname === "127.0.0.1"
-  );
 };
 
 export function getApiBase() {
@@ -42,5 +33,5 @@ export function getApiBase() {
     if (bodyBase) return bodyBase;
   }
 
-  return isLocalHost() ? LOCAL_API_BASE : PROD_API_BASE;
+  return LOCAL_API_BASE;
 }

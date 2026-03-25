@@ -1,5 +1,6 @@
 import { query, withTransaction } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
+import { buildUnitLevelKey } from "./helpers.js";
 
 const INGREDIENT_CODE_MAX_LENGTH = 80;
 const LOCATION_CODE_MAX_LENGTH = 30;
@@ -75,10 +76,14 @@ function normalizeIngredientsInput(rawIngredients) {
   return rawIngredients
     .map((row, index) => {
       const source = row && typeof row === "object" ? row : {};
+      const activeIngredientId = toCleanText(
+        source.activeIngredientId ?? source.ingredientId ?? source.active_ingredient_id
+      );
       const activeIngredientCode = toCleanText(
         source.activeIngredientCode ?? source.ingredientCode ?? source.code
       ).toUpperCase();
-      const nameEn = toCleanText(source.nameEn ?? source.name ?? source.activeIngredientName);
+      const nameEn = toCleanText(source.nameEn ?? source.name ?? source.activeIngredientName)
+        .toUpperCase();
       const nameTh = toCleanText(source.nameTh ?? source.activeIngredientNameTh);
       const strengthNumeratorRaw =
         source.strengthNumerator ?? source.numerator ?? source.strength_value ?? "";
@@ -93,6 +98,7 @@ function normalizeIngredientsInput(rawIngredients) {
       const rowNumber = index + 1;
 
       const isBlankRow =
+        !activeIngredientId &&
         !activeIngredientCode &&
         !nameEn &&
         !nameTh &&
@@ -102,8 +108,11 @@ function normalizeIngredientsInput(rawIngredients) {
         !denominatorUnitCode;
       if (isBlankRow) return null;
 
-      if (!nameEn && !activeIngredientCode) {
-        throw httpError(400, `ingredients[${rowNumber}] requires nameEn or activeIngredientCode`);
+      if (!nameEn && !activeIngredientCode && !activeIngredientId) {
+        throw httpError(
+          400,
+          `ingredients[${rowNumber}] requires nameEn, activeIngredientCode, or activeIngredientId`
+        );
       }
 
       const strengthNumerator = parsePositiveNumber(
@@ -132,8 +141,9 @@ function normalizeIngredientsInput(rawIngredients) {
         : null;
 
       return {
+        activeIngredientId: activeIngredientId || null,
         activeIngredientCode: activeIngredientCode || null,
-        nameEn: nameEn || activeIngredientCode,
+        nameEn: nameEn || activeIngredientCode || null,
         nameTh: nameTh || null,
         strengthNumerator,
         numeratorUnitCode,
@@ -142,6 +152,45 @@ function normalizeIngredientsInput(rawIngredients) {
       };
     })
     .filter(Boolean);
+}
+
+async function hydrateIngredientsByActiveIngredientId(db, ingredients) {
+  const ids = [...new Set(ingredients.map((ingredient) => ingredient.activeIngredientId).filter(Boolean))];
+  if (!ids.length) return ingredients;
+
+  const result = await db.query(
+    `
+      SELECT
+        id::text AS id,
+        code,
+        name_en,
+        name_th
+      FROM active_ingredients
+      WHERE id::text = ANY($1::text[])
+    `,
+    [ids]
+  );
+
+  const ingredientsById = new Map(result.rows.map((row) => [row.id, row]));
+
+  return ingredients.map((ingredient, index) => {
+    if (!ingredient.activeIngredientId) return ingredient;
+
+    const resolved = ingredientsById.get(ingredient.activeIngredientId);
+    if (!resolved) {
+      throw httpError(
+        400,
+        `ingredients[${index + 1}].activeIngredientId not found: ${ingredient.activeIngredientId}`
+      );
+    }
+
+    return {
+      ...ingredient,
+      activeIngredientCode: ingredient.activeIngredientCode || resolved.code,
+      nameEn: ingredient.nameEn || resolved.name_en,
+      nameTh: ingredient.nameTh || resolved.name_th || null,
+    };
+  });
 }
 
 function normalizeReportGroupCodesInput(body) {
@@ -345,6 +394,19 @@ async function resolvePrimaryUnitLevel(db, productId) {
   return result.rows[0] || null;
 }
 
+async function resolveProductCodeForUnitKey(db, productId) {
+  const result = await db.query(
+    `
+      SELECT COALESCE(NULLIF(trim(product_code), ''), id::text) AS product_code
+      FROM products
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [productId]
+  );
+  return String(result.rows[0]?.product_code || productId).trim();
+}
+
 async function upsertPrimaryUnitLevelAndPrice(db, productId, options) {
   const shouldUpsertUnit = options.shouldUpsertUnit;
   if (!shouldUpsertUnit && options.price === null) return;
@@ -354,6 +416,16 @@ async function upsertPrimaryUnitLevelAndPrice(db, productId, options) {
   if (shouldUpsertUnit) {
     const unitTypeCode = options.unitTypeCode || unitLevel?.unit_type_code || "TABLET";
     const unitTypeId = await resolveUnitTypeId(db, unitTypeCode);
+    const productCodeForKey = await resolveProductCodeForUnitKey(db, productId);
+    const fallbackUnitKey = buildUnitLevelKey({
+      productCode: productCodeForKey,
+      level: 1,
+      parentLevel: 0,
+      quantityPerParentUnit: 1,
+      quantityPerBaseUnit: 1,
+      baseUnitCode: unitTypeCode,
+      unitTypeCode,
+    });
     const nextDisplayName =
       options.packageSize || unitLevel?.display_name || "หน่วยขายมาตรฐาน";
     const nextBarcode =
@@ -369,15 +441,17 @@ async function upsertPrimaryUnitLevelAndPrice(db, productId, options) {
             display_name = $2,
             unit_type_id = $3,
             barcode = $4,
+            unit_key = COALESCE(unit_key, $5),
             is_sellable = true
           WHERE id = $1
           RETURNING
             id,
             display_name,
             barcode,
-            unit_type_id
+            unit_type_id,
+            unit_key
         `,
-        [unitLevel.id, nextDisplayName, unitTypeId, nextBarcode]
+        [unitLevel.id, nextDisplayName, unitTypeId, nextBarcode, fallbackUnitKey]
       );
       unitLevel = {
         ...unitLevel,
@@ -395,15 +469,16 @@ async function upsertPrimaryUnitLevelAndPrice(db, productId, options) {
             code,
             display_name,
             unit_type_id,
+            unit_key,
             is_base,
             is_sellable,
             sort_order,
             barcode
           )
-          VALUES ($1, $2, $3, $4, true, true, 1, $5)
+          VALUES ($1, $2, $3, $4, $5, true, true, 1, $6)
           RETURNING id
         `,
-        [productId, UNIT_LEVEL_DEFAULT_CODE, nextDisplayName, unitTypeId, nextBarcode]
+        [productId, UNIT_LEVEL_DEFAULT_CODE, nextDisplayName, unitTypeId, fallbackUnitKey, nextBarcode]
       );
       unitLevel = {
         id: inserted.rows[0].id,
@@ -445,6 +520,31 @@ async function upsertPrimaryUnitLevelAndPrice(db, productId, options) {
 }
 
 async function resolveActiveIngredientId(db, ingredient) {
+  if (ingredient.activeIngredientId) {
+    const existingById = await db.query(
+      `
+        SELECT
+          id,
+          code,
+          name_en,
+          name_th
+        FROM active_ingredients
+        WHERE id::text = $1
+        LIMIT 1
+      `,
+      [ingredient.activeIngredientId]
+    );
+
+    if (!existingById.rows[0]) {
+      throw httpError(400, `Unknown activeIngredientId: ${ingredient.activeIngredientId}`);
+    }
+
+    ingredient.activeIngredientCode = ingredient.activeIngredientCode || existingById.rows[0].code;
+    ingredient.nameEn = ingredient.nameEn || existingById.rows[0].name_en;
+    ingredient.nameTh = ingredient.nameTh || existingById.rows[0].name_th || null;
+    return existingById.rows[0].id;
+  }
+
   if (ingredient.activeIngredientCode) {
     const existing = await db.query(
       `
@@ -669,6 +769,7 @@ async function getProductById(productId) {
           json_agg(
             json_build_object(
               'ingredientId', ai.id,
+              'activeIngredientId', ai.id,
               'activeIngredientCode', ai.code,
               'nameEn', ai.name_en,
               'nameTh', ai.name_th,
@@ -741,14 +842,24 @@ export async function listProducts(req, res) {
     const result = await query(
       `
         SELECT
+          p.id AS product_id,
           pul.barcode,
           p.product_code,
           p.trade_name,
           COALESCE(pp.price, 0) AS price,
-          ut.symbol AS unit_symbol
+          ut.symbol AS unit_symbol,
+          COALESCE(pr.report_group_codes, ARRAY[]::text[]) AS report_group_codes
         FROM product_unit_levels pul
         JOIN products p ON p.id = pul.product_id
         LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
+        LEFT JOIN LATERAL (
+          SELECT array_agg(rg.code ORDER BY rg.code) AS report_group_codes
+          FROM product_report_groups prg
+          JOIN report_groups rg ON rg.id = prg.report_group_id
+          WHERE prg.product_id = p.id
+            AND prg.effective_from <= CURRENT_DATE
+            AND (prg.effective_to IS NULL OR prg.effective_to > CURRENT_DATE)
+        ) pr ON true
         LEFT JOIN LATERAL (
           SELECT pp.price
           FROM product_prices pp
@@ -773,12 +884,16 @@ export async function listProducts(req, res) {
     }
 
     return res.json({
+      id: result.rows[0].product_id,
       barcode: result.rows[0].barcode,
       product_code: result.rows[0].product_code,
       product_name: result.rows[0].trade_name,
       price_baht: Number(result.rows[0].price || 0),
       qty_per_unit: 1,
       unit: result.rows[0].unit_symbol || "",
+      reportGroupCodes: Array.isArray(result.rows[0].report_group_codes)
+        ? result.rows[0].report_group_codes
+        : [],
     });
   }
 
@@ -813,6 +928,7 @@ export async function listProducts(req, res) {
           json_agg(
             json_build_object(
               'ingredientId', ai.id,
+              'activeIngredientId', ai.id,
               'activeIngredientCode', ai.code,
               'nameEn', ai.name_en,
               'nameTh', ai.name_th,
@@ -901,6 +1017,61 @@ export async function listProducts(req, res) {
   return res.json(result.rows.map(mapProductRow));
 }
 
+export async function getProductUnitLevels(req, res) {
+  const productId = toCleanText(req.params.id || req.params.productId);
+  if (!productId) {
+    throw httpError(400, "product id is required");
+  }
+
+  const productResult = await query(
+    `
+      SELECT id
+      FROM products
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [productId]
+  );
+
+  if (!productResult.rows[0]) {
+    throw httpError(404, "Product not found");
+  }
+
+  const result = await query(
+    `
+      SELECT
+        pul.id,
+        pul.code,
+        pul.display_name AS "displayName",
+        pul.sort_order AS "sortOrder",
+        pul.is_base AS "isBase",
+        pul.is_sellable AS "isSellable",
+        pul.barcode,
+        ut.code AS "unitTypeCode",
+        COALESCE(NULLIF(ut.name_th, ''), NULLIF(ut.name_en, ''), NULLIF(ut.symbol, ''), ut.code, pul.code) AS "unitTypeLabel"
+      FROM product_unit_levels pul
+      LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
+      WHERE pul.product_id = $1
+      ORDER BY pul.is_sellable DESC, pul.is_base DESC, pul.sort_order ASC, pul.created_at ASC
+    `,
+    [productId]
+  );
+
+  return res.json({
+    items: result.rows.map((row) => ({
+      id: row.id,
+      code: row.code,
+      displayName: toCleanText(row.displayName) || toCleanText(row.code) || "-",
+      sortOrder: Number(row.sortOrder || 0),
+      isBase: Boolean(row.isBase),
+      isSellable: Boolean(row.isSellable),
+      barcode: toCleanText(row.barcode),
+      unitTypeCode: toCleanText(row.unitTypeCode),
+      unitTypeLabel: toCleanText(row.unitTypeLabel || row.unitTypeCode),
+    })),
+  });
+}
+
 export async function getReportGroups(_req, res) {
   const result = await query(
     `
@@ -917,18 +1088,111 @@ export async function getReportGroups(_req, res) {
   return res.json(result.rows);
 }
 
+export async function getActiveIngredients(req, res) {
+  const searchText = toCleanText(req.query.q);
+  const pattern = `%${searchText}%`;
+  const limitRaw = Number(req.query.limit);
+  const limit =
+    Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.min(Math.max(Math.floor(limitRaw), 1), 500)
+      : 200;
+
+  const result = await query(
+    `
+      SELECT
+        id::text AS id,
+        code,
+        name_en AS "nameEn"
+      FROM active_ingredients
+      WHERE is_active = true
+        AND (
+          $1::text = ''
+          OR name_en ILIKE $2
+          OR COALESCE(name_th, '') ILIKE $2
+          OR code ILIKE $2
+        )
+      ORDER BY name_en ASC
+      LIMIT $3
+    `,
+    [searchText, pattern, limit]
+  );
+
+  return res.json({ items: result.rows });
+}
+
+export async function getUnitTypes(req, res) {
+  const searchText = toCleanText(req.query.q);
+  const pattern = `%${searchText}%`;
+  const limitRaw = Number(req.query.limit);
+  const limit =
+    Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.min(Math.max(Math.floor(limitRaw), 1), 500)
+      : 200;
+
+  const result = await query(
+    `
+      SELECT
+        id::text AS id,
+        code,
+        name_en AS "nameEn",
+        name_th AS "nameTh",
+        symbol
+      FROM unit_types
+      WHERE is_active = true
+        AND (
+          $1::text = ''
+          OR code ILIKE $2
+          OR name_en ILIKE $2
+          OR COALESCE(name_th, '') ILIKE $2
+          OR COALESCE(symbol, '') ILIKE $2
+        )
+      ORDER BY code ASC
+      LIMIT $3
+    `,
+    [searchText, pattern, limit]
+  );
+
+  return res.json({ items: result.rows });
+}
+
+export async function getGenericNames(_req, res) {
+  const result = await query(
+    `
+      SELECT DISTINCT UPPER(TRIM(generic_name)) AS generic_name
+      FROM products
+      WHERE generic_name IS NOT NULL
+        AND TRIM(generic_name) <> ''
+      ORDER BY generic_name ASC
+    `
+  );
+
+  return res.json({
+    generic_names: result.rows.map((row) => row.generic_name).filter(Boolean),
+  });
+}
+
 export async function getProductsSnapshot(_req, res) {
   const result = await query(
     `
       SELECT
+        p.id AS product_id,
         pul.barcode,
         p.product_code,
         p.trade_name,
         COALESCE(pp.price, 0) AS price,
-        ut.symbol AS unit_symbol
+        ut.symbol AS unit_symbol,
+        COALESCE(pr.report_group_codes, ARRAY[]::text[]) AS report_group_codes
       FROM product_unit_levels pul
       JOIN products p ON p.id = pul.product_id
       LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
+      LEFT JOIN LATERAL (
+        SELECT array_agg(rg.code ORDER BY rg.code) AS report_group_codes
+        FROM product_report_groups prg
+        JOIN report_groups rg ON rg.id = prg.report_group_id
+        WHERE prg.product_id = p.id
+          AND prg.effective_from <= CURRENT_DATE
+          AND (prg.effective_to IS NULL OR prg.effective_to > CURRENT_DATE)
+      ) pr ON true
       LEFT JOIN LATERAL (
         SELECT pp.price
         FROM product_prices pp
@@ -950,12 +1214,14 @@ export async function getProductsSnapshot(_req, res) {
 
   return res.json(
     result.rows.map((row) => ({
+      id: row.product_id,
       barcode: row.barcode,
       product_code: row.product_code,
       product_name: row.trade_name,
       price_baht: Number(row.price || 0),
       qty_per_unit: 1,
       unit: row.unit_symbol || "",
+      reportGroupCodes: Array.isArray(row.report_group_codes) ? row.report_group_codes : [],
     }))
   );
 }
@@ -989,7 +1255,6 @@ export async function createProduct(req, res) {
   const ingredients = hasIngredientsField ? normalizeIngredientsInput(body.ingredients) : [];
   const { reportGroupCodes } = normalizeReportGroupCodesInput(body);
   const genericNameInput = toCleanText(body.genericName || body.generic_name);
-  const genericName = ingredients.length ? composeGenericName(ingredients) : genericNameInput || null;
   const barcode = toCleanText(body.barcode);
   const manufacturerName = toCleanText(body.manufacturerName || body.importerName);
   const packageSize = toCleanText(body.packageSize || body.packageLabel || body.package_notes);
@@ -1005,6 +1270,9 @@ export async function createProduct(req, res) {
     price !== null;
 
   const productId = await withTransaction(async (client) => {
+    const normalizedIngredients = hasIngredientsField
+      ? await hydrateIngredientsByActiveIngredientId(client, ingredients)
+      : [];
     const dosageFormId = await resolveDosageFormId(
       client,
       body.dosageFormCode || body.dosage_form_code,
@@ -1032,7 +1300,9 @@ export async function createProduct(req, res) {
       [
         toCleanText(body.productCode || body.product_code) || null,
         tradeName,
-        genericName,
+        normalizedIngredients.length
+          ? composeGenericName(normalizedIngredients)
+          : genericNameInput || null,
         dosageFormId,
         manufacturerLocationId,
         toCleanText(body.noteText || body.note_text) || null,
@@ -1041,7 +1311,7 @@ export async function createProduct(req, res) {
 
     const createdProductId = inserted.rows[0].id;
     if (hasIngredientsField) {
-      await syncProductIngredients(client, createdProductId, ingredients);
+      await syncProductIngredients(client, createdProductId, normalizedIngredients);
     }
     if (reportGroupCodes.length) {
       await syncProductReportGroups(client, createdProductId, reportGroupCodes);
@@ -1122,17 +1392,6 @@ export async function updateProduct(req, res) {
     hasBarcodeField || hasPackageSizeField || hasUnitTypeCodeField || hasPriceField;
 
   const current = existing.rows[0];
-  let genericName = current.generic_name;
-  if (hasIngredientsField) {
-    if (ingredients.length) {
-      genericName = composeGenericName(ingredients);
-    } else if (hasGenericNameField) {
-      genericName = genericNameInput || null;
-    }
-  } else if (hasGenericNameField) {
-    genericName = genericNameInput || null;
-  }
-
   const nextIsActive = hasIsActiveField
     ? parseBoolean(body.isActive ?? body.is_active, current.is_active)
     : current.is_active;
@@ -1145,6 +1404,20 @@ export async function updateProduct(req, res) {
     ? toCleanText(body.noteText || body.note_text) || null
     : current.note_text;
   await withTransaction(async (client) => {
+    const normalizedIngredients = hasIngredientsField
+      ? await hydrateIngredientsByActiveIngredientId(client, ingredients)
+      : [];
+    let genericName = current.generic_name;
+    if (hasIngredientsField) {
+      if (normalizedIngredients.length) {
+        genericName = composeGenericName(normalizedIngredients);
+      } else if (hasGenericNameField) {
+        genericName = genericNameInput || null;
+      }
+    } else if (hasGenericNameField) {
+      genericName = genericNameInput || null;
+    }
+
     const dosageFormId = hasDosageFormField
       ? await resolveDosageFormId(
           client,
@@ -1185,7 +1458,7 @@ export async function updateProduct(req, res) {
     );
 
     if (hasIngredientsField) {
-      await syncProductIngredients(client, id, ingredients);
+      await syncProductIngredients(client, id, normalizedIngredients);
     }
     if (hasReportGroupField) {
       await syncProductReportGroups(client, id, reportGroupCodes);

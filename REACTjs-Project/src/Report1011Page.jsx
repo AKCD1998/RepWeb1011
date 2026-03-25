@@ -10,6 +10,7 @@ import { useReport1011Products } from "./hooks/useReport1011Products";
 import { buildReport } from "./lib/report1011/buildReport";
 import { DEFAULT_SKU, LS_SKU_KEY } from "./lib/report1011/constants";
 import { buildReportCsv } from "./lib/report1011/exportCsv";
+import { authApiClient } from "./lib/authApi";
 
 const toCsvText = (rows) => {
   const header = "pid,full_name";
@@ -61,13 +62,10 @@ export default function Report1011Page() {
     setPatientsStatus("กำลังโหลด...");
     try {
       const apiKey = import.meta.env.VITE_API_KEY;
-      const res = await fetch("/api/patients", {
+      const res = await authApiClient.get("/api/patients", {
         headers: apiKey ? { "X-API-KEY": apiKey } : undefined,
       });
-      if (!res.ok) {
-        throw new Error("โหลดรายชื่อผู้ป่วยไม่สำเร็จ");
-      }
-      const data = await res.json();
+      const data = res.data;
       if (!Array.isArray(data) || !data.length) {
         setPatientsCsvText("");
         setPatientsStatus("ไม่พบรายชื่อผู้ป่วย");

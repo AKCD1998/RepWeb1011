@@ -1,9 +1,16 @@
 import { Router } from "express";
-import { createDispense } from "../controllers/dispenseController.js";
+import { createDispense, listDispenseHistory } from "../controllers/dispenseController.js";
 import { requireBranchAccess, requireRole, verifyToken } from "../middleware/authMiddleware.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
 const router = Router();
+
+router.get(
+  "/history",
+  verifyToken,
+  requireRole("ADMIN", "PHARMACIST", "OPERATOR"),
+  asyncHandler(listDispenseHistory)
+);
 
 router.post(
   "/",

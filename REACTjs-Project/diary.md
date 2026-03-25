@@ -382,3 +382,494 @@ How to verify:
   - [ ] Try to tamper payload in devtools as branch user:
     - backend rejects mismatch (`403`) on locked field overrides or enforces user location context
   - [ ] No regressions in other pages.
+
+## 2026-03-01 15:50:38 +07:00 - Unit-level stability fix (permanent) for Receiving stock delta labels
+- Summary:
+  - Added migration `migrations/0007_unit_level_code_stability.sql` to introduce `product_unit_levels.unit_key` (stable structural key) and backfill it for all existing unit levels.
+  - Added unique partial index on `(product_id, unit_key)` to prevent future identity collisions.
+  - Added safe corrupted-label repair in migration for rows with `display_name LIKE '%?%'` using neutral fallback format (`1 unit = N base`) without guessing Thai names.
+  - Refactored backend unit-level resolver:
+    - Added `buildUnitLevelKey(...)` in helpers.
+    - `ensureProductUnitLevel(...)` now prioritizes structural key lookup (`unit_key`) and only then falls back to legacy matching paths.
+    - Added backward-compatible legacy patch behavior (fills missing `unit_key`, repairs broken legacy display names when safe).
+    - New inserts use deterministic stable code derived from key hash (`ULK_*`) and persist `unit_key`.
+  - Kept movement API backward-compatible and made unit label response resilient:
+    - `/api/movements` now returns `COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit') AS "unitLabel"`.
+  - Added regression script `scripts/verify-unit-level-stability.mjs` and npm script `verify:unit-level`.
+- Files changed:
+  - `migrations/0007_unit_level_code_stability.sql`
+  - `server/controllers/helpers.js`
+  - `server/controllers/inventoryController.js`
+  - `server/controllers/dispenseController.js`
+  - `scripts/verify-unit-level-stability.mjs`
+  - `package.json`
+  - `diary.md`
+- Verification run:
+  - `npm run build` -> pass
+  - migration `0007` output:
+    - `dry_run_unit_level_rows = 45`
+    - `backfilled_unit_key_rows = 45`
+    - `dry_run_corrupted_display_name_rows = 2`
+    - `updated_corrupted_display_name_rows = 2`
+  - post-migration checks:
+    - `IC-002604` no longer has `???` in selected movement unit label; latest movement unit label now `1 unit = 1 base`
+    - rows with `display_name LIKE '%?%'` -> `0`
+  - `npm run verify:unit-level` -> pass
+
+## 2026-03-01 16:29:57 +07:00 - Movement unit-level reference safety pass (Products vs Receiving consistency)
+- Why:
+  - Found mismatch between pages for `IC-002604`:
+    - Products page chooses SELLABLE unit (`1 แผง = 10 เม็ด`) from product master ordering.
+    - Receiving movement history shows label from historical `stock_movements.unit_level_id`.
+  - For this product, movement referenced a legacy unit level (`1_10`) that is not structurally equivalent to SELLABLE by `unit_key`.
+- What changed:
+  - Added migration `migrations/0008_fix_movement_unit_level_refs.sql`.
+  - Migration logic:
+    - resolves SELLABLE unit level per product using same ordering as Products API.
+    - collects distinct movement-referenced legacy unit levels.
+    - checks structural equivalence via `unit_key`.
+    - repoints `stock_movements.unit_level_id -> SELLABLE` only when equivalent.
+    - if non-equivalent, attempts safe Thai label repair only when inferable from trusted columns.
+    - otherwise reports `manual label needed` and performs no unsafe update.
+  - Included dry-run counts immediately before each UPDATE using identical WHERE clauses.
+  - Included verification SQL in migration output.
+- Run results (`IC-002604`):
+  - `dry_run_distinct_legacy_refs = 1`
+  - `dry_run_movement_repoint_count = 0` -> `UPDATE 0` (blocked by safety check)
+  - `dry_run_safe_label_update_count = 0` -> `UPDATE 0` (Thai inference unavailable safely)
+  - verification: latest movement still points to legacy row, label remains readable (`1 unit = 1 base`)
+  - global check: `verify_rows_with_question_mark = 0`
+
+## 2026-03-01 17:10:52 +07:00 - SSOT architecture rollout (stock ledger + unit conversions)
+- Architecture decision (ADR):
+  - SSOT stock math = `stock_movements.quantity_base` (signed base-unit quantity).
+  - SSOT unit conversion = `product_unit_levels.unit_key` (`qpb` token in stable key).
+  - `display_name` is non-authoritative presentation label only.
+- Why:
+  - Products page and Receiving page were reading different unit labels from different rows.
+  - Historical rows could still be readable but calculations needed one canonical numeric field.
+- What changed:
+  - Added migration `migrations/0009_stock_movements_quantity_base_ssot.sql` (reconciliation-first, no wipe):
+    - adds `stock_movements.quantity_base numeric(18,6)`.
+    - backfills signed base quantities from `quantity * qpb(unit_key)`.
+    - adds integrity checks for sign and non-zero base quantity.
+    - adds trigger `before_stock_movements_set_quantity_base` to recompute/validate on insert/update.
+    - rebuilds `stock_on_hand` cache from ledger (`SUM(quantity_base)`), with safety checks.
+  - Backend updates:
+    - movement create paths now compute/store `quantity_base` and apply stock delta in base units:
+      - `server/controllers/inventoryController.js`
+      - `server/controllers/dispenseController.js`
+    - stock on hand API now derives quantity from movement ledger aggregation (`SUM(quantity_base)`) instead of trusting UI labels.
+    - movements API now returns:
+      - `quantityBase` (for math),
+      - `unitLabel` (sellable/current display),
+      - `movementUnitLabel` (historical unit row),
+      - `baseUnitLabel` (for base delta display).
+  - UI alignment:
+    - `src/pages/Receiving.jsx` now renders delta using movement quantity + optional base quantity text.
+    - Keeps label display aligned with sellable unit while preserving historical unit in tooltip.
+  - Data hygiene tooling:
+    - added `scripts/audit-unit-levels.mjs`
+    - added npm script: `npm run audit:unit-levels`
+- Migration run results (`0009`):
+  - `dry_run_missing_qpb_rows = 0`
+  - `dry_run_quantity_base_backfill_rows = 1` -> `UPDATE 1`
+  - `post_backfill_zero_or_null_quantity_base_rows = 0`
+  - `dry_run_products_missing_base_unit = 4` (reported only, no abort; fallback base picker used)
+  - `dry_run_negative_stock_groups = 0`
+  - `dry_run_delete_stock_on_hand_rows = 1` -> `DELETE 1`
+  - `dry_run_insert_stock_on_hand_rows = 1` -> `INSERT 1`
+  - `verify_zero_base_with_nonzero_qty = 0`
+  - `verify_unitkey_or_label_has_question_mark = 0`
+  - sample sum: `IC-002604 -> SUM(quantity_base)=1.000000`
+- Verification notes:
+  - For `IC-002604`, historical movement row still references legacy `unit_level_id` (by design safety), but API display label now resolves to sellable label (`1 แผง = 10 เม็ด`) while math uses `quantity_base`.
+  - Audit snapshot: `audit-unit-levels: products=48, flagged=5` (4 products missing unit levels, 1 product with extra legacy sellable row).
+
+## 2026-03-01 17:52:42 +07:00 - Receiving movement lot tracking enforcement (UI + API)
+- Why:
+  - Movement records without lot metadata cannot be traced reliably for batch/expiry audits.
+- What changed:
+  - Frontend (`src/pages/Receiving.jsx`):
+    - added required fields in movement modal:
+      - `Lot Number`
+      - `วันหมดอายุ (Exp)`
+    - movement table now includes a dedicated `Lot` column.
+    - save payload now always sends `lotNo` and `expDate`.
+  - API client (`src/lib/api.js`):
+    - `inventoryApi.createMovement` now validates and sends `lotNo` + `expDate` (optional `mfgDate`, `manufacturer` pass-through).
+  - Backend (`server/controllers/inventoryController.js`):
+    - `createMovement` now enforces lot tracking:
+      - requires lot identity (`lotNo`, `expDate`) unless `lotId` is explicitly provided.
+      - `RECEIVE`: upserts lot via `ensureLot(...)`.
+      - `TRANSFER_OUT` / `DISPENSE`: lot must already exist for that product + exp date.
+    - all movement inserts in `createMovement` now persist `lot_id` (no longer forced `NULL`).
+    - stock delta application in `createMovement` now updates by lot-aware key.
+- Impact:
+  - New movements from Receiving modal are lot-traceable end-to-end.
+  - Existing historical movements without lot remain unchanged.
+
+## 2026-03-01 17:58:59 +07:00 - Receiving modal stabilization after lot enforcement
+- Issue observed:
+  - Browser warning: uncontrolled -> controlled input in `Receiving`.
+  - `POST /api/inventory/movements` returned `500` in movement save flow.
+- Fixes:
+  - UI hardening (`src/pages/Receiving.jsx`):
+    - all controlled form fields now use explicit fallback values (`?? ''`) to prevent uncontrolled transitions.
+  - Backend validation path (`server/controllers/inventoryController.js`):
+    - verified `createMovement` SQL parameter mapping for RECEIVE/TRANSFER_OUT/DISPENSE with `lot_id` + `quantity_base`.
+    - exercised `createMovement` with live DB smoke test (`status 201`) and post-test cleanup.
+- Verification:
+  - `npm run build` -> pass
+  - direct controller smoke test (RECEIVE with lotNo/expDate) -> `201`
+  - cleanup + stock cache rebuild completed after smoke test.
+
+## 2026-03-01 18:18:24 +07:00 - Deliver barcode multiplier workflow (`*` / `PageDown`)
+- Why:
+  - Deliver input placeholder already described multiply scan flow, but behavior was not implemented yet.
+  - Users could only scan/add `qty=1` per enter.
+- What changed:
+  - Frontend (`src/pages/Deliver.jsx`):
+    - added `pendingMultiplier` state for "apply on next scan" quantity.
+    - added key handling on barcode input:
+      - `*` / `NumpadMultiply` / `PageDown` -> arm multiplier from typed number.
+      - `Enter` -> product lookup and add using armed qty (or `1` by default).
+    - `couponBox` is now clickable/keyboard-activatable to arm multiplier from typed number.
+    - `multChip` now shows active multiplier (`xN`) and clears after successful scan.
+    - `handleAddProduct(...)` now supports adding custom qty per scan while keeping existing merge logic.
+  - Styling (`src/pages/Deliver.css`):
+    - `multChip` visibility is now active-only (`.mult.is-active`).
+    - added pointer cursor to `coupon` for clearer affordance.
+- Verification:
+  - `npm run build` -> pass
+
+## 2026-03-01 18:43:13 +07:00 - Deliver metadata panel (report type + lot number auto-fill on scan)
+- Why:
+  - Needed to shrink notes area and add structured fields so Dispense flow can track report type and lot from scanned product.
+  - Required dropdown values to be auto-derived from product/stock data, not free text.
+- What changed:
+  - Frontend (`src/pages/Deliver.jsx`):
+    - converted notes section into 50/50 layout:
+      - left: customer notes textarea.
+      - right: `ประเภทรายงาน` dropdown + `เลข lot number` dropdown.
+    - after successful barcode scan:
+      - report type dropdown auto-populates from product `reportGroupCodes` (supports `KY10`, `KY11`).
+      - lot dropdown auto-populates from received/on-hand lots for the scanned product.
+    - both dropdowns remain user-selectable after auto-fill.
+  - Frontend cache/util (`src/utils/deliverCache.js`):
+    - product normalization now carries `id` and `reportGroupCodes`.
+    - `productLookup` now sync-refreshes server data when cached metadata is incomplete.
+    - added `fetchProductLots(productId)` helper for lot dropdown options.
+  - Backend products API (`server/controllers/productsController.js`):
+    - barcode lookup and snapshot now include product id + active `reportGroupCodes`.
+  - Backend stock API (`server/controllers/inventoryController.js`):
+    - `GET /api/stock/on-hand` now accepts optional `productId` filter for targeted lot lookup.
+  - Styling (`src/pages/Deliver.css`):
+    - added grid/field styles for new 2-column notes metadata panel and dropdown controls.
+- Verification:
+  - `npm run build` -> pass
+  - `node --check server/controllers/productsController.js` -> pass
+  - `node --check server/controllers/inventoryController.js` -> pass
+
+## 2026-03-01 18:53:31 +07:00 - Deliver auto-fill reliability fix (report type/lot not found)
+- Issue:
+  - Deliver showed `ไม่พบประเภทรายงาน` / `ไม่พบ lot` even when:
+    - Products page clearly had `reportGroupCodes` (`KY11` for `IC-002604`)
+    - Receiving/stock API had on-hand lot (`25H15E4`).
+- Root cause:
+  - Deliver used barcode lookup payload that can be incomplete (missing `reportGroupCodes`/`id`) and often relied on old cached shape.
+  - Deliver local API base used direct `http://localhost:5050` instead of same-origin `/api`, increasing chance of stale/fallback behavior.
+- What changed:
+  - `src/utils/deliverApiBase.js`:
+    - local default API base switched to `""` (same-origin) so dev uses Vite `/api` proxy path consistently.
+  - `src/utils/deliverCache.js`:
+    - added `hydrateProductMetadata(...)` fallback:
+      - if scanned product misses metadata, fetches `/api/products?search=...`
+      - matches by barcode/productCode and merges `id + reportGroupCodes`.
+    - `fetchProductLots(...)` now supports fallback filtering by `productCode` (not only `productId`).
+  - `src/pages/Deliver.jsx`:
+    - scan flow now calls metadata hydration before populating report-type/lot dropdowns.
+- Verification:
+  - API checks:
+    - `GET /api/products?search=IC-002604` -> includes `reportGroupCodes: ['KY11']`
+    - `GET /api/stock/on-hand` -> includes `lotNo: 25H15E4` for `IC-002604`
+  - `npm run build` -> pass
+
+## 2026-03-01 19:00:43 +07:00 - Deliver barcode handler crash fix (`Cannot set properties of null`)
+- Issue:
+  - Browser threw `Uncaught (in promise) TypeError: Cannot set properties of null (setting 'value')` in `Deliver.jsx` during barcode flow.
+- Root cause:
+  - `handleBarcodeKeyDown` accessed `event.currentTarget` after `await`, where React synthetic event target can be nullified.
+- Fix:
+  - Captured input element reference (`inputEl`) at handler start.
+  - Replaced all post-async `event.currentTarget` usage with safe `inputEl` checks.
+  - Wrapped async barcode flow in `try/catch/finally` to avoid unhandled promise errors and always reset/focus input safely.
+- Verification:
+  - `npm run build` -> pass
+
+## 2026-03-01 19:34:37 +07:00 - Package size label normalization (`=` / free text -> `x` chain)
+- Why:
+  - Needed consistent package-size text format across Products/Receiving/Deliver display usage.
+  - Team decision: standardize on `x` separator and remove annotation suffixes in these target rows.
+- Data updates (DB direct, transactional):
+  - `IC-002604`: `1 แผง = 10 เม็ด` -> `1 แผง x 10 เม็ด`
+  - `IC-005418`: `1 แผง = 10 เม็ด (BLISTER)` -> `1 แผง x 10 เม็ด`
+  - `IC-000812`: `1 กล่อง 1 หลอด 200 metered actuations` -> `1 กล่อง x 1 หลอด x 200 metered actuations`
+- Safety:
+  - ran `SELECT COUNT(*)` dry-run immediately before each `UPDATE` with same WHERE clause.
+  - each target returned `1` and each update result was `UPDATE 1`.
+- Verification:
+  - post-update query confirmed normalized labels are now stored in `product_unit_levels.display_name` for all 3 target product codes.
+
+## 2026-03-01 19:40:17 +07:00 - Legacy unit-level purge (test env cleanup)
+- Why:
+  - Team requested fully clean test data with no leftover legacy unit-level rows.
+  - Historical legacy rows were no longer needed operationally.
+- What changed (DB transactional cleanup):
+  - computed canonical keepers per product:
+    - sellable keeper: first by `is_sellable DESC, is_base DESC, sort_order ASC, created_at ASC`
+    - base keeper: first by `is_base DESC, sort_order ASC, created_at ASC`
+  - identified legacy rows (`not sellable keeper` and `not base keeper`) into temp mapping table.
+  - repointed references from legacy -> canonical where applicable:
+    - `stock_movements.unit_level_id` -> sellable keeper
+    - `dispense_lines.unit_level_id` -> sellable keeper
+    - `stock_on_hand.base_unit_level_id` -> base keeper
+    - `product_prices.unit_level_id` -> sellable keeper (with conflict-safe guard)
+  - deleted remaining `product_prices` conflicts on legacy ids (none found).
+  - deleted legacy rows from `product_unit_levels`.
+- Dry-run + row counts:
+  - `dry_run_legacy_rows = 1`
+  - `dry_run_stock_movements_update = 1` -> `UPDATE 1`
+  - `dry_run_dispense_lines_update = 0` -> `UPDATE 0`
+  - `dry_run_stock_on_hand_update = 0` -> `UPDATE 0`
+  - `dry_run_product_prices_update = 0` -> `UPDATE 0`
+  - `dry_run_product_prices_delete_conflicts = 0` -> `DELETE 0`
+  - `dry_run_delete_legacy_rows = 1` -> `DELETE 1`
+- Verification:
+  - `remaining_legacy_rows = 0`
+  - `IC-002604` now has one unit level only: `1 แผง x 10 เม็ด`
+  - latest movement for `IC-002604` now references canonical unit level label.
+
+## 2026-03-01 19:46:27 +07:00 - Remove inactive test products with `=` package labels
+- Why:
+  - Team decided to remove non-production test products and keep future examples based on active canonical data.
+  - Targets were inactive rows still showing `=` style package labels.
+- Removed product codes:
+  - `BAR-1771935381242`
+  - `CHK-1771937039829`
+  - `RG-1771936709913`
+- Safety checks:
+  - verified all 3 targets were `is_active = false`.
+  - dependency check before delete:
+    - `stock_movements = 0`
+    - `stock_on_hand = 0`
+    - `dispense_lines = 0`
+    - `dispensing_rules = 0`
+  - dry-run count before delete:
+    - `dry_run_products_delete = 3`
+- Execution:
+  - transactional delete on `products` with guard `is_active = false` -> `DELETE 3`.
+  - related cascade tables (`product_unit_levels`, `product_prices`, `product_report_groups`, `product_ingredients`) cleaned automatically via FK cascade.
+- Verification:
+  - query by the 3 product codes returned `0` rows.
+  - package size format distribution now:
+    - `HAS_X_CHAIN_ONLY = 42`
+    - no remaining `HAS_EQUAL_ONLY` / free-text rows.
+
+## 2026-03-01 19:48:04 +07:00 - Products form: package size input -> controlled dropdown
+- Why:
+  - Required UI-level guardrail so newly saved products follow the same package-size pattern as current canonical dataset.
+- What changed:
+  - `src/pages/Products.jsx`:
+    - replaced `ขนาดบรรจุภัณฑ์` text input with a `<select>` dropdown.
+    - added hardcoded option list mirrored from current active SQL values (17 options, `x` pattern).
+    - added legacy fallback display option when editing a record whose `packageSize` is outside the mirrored list.
+- Verification:
+  - `npm run build` -> pass
+
+## 2026-03-01 19:51:27 +07:00 - Products form: Unit Type Code input -> controlled dropdown
+- Why:
+  - Requested to restrict `Unit Type Code` to existing choices currently used in DB and avoid free-text drift.
+- What changed:
+  - `src/pages/Products.jsx`:
+    - replaced `Unit Type Code` text input with `<select>`.
+    - mirrored option list from current DB usage:
+      - `ACCUHALER`, `BLISTER`, `BOTTLE`, `BOX`, `MDI`, `TUBE`, `TURBUHALER`
+    - added legacy fallback option when editing a record whose value is outside the mirrored list.
+- Verification:
+  - `npm run build` -> pass
+
+## 2026-03-01 19:53:24 +07:00 - Products form: Dosage Form Code input -> controlled dropdown
+- Why:
+  - Requested to use existing DB dosage-form choices as dropdown and avoid free-text inconsistencies.
+- What changed:
+  - `src/pages/Products.jsx`:
+    - replaced `Dosage Form Code` text input with `<select>`.
+    - mirrored option list from active DB usage:
+      - `INHALER`, `OINTMENT`, `ORAL_SOLUTION`, `SOFT_GEL`, `TABLET`
+    - added legacy fallback option when editing records with code outside mirrored list.
+- Verification:
+  - `npm run build` -> pass
+
+## 2026-03-07 11:46:21 +07:00 - Receiving unit dropdown rollout + movement save failures (`404` / `400`) resolution
+- Issue observed:
+  - `GET /api/products/:id/unit-levels` returned `404 Not found` from UI (`localhost:5173` proxied to backend).
+  - `POST /api/inventory/movements` returned `400 Bad Request` after selecting product/unit in Receiving modal.
+- Root causes:
+  - Backend process on `:5050` was still running older code, so new route `/:id/unit-levels` was not loaded yet (required server restart).
+  - For selected test products (`IC-999999`, `IC-005418`), `product_unit_levels.unit_key` was `NULL`; movement pipeline rejects this in base-unit conversion guard (`resolveProductBaseUnitLevel` / `qpb` extraction).
+- Fixes applied:
+  - Added product-unit-level API for Receiving dropdown:
+    - `GET /api/products/:id/unit-levels`
+    - files: `server/controllers/productsController.js`, `server/routes/productsRoutes.js`, `src/lib/api.js`, `src/pages/Receiving.jsx`.
+  - Data repair (DB direct):
+    - backfilled missing `product_unit_levels.unit_key` for all `NULL` rows using the same structural key pattern from migration `0007`.
+    - updated rows: `2` (`IC-999999`, `IC-005418`).
+    - post-check: `SELECT COUNT(*) FROM product_unit_levels WHERE unit_key IS NULL` -> `0`.
+  - Preventive hardening in product upsert flow:
+    - when create/update product unit level via `upsertPrimaryUnitLevelAndPrice`, assign fallback `unit_key` if missing (`COALESCE(unit_key, fallbackUnitKey)`).
+    - new inserts now include `unit_key` explicitly in this flow.
+- Verification:
+  - `GET /api/products/a83dccf2-b7a7-491f-b9c9-0c6242c0e91f/unit-levels` -> `200` with unit options payload.
+  - frontend build: `npm run build` -> pass.
+  - server module load sanity:
+    - `productsController` import -> ok
+    - route import -> ok.
+
+## 2026-03-10 19:47:17 +07:00 - Post-change audit: Deliver confirm/dispense flow (after `lotId` switch)
+
+# Current State
+- Deliver confirm modal flow is implemented in `src/pages/Deliver.jsx`:
+  - button opens modal (`handleOpenConfirmModal`).
+  - confirm triggers `handleConfirmDispense` with loading state + duplicate-click guard (`isSubmitting`).
+  - payload builder validates at least 1 line, `qty > 0`, and `unitLabel` present.
+- Frontend now sends `lines[].lotId` as primary lot identifier and keeps `lotNo` as optional metadata:
+  - lot dropdown uses `option value={lotId}` and label `lotNo (exp YYYY-MM-DD)` when available.
+- Backend `POST /api/dispense` is transactional (`withTransaction`) and writes:
+  - `patients` via `upsertPatientByPid(...)`
+  - `dispense_headers`
+  - `dispense_lines`
+  - `stock_movements` (`movement_type='DISPENSE'`, `quantity_base` negative)
+  - `stock_on_hand` via `applyStockDelta(...)`
+- Existing lot improvement already completed:
+  - backend prefers explicit `line.lotId`.
+  - backend validates lot ownership with `assertLotBelongsToProduct(...)`.
+  - legacy `lotNo` fallback path still exists for backward compatibility.
+
+# Confirmed Remaining Problems
+1. Title: Same product cannot be split into multiple lots in one confirm transaction
+- Severity: HIGH
+- Plain-language explanation: Deliver merges items by product name early, so one product becomes one row/state object and can hold only one `lotId`.
+- Why it matters: real dispensing can require splitting quantity across lots; current behavior blocks valid workflows and can force wrong lot attribution.
+- Files to inspect:
+  - `src/pages/Deliver.jsx` (`handleAddProduct`, `handleLotSelectionChange`, `buildDispensePayload`)
+- Type: Design limitation (with functional impact)
+
+2. Title: Unit conversion still depends on `unitLabel` text lookup/creation
+- Severity: HIGH
+- Plain-language explanation: backend resolves unit level by label text (`ensureProductUnitLevel`) and converts via `unit_key` qpb; if label is mismatched/ambiguous, conversion can be wrong or create unintended unit levels.
+- Why it matters: wrong `quantity_base` causes incorrect stock deduction and stock-on-hand drift.
+- Files to inspect:
+  - `server/controllers/dispenseController.js` (line processing and `convertToBase`)
+  - `server/controllers/helpers.js` (`ensureProductUnitLevel`, `getQuantityPerBaseFromUnitLevel`, `convertToBase`)
+- Type: Design limitation (high data-integrity risk)
+
+3. Title: `reportType` and `actionSource` are still unstructured metadata
+- Severity: MEDIUM
+- Plain-language explanation: metadata is appended into `dispense_headers.note_text`/`dispense_lines.note_text` strings, not stored in dedicated columns.
+- Why it matters: reporting/filtering depends on text parsing and is fragile.
+- Files to inspect:
+  - `server/controllers/dispenseController.js` (`composeHeaderNote`, `composeLineNote`)
+  - `migrations/0001_ky1011_schema.sql` (`dispense_headers`, `dispense_lines` tables)
+  - `migrations/0004_ky1011_report_groups.sql` (product report grouping exists, but not transaction-level fields)
+- Type: Schema limitation
+
+4. Title: Admin branch resolution remains fragile
+- Severity: MEDIUM
+- Plain-language explanation: admin bypasses branch-force middleware, frontend usually sends empty `branchCode`, and controller falls back to `req.user.location_id`; if admin has no branch `location_id` (or non-branch location), create dispense can fail.
+- Why it matters: admin users may be unable to confirm dispensing despite valid business intent.
+- Files to inspect:
+  - `src/pages/Deliver.jsx` (`branchCode` payload source from auth user)
+  - `server/routes/dispenseRoutes.js` (`requireBranchAccess` behavior)
+  - `server/middleware/authMiddleware.js` (`ADMIN` bypass in branch middleware)
+  - `server/controllers/dispenseController.js` (branch resolution logic)
+  - `server/controllers/authController.js` (JWT user payload shape)
+- Type: Bug / authorization-flow design gap
+
+5. Title: Lot ambiguity is reduced but not fully eliminated (legacy fallback path)
+- Severity: MEDIUM
+- Plain-language explanation: if `lotId` is missing, backend resolves by `product_id + lot_no` and picks latest expiry (`ORDER BY exp_date DESC LIMIT 1`).
+- Why it matters: old clients can still map to unintended lot when same `lot_no` has multiple expiry batches.
+- Files to inspect:
+  - `server/controllers/dispenseController.js` (`resolveLotIdForDispenseLine`)
+- Type: Backward-compatibility limitation
+
+6. Title: Line metadata can be duplicated in `note_text`
+- Severity: LOW
+- Plain-language explanation: frontend already builds `line.note` metadata (`reportType/lotNo`), then backend appends metadata again in `composeLineNote`.
+- Why it matters: noisy/duplicated notes complicate audits and downstream parsing.
+- Files to inspect:
+  - `src/pages/Deliver.jsx` (`buildLineNote`, `buildDispensePayload`)
+  - `server/controllers/dispenseController.js` (`composeLineNote`)
+- Type: Bug / data-hygiene issue
+
+7. Title: Header-level `reportType` can misrepresent multi-item transaction
+- Severity: LOW
+- Plain-language explanation: header payload uses `selectedReportType` (active item context), while each line can carry its own report type.
+- Why it matters: header metadata may not represent all lines in mixed KY10/KY11 transactions.
+- Files to inspect:
+  - `src/pages/Deliver.jsx` (`selectedReportType`, payload `reportType`)
+  - `server/controllers/dispenseController.js` (header note composition)
+- Type: Design limitation
+
+# Recommended Fix Order
+1. Fix multi-lot capability for same product in Deliver item model (separate rows by product+lot selection context, not merged by name only).
+2. Stabilize unit conversion path by sending/using canonical unit identifier (for example `unitLevelId`) instead of relying on label text matching.
+3. Harden admin branch resolution (explicit branch requirement/selection for ADMIN when `location_id` is missing or non-branch).
+4. Add minimal structured transaction metadata fields for report/source (schema + controller mapping) while keeping old note parsing compatibility.
+5. Keep `lotNo` fallback only as temporary legacy path and mark/deprecate with clear telemetry or warning.
+6. Remove duplicated line metadata in `note_text` once structured fields are in place.
+
+# Next Recommended Task
+Start with Deliver line-model refactor to support multiple rows for the same product with different lots in a single confirmation flow, because this is the highest operational risk and directly impacts lot traceability and stock correctness.
+
+# Validation / QA To Run After Next Fix
+- [ ] Confirm one product can be dispensed across 2 different lots in one transaction.
+- [ ] Verify `dispense_lines` has separate rows per lot (`lot_id` distinct, quantities correct).
+- [ ] Verify matching `stock_movements` rows are created per lot with `movement_type='DISPENSE'` and negative `quantity_base`.
+- [ ] Verify `stock_on_hand` decrements each lot bucket correctly and never goes negative unexpectedly.
+- [ ] Verify confirm modal still prevents duplicate submission while request is in-flight.
+- [ ] Verify rollback works: inject one failing line and confirm no partial insert in `dispense_headers/dispense_lines/stock_movements/stock_on_hand`.
+- [ ] Verify patient upsert still works with and without PID after line-model changes.
+- [ ] Verify lotId primary path still works and legacy lotNo fallback behavior is unchanged for older payloads.
+
+# Notes For Future Codex
+- Deliver confirm flow summary:
+  - Frontend: `src/pages/Deliver.jsx` builds payload from scanned items + parsed patient notes (`src/utils/deliverPatientParser.js`) and calls `POST /api/dispense`.
+  - Backend route: `server/routes/dispenseRoutes.js` with auth middleware (`verifyToken`, role/branch access).
+  - Controller: `server/controllers/dispenseController.js` runs one DB transaction and writes patient/header/lines/movements/stock cache.
+- Current DB write path:
+  - `upsertPatientByPid` -> `patients`
+  - insert header -> `dispense_headers`
+  - insert each row -> `dispense_lines`
+  - insert movement row -> `stock_movements`
+  - apply delta -> `stock_on_hand`
+- Lot handling today:
+  - UI dropdown uses `lotId` value (good).
+  - Backend prefers `lotId` and verifies lot-product pairing (good).
+  - Legacy fallback from `lotNo` remains (intentional for compatibility, but still ambiguous risk).
+- Known limitations to keep tracking:
+  - same-product multi-lot not supported in one transaction due early merge logic.
+  - unit conversion still label-driven.
+  - report/source metadata still text-in-note.
+  - admin branch resolution may fail depending on auth payload.
+  - note metadata duplication.
+- Important assumptions:
+  - stock ledger source-of-truth is `stock_movements.quantity_base` (migration `0009`), and `stock_on_hand` is maintained as cache.
+  - transaction atomicity is required; keep `withTransaction` pattern and rollback behavior.
+  - lot/product/unit foreign-key integrity in schema should remain strict.
+- Things that should NOT be changed casually:
+  - do not remove `assertLotBelongsToProduct` checks.
+  - do not bypass `applyStockDelta` insufficient-stock guard.
+  - do not weaken `withTransaction` atomic behavior in dispense flow.
+  - do not migrate away from `lotId` as primary lot key in frontend payload.

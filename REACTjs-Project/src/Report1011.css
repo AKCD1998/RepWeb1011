@@ -14,6 +14,28 @@
   --warn: #c2410c;
   --warnbg: #fff3e6;
   --edge: var(--border);
+  --select-bg: var(--input-bg);
+  --select-text: var(--input-text);
+  --select-border: var(--border);
+  --select-focus-ring: rgba(37, 99, 235, 0.2);
+  --select-disabled-bg: color-mix(in srgb, var(--input-bg) 70%, var(--panel-soft));
+  --select-disabled-text: color-mix(in srgb, var(--input-text) 55%, var(--muted));
+  --select-option-bg: #f8fafc;
+  --select-option-text: #111827;
+  --select-option-selected-bg: #bfdbfe;
+  --select-option-selected-text: #0f172a;
+  --surface-0: color-mix(in srgb, var(--panel) 88%, var(--bg-soft));
+  --surface-1: color-mix(in srgb, var(--panel) 78%, var(--bg-deep));
+  --surface-2: color-mix(in srgb, var(--panel-soft) 88%, #dbe7f5);
+  --text-0: var(--ink);
+  --text-1: var(--muted);
+  --text-invert: #ffffff;
+  --border-0: var(--border);
+  --accent-2: color-mix(in srgb, var(--accent) 72%, #0ea5e9);
+  --positive: #15803d;
+  --negative: #b91c1c;
+  --warning: #a16207;
+  --focus-ring: rgba(37, 99, 235, 0.28);
 }
 
 [data-theme="dark"] {
@@ -31,6 +53,28 @@
   --shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
   --warn: #f59e0b;
   --warnbg: #2c1c0e;
+  --select-bg: var(--input-bg);
+  --select-text: var(--input-text);
+  --select-border: var(--border);
+  --select-focus-ring: rgba(96, 165, 250, 0.35);
+  --select-disabled-bg: color-mix(in srgb, var(--input-bg) 78%, #000 22%);
+  --select-disabled-text: color-mix(in srgb, var(--input-text) 45%, var(--muted));
+  --select-option-bg: #111827;
+  --select-option-text: #f3f4f6;
+  --select-option-selected-bg: #1d4ed8;
+  --select-option-selected-text: #ffffff;
+  --surface-0: #0f1725;
+  --surface-1: #142032;
+  --surface-2: #1b2a3f;
+  --text-0: #e7edf6;
+  --text-1: #a9b7c9;
+  --text-invert: #ffffff;
+  --border-0: #2e3f56;
+  --accent-2: #7dd3fc;
+  --positive: #86c7a2;
+  --negative: #e3a0a0;
+  --warning: #d8ba82;
+  --focus-ring: rgba(125, 211, 252, 0.34);
 }
 
 * {
@@ -185,6 +229,44 @@ select:focus {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
 }
 
+select {
+  background: var(--select-bg);
+  color: var(--select-text);
+  border-color: var(--select-border);
+  color-scheme: light;
+}
+
+[data-theme="dark"] select {
+  color-scheme: dark;
+}
+
+select:focus {
+  box-shadow: 0 0 0 3px var(--select-focus-ring);
+}
+
+select:disabled {
+  cursor: not-allowed;
+  opacity: 1;
+  background: var(--select-disabled-bg);
+  color: var(--select-disabled-text);
+}
+
+/* Browsers style native option popups differently; these are best-effort overrides plus color-scheme fallback. */
+select option,
+select optgroup {
+  background: var(--select-option-bg);
+  color: var(--select-option-text);
+}
+
+select option:checked {
+  background: var(--select-option-selected-bg);
+  color: var(--select-option-selected-text);
+}
+
+select optgroup {
+  font-weight: 600;
+}
+
 input[readonly] {
   background: var(--panel-soft);
   color: var(--muted);
@@ -281,6 +363,39 @@ input[readonly] {
   gap: 8px;
 }
 
+.upload-row input[type="file"] {
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--input-bg);
+  color: var(--input-text);
+  font: inherit;
+  line-height: 1.2;
+  box-sizing: border-box;
+}
+
+.upload-row input[type="file"]::file-selector-button,
+.upload-row input[type="file"]::-webkit-file-upload-button {
+  height: 34px;
+  margin-right: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 8px;
+  padding: 0 14px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.upload-row input[type="file"]::file-selector-button:hover,
+.upload-row input[type="file"]::-webkit-file-upload-button:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+}
+
 .patients-status {
   height: 40px;
   display: flex;
@@ -329,10 +444,39 @@ input[readonly] {
 }
 
 .lot-head {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border));
+  border-radius: 12px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 18%, var(--surface-1)) 0%,
+    color-mix(in srgb, var(--accent) 8%, var(--surface-0)) 100%
+  );
   font-size: 13px;
-  color: var(--muted);
+  color: color-mix(in srgb, var(--text-invert) 86%, var(--ink));
   text-transform: uppercase;
   letter-spacing: 0.6px;
+  margin-bottom: 4px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+.lot-head span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 1px;
+  font-weight: 700;
+  background: transparent;
+}
+
+.lot-head span + span {
+  border-left: 1px solid color-mix(in srgb, var(--text-invert) 14%, var(--border));
+}
+
+.lot-head .no-print {
+  justify-content: center;
 }
 
 .lot-row {
@@ -505,6 +649,187 @@ button:disabled {
 button:not(:disabled):hover {
   transform: translateY(-1px);
 }
+
+/*
+  Results table palette centralization:
+  - Overrides mixed table colors from src/pages/Receiving.css (.results-card/.pos-table/.row/badges).
+  - Neutralizes inherited generic table tones from src/pages/Deliver.css (.pos-table/.thead/.tbody > div).
+  - Keeps existing JSX structure unchanged while enforcing one reusable tokenized dark palette.
+*/
+.receiving-page .qcard.results-card {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 92%, #000 8%) 0%, var(--surface-0) 100%);
+  border: 1px solid var(--border-0);
+  border-radius: 12px;
+  padding: 12px;
+  color: var(--text-0);
+  box-shadow: 0 12px 24px rgba(2, 8, 23, 0.28);
+}
+
+.receiving-page .qcard.results-card .pos-table {
+  display: grid;
+  gap: 0;
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--border-0) 78%, transparent);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-0);
+  color: var(--text-0);
+}
+
+.receiving-page .qcard.results-card .pos-table .thead {
+  display: grid;
+  grid-template-columns: 160px 1fr 120px 140px 140px 240px;
+  gap: 8px;
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-0) 86%, transparent);
+  background: linear-gradient(180deg, var(--surface-2) 0%, color-mix(in srgb, var(--surface-2) 84%, var(--surface-1)) 100%);
+  color: var(--text-0);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  border-radius: 0;
+}
+
+.receiving-page .qcard.results-card .pos-table .tbody {
+  display: grid;
+  gap: 0;
+  min-height: 180px;
+  padding: 0;
+}
+
+.receiving-page .qcard.results-card .pos-table .row {
+  display: grid;
+  grid-template-columns: 160px 1fr 120px 140px 140px 240px;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-0) 60%, transparent);
+  border-radius: 0;
+  background: var(--surface-0);
+  color: var(--text-0);
+  transition: background-color 120ms ease;
+}
+
+.receiving-page .qcard.results-card .pos-table .row:nth-child(even) {
+  background: color-mix(in srgb, var(--surface-0) 82%, var(--surface-1));
+}
+
+.receiving-page .qcard.results-card .pos-table .row:hover {
+  background: color-mix(in srgb, var(--surface-0) 88%, var(--accent) 12%);
+}
+
+.receiving-page .qcard.results-card .pos-table .row:last-child {
+  border-bottom: none;
+}
+
+.receiving-page .qcard.results-card .pos-table .row--placeholder {
+  color: var(--text-1);
+}
+
+.receiving-page .qcard.results-card .pos-table .thead > div,
+.receiving-page .qcard.results-card .pos-table .row > div {
+  min-width: 0;
+}
+
+/* Product name clamp for movement results table. */
+.pos-table .tbody .row .cell-product-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+.pos-table .tbody .row .cell-product-name:hover {
+  text-decoration: underline;
+  cursor: help;
+}
+
+.receiving-page .qcard.results-card .movement-type-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  min-width: 104px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-0);
+  background: color-mix(in srgb, var(--surface-2) 84%, transparent);
+  color: var(--text-0);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.receiving-page .qcard.results-card .movement-type-receive {
+  background: color-mix(in srgb, var(--positive) 18%, var(--surface-0));
+  border-color: color-mix(in srgb, var(--positive) 50%, var(--border-0));
+  color: color-mix(in srgb, var(--positive) 78%, var(--text-0));
+}
+
+.receiving-page .qcard.results-card .movement-type-transfer,
+.receiving-page .qcard.results-card .movement-type-dispense,
+.receiving-page .qcard.results-card .movement-type-issue {
+  background: color-mix(in srgb, var(--negative) 16%, var(--surface-0));
+  border-color: color-mix(in srgb, var(--negative) 46%, var(--border-0));
+  color: color-mix(in srgb, var(--negative) 74%, var(--text-0));
+}
+
+.receiving-page .qcard.results-card .movement-type-adjust,
+.receiving-page .qcard.results-card .movement-type-unknown {
+  background: color-mix(in srgb, var(--warning) 16%, var(--surface-0));
+  border-color: color-mix(in srgb, var(--warning) 44%, var(--border-0));
+  color: color-mix(in srgb, var(--warning) 74%, var(--text-0));
+}
+
+.receiving-page .qcard.results-card .movement-delta {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.receiving-page .qcard.results-card .movement-delta.delta-positive {
+  color: var(--positive);
+}
+
+.receiving-page .qcard.results-card .movement-delta.delta-negative {
+  color: var(--negative);
+}
+
+.receiving-page .qcard.results-card .right {
+  text-align: right;
+  justify-self: end;
+}
+
+.receiving-page .qcard.results-card :is(.row, .movement-type-badge):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (max-width: 960px) {
+  .receiving-page .qcard.results-card .pos-table .thead,
+  .receiving-page .qcard.results-card .pos-table .row {
+    grid-template-columns: 140px 1fr 100px 120px 120px 170px;
+  }
+}
+
+/* Before/after checklist:
+   - Header background consistent
+   - Row separators visible but subtle
+   - Badge readable
+   - Positive delta readable
+   - No unexpected bright/washed-out text
+*/
 
 @media (max-width: 900px) {
   .report1011 {

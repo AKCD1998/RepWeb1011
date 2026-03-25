@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { inventoryApi, productsApi } from "../lib/api";
 import "./Receiving.css";
@@ -111,19 +111,27 @@ function createInitialMovementForm({ isAdmin, branchLocationId }) {
     productCode: "",
     qty: "",
     unit: "",
+    lotNo: "",
+    expDate: "",
     occurredAt: toDateTimeLocalValue(),
   };
 }
 
 function mapMovementRecord(row) {
+  const parsedQuantity = Number(row?.quantity ?? row?.qtyValue ?? 0);
+  const parsedQuantityBase = Number(row?.quantityBase);
   return {
     id: row?.id || `row-${Math.random().toString(36).slice(2)}`,
     occurredAt: formatOccurredAtDisplay(row?.occurredAt),
     productName: row?.tradeName || row?.productName || "-",
     productCode: row?.productCode || "-",
+    lotNo: row?.lotNo || "-",
     movementType: String(row?.movementType || "").toUpperCase(),
-    qtyValue: Number(row?.quantity ?? row?.qtyValue ?? 0),
+    qtyValue: Number.isFinite(parsedQuantity) ? parsedQuantity : 0,
+    qtyBaseValue: Number.isFinite(parsedQuantityBase) ? parsedQuantityBase : null,
     unit: String(row?.unitLabel || row?.unit || "").trim(),
+    movementUnit: String(row?.movementUnitLabel || "").trim(),
+    baseUnitLabel: String(row?.baseUnitLabel || "").trim(),
   };
 }
 
@@ -142,11 +150,93 @@ function getDeltaClass(movementType) {
   return isPositiveMovement(movementType) ? "delta-positive" : "delta-negative";
 }
 
+function normalizeInlineText(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parsePackDetail(unitLabel) {
+  const normalized = normalizeInlineText(unitLabel);
+  if (!normalized) return null;
+
+  const match = normalized.match(/^1\s+(.+?)\s*[xX×]\s*(.+)$/u);
+  if (!match) return null;
+
+  const containerUnit = normalizeInlineText(match[1]);
+  const detail = normalizeInlineText(match[2]);
+  if (!containerUnit || !detail) return null;
+
+  return {
+    containerUnit,
+    packDetail: `${detail}/${containerUnit}`,
+  };
+}
+
 function getDeltaText(movement) {
   const qtyText = formatQty(movement?.qtyValue);
   const unit = String(movement?.unit || "").trim();
   const sign = isPositiveMovement(movement?.movementType) ? "+" : "-";
-  return `${sign}${qtyText}${unit ? ` ${unit}` : ""}`;
+  const primaryText = `${sign}${qtyText}${unit ? ` ${unit}` : ""}`;
+
+  const quantityBaseValue = Number(movement?.qtyBaseValue);
+  if (!Number.isFinite(quantityBaseValue)) return primaryText;
+
+  const baseQtyText = formatQty(Math.abs(quantityBaseValue));
+  const baseUnitLabel = String(movement?.baseUnitLabel || "").trim();
+  const shouldShowBase =
+    baseQtyText !== qtyText || (baseUnitLabel && baseUnitLabel.toLowerCase() !== unit.toLowerCase());
+
+  if (!shouldShowBase) return primaryText;
+  return `${primaryText} (${sign}${baseQtyText}${baseUnitLabel ? ` ${baseUnitLabel}` : ""} ฐาน)`;
+}
+
+function formatDeltaCompact(movement) {
+  const sign = isPositiveMovement(movement?.movementType) ? "+" : "-";
+  const qtyValue = Number(movement?.qtyValue);
+  const qtyText = formatQty(Number.isFinite(qtyValue) ? Math.abs(qtyValue) : movement?.qtyValue);
+  const signedQty = qtyText === "-" ? "-" : `${sign}${qtyText}`;
+
+  const movementUnitRaw = normalizeInlineText(movement?.movementUnit);
+  const unitLabelRaw = normalizeInlineText(movement?.unit);
+  const movementPackMeta = parsePackDetail(movementUnitRaw);
+  const unitPackMeta = parsePackDetail(unitLabelRaw);
+
+  const movementUnit = movementPackMeta?.containerUnit || movementUnitRaw;
+  const unitLabel = unitPackMeta?.containerUnit || unitLabelRaw;
+  const packDetail = unitPackMeta?.packDetail || movementPackMeta?.packDetail;
+  const displayUnit = movementUnit || unitLabel;
+
+  let compactText = `${signedQty}${displayUnit ? ` ${displayUnit}` : ""}`.trim();
+  if (packDetail) {
+    compactText = `${compactText} (${packDetail})`;
+  }
+
+  const quantityBaseValue = Number(movement?.qtyBaseValue);
+  if (!Number.isFinite(quantityBaseValue)) return compactText;
+
+  const baseQtyText = formatQty(Math.abs(quantityBaseValue));
+  const baseUnitLabel = normalizeInlineText(movement?.baseUnitLabel);
+  const shouldShowBase =
+    baseQtyText !== qtyText || (baseUnitLabel && baseUnitLabel.toLowerCase() !== displayUnit.toLowerCase());
+
+  if (!shouldShowBase) return compactText;
+
+  const signedBaseQty = `${sign}${baseQtyText}`;
+  const shouldShowBaseUnit = baseUnitLabel && baseUnitLabel.toLowerCase() !== displayUnit.toLowerCase();
+  return `${compactText} • ฐาน ${signedBaseQty}${shouldShowBaseUnit ? ` ${baseUnitLabel}` : ""}`;
+}
+
+function getDeltaTitle(movement) {
+  const fullDeltaText = getDeltaText(movement);
+  const movementUnit = normalizeInlineText(movement?.movementUnit);
+  const unit = normalizeInlineText(movement?.unit);
+
+  if (!movementUnit || movementUnit.toLowerCase() === unit.toLowerCase()) {
+    return fullDeltaText;
+  }
+
+  return `${fullDeltaText}\nหน่วยที่บันทึกในรายการเดิม: ${movementUnit}`;
 }
 
 export default function Receiving() {
@@ -171,8 +261,12 @@ export default function Receiving() {
   const [formErrors, setFormErrors] = useState({});
   const [pageError, setPageError] = useState("");
   const [productSearchStatus, setProductSearchStatus] = useState("");
+  const [productUnitOptions, setProductUnitOptions] = useState([]);
+  const [isLoadingProductUnits, setIsLoadingProductUnits] = useState(false);
+  const [productUnitLoadError, setProductUnitLoadError] = useState("");
+  const productUnitRequestSeqRef = useRef(0);
 
-  const tableColumns = ["เวลา", "สินค้า", "รหัสสินค้า", "ประเภท", "การเปลี่ยนแปลงสต๊อก"];
+  const tableColumns = ["เวลา", "สินค้า", "รหัสสินค้า", "Lot", "ประเภท", "การเปลี่ยนแปลงสต๊อก"];
   const totalText = useMemo(() => `รวม ${movements.length} รายการ`, [movements.length]);
   const locationMap = useMemo(() => {
     return new Map(
@@ -300,10 +394,18 @@ export default function Receiving() {
     setProductSearchResults([]);
     setProductSearchError("");
     setProductSearchStatus("");
+    productUnitRequestSeqRef.current += 1;
+    setProductUnitOptions([]);
+    setProductUnitLoadError("");
+    setIsLoadingProductUnits(false);
     setIsMovementModalOpen(true);
   }
 
   function closeMovementModal() {
+    productUnitRequestSeqRef.current += 1;
+    setProductUnitOptions([]);
+    setProductUnitLoadError("");
+    setIsLoadingProductUnits(false);
     setIsMovementModalOpen(false);
   }
 
@@ -318,21 +420,107 @@ export default function Receiving() {
     }));
   }
 
+  const loadProductUnitOptions = useCallback(async (productId, preferredUnitLabel = "") => {
+    const normalizedProductId = toCleanText(productId);
+    productUnitRequestSeqRef.current += 1;
+    const requestSeq = productUnitRequestSeqRef.current;
+
+    if (!normalizedProductId) {
+      setProductUnitOptions([]);
+      setProductUnitLoadError("");
+      setIsLoadingProductUnits(false);
+      return;
+    }
+
+    setIsLoadingProductUnits(true);
+    setProductUnitLoadError("");
+    try {
+      const response = await productsApi.unitLevels(normalizedProductId);
+      if (requestSeq !== productUnitRequestSeqRef.current) return;
+
+      const rows = Array.isArray(response?.items)
+        ? response.items
+        : Array.isArray(response)
+        ? response
+        : [];
+      const options = rows
+        .map((row) => ({
+          id: toCleanText(row?.id),
+          displayName: toCleanText(row?.displayName || row?.display_name || row?.code),
+          isSellable: Boolean(row?.isSellable ?? row?.is_sellable),
+          sortOrder: Number(row?.sortOrder ?? row?.sort_order ?? 0),
+        }))
+        .filter((row) => row.id && row.displayName)
+        .sort((a, b) => {
+          if (a.isSellable !== b.isSellable) return a.isSellable ? -1 : 1;
+          return a.sortOrder - b.sortOrder;
+        });
+
+      setProductUnitOptions(options);
+
+      if (!options.length) {
+        setMovementForm((prev) => ({
+          ...prev,
+          unit: "",
+        }));
+        setFormErrors((prev) => ({
+          ...prev,
+          unit: "ไม่พบหน่วยของสินค้านี้ใน product_unit_levels",
+        }));
+        setProductUnitLoadError("ไม่พบหน่วยของสินค้านี้ใน product_unit_levels");
+        return;
+      }
+
+      const preferredLabel = toCleanText(preferredUnitLabel).toLowerCase();
+      const matchedPreferred = preferredLabel
+        ? options.find((row) => row.displayName.toLowerCase() === preferredLabel)
+        : null;
+      const nextUnitLabel = matchedPreferred?.displayName || options[0].displayName;
+
+      setMovementForm((prev) => ({
+        ...prev,
+        unit: nextUnitLabel,
+      }));
+      setFormErrors((prev) => ({
+        ...prev,
+        unit: "",
+      }));
+    } catch (error) {
+      if (requestSeq !== productUnitRequestSeqRef.current) return;
+      setProductUnitOptions([]);
+      setMovementForm((prev) => ({
+        ...prev,
+        unit: "",
+      }));
+      setProductUnitLoadError(error?.message || "โหลดรายการหน่วยไม่สำเร็จ");
+    } finally {
+      if (requestSeq === productUnitRequestSeqRef.current) {
+        setIsLoadingProductUnits(false);
+      }
+    }
+  }, []);
+
   function handleProductSearchInputChange(event) {
     const keyword = event.target.value;
+    productUnitRequestSeqRef.current += 1;
     setMovementForm((prev) => ({
       ...prev,
       productSearch: keyword,
       productId: "",
       productName: "",
       productCode: "",
+      unit: "",
     }));
     setProductSearchResults([]);
     setProductSearchError("");
     setProductSearchStatus("");
+    setProductUnitOptions([]);
+    setProductUnitLoadError("");
+    setIsLoadingProductUnits(false);
     setFormErrors((prev) => ({
       ...prev,
       productId: "",
+      unit: "",
     }));
   }
 
@@ -342,14 +530,17 @@ export default function Receiving() {
       productId: product.id,
       productName: product.tradeName,
       productCode: product.productCode,
-      unit: prev.unit || product.unitSymbol || prev.unit,
+      unit: "",
     }));
     setProductSearchError("");
     setProductSearchStatus(`เลือกสินค้าแล้ว: ${product.tradeName}`);
+    setProductUnitLoadError("");
     setFormErrors((prev) => ({
       ...prev,
       productId: "",
+      unit: "",
     }));
+    void loadProductUnitOptions(product.id, product.packageSize || product.unitSymbol);
   }
 
   function handleMovementTypeChange(event) {
@@ -414,44 +605,62 @@ export default function Receiving() {
           productCode: String(row?.productCode || row?.product_code || "-"),
           barcode: String(row?.barcode || "-"),
           manufacturerName: String(row?.manufacturerName || "-"),
+          packageSize: String(row?.packageSize || row?.package_size || ""),
           unitSymbol: String(row?.unitSymbol || ""),
         }))
         .filter((row) => row.id);
 
       if (!list.length) {
+        productUnitRequestSeqRef.current += 1;
         setProductSearchStatus("ไม่พบสินค้าที่ตรงกับคำค้นหา");
         setMovementForm((prev) => ({
           ...prev,
           productId: "",
           productName: "",
           productCode: "",
+          unit: "",
         }));
+        setProductUnitOptions([]);
+        setProductUnitLoadError("");
+        setIsLoadingProductUnits(false);
         setFormErrors((prev) => ({
           ...prev,
           productId: "กรุณาค้นหาและเลือกสินค้า",
+          unit: "",
         }));
         return;
       }
 
+      productUnitRequestSeqRef.current += 1;
       setMovementForm((prev) => ({
         ...prev,
         productId: "",
         productName: "",
         productCode: "",
+        unit: "",
       }));
+      setProductUnitOptions([]);
+      setProductUnitLoadError("");
+      setIsLoadingProductUnits(false);
       setProductSearchResults(list);
       setProductSearchStatus(`พบ ${list.length} รายการ โปรดเลือกสินค้า 1 รายการ`);
       setFormErrors((prev) => ({
         ...prev,
         productId: "กรุณาเลือกสินค้า 1 รายการจากผลค้นหา",
+        unit: "",
       }));
     } catch (error) {
+      productUnitRequestSeqRef.current += 1;
       setMovementForm((prev) => ({
         ...prev,
         productId: "",
         productName: "",
         productCode: "",
+        unit: "",
       }));
+      setProductUnitOptions([]);
+      setProductUnitLoadError("");
+      setIsLoadingProductUnits(false);
       setProductSearchResults([]);
       setProductSearchStatus("");
       setProductSearchError(error?.message || "ค้นหาสินค้าไม่สำเร็จ");
@@ -508,8 +717,24 @@ export default function Receiving() {
     if (!Number.isFinite(qtyNumber) || qtyNumber <= 0) {
       errors.qty = "กรุณาระบุจำนวนที่มากกว่า 0";
     }
-    if (!String(movementForm.unit || "").trim()) {
-      errors.unit = "กรุณาระบุหน่วย";
+    if (isLoadingProductUnits) {
+      errors.unit = "กำลังโหลดรายการหน่วย กรุณารอสักครู่";
+    } else if (!String(movementForm.unit || "").trim()) {
+      errors.unit = "กรุณาเลือกหน่วย";
+    } else if (
+      movementForm.productId &&
+      productUnitOptions.length > 0 &&
+      !productUnitOptions.some((option) => option.displayName === movementForm.unit)
+    ) {
+      errors.unit = "หน่วยที่เลือกไม่ตรงกับ product_unit_levels";
+    } else if (movementForm.productId && !productUnitOptions.length) {
+      errors.unit = "ไม่พบหน่วยของสินค้านี้ใน product_unit_levels";
+    }
+    if (!String(movementForm.lotNo || "").trim()) {
+      errors.lotNo = "กรุณาระบุ lot number";
+    }
+    if (!String(movementForm.expDate || "").trim()) {
+      errors.expDate = "กรุณาระบุวันหมดอายุ (Exp)";
     }
     if (!String(movementForm.occurredAt || "").trim()) {
       errors.occurredAt = "กรุณาระบุวันและเวลา";
@@ -536,6 +761,8 @@ export default function Receiving() {
         productId: movementForm.productId,
         qty: Number(movementForm.qty),
         unitLabel: movementForm.unit,
+        lotNo: String(movementForm.lotNo || "").trim(),
+        expDate: String(movementForm.expDate || "").trim(),
         occurredAt: movementForm.occurredAt,
       };
 
@@ -644,6 +871,7 @@ export default function Receiving() {
                 <div>กำลังโหลดข้อมูลการเคลื่อนไหว</div>
                 <div className="center">...</div>
                 <div className="center">...</div>
+                <div className="center">...</div>
                 <div className="right">...</div>
               </div>
             ) : movements.length > 0 ? (
@@ -653,15 +881,21 @@ export default function Receiving() {
                   className="row"
                 >
                   <div>{movement?.occurredAt || "-"}</div>
-                  <div>{movement?.productName || "-"}</div>
+                  <div className="cell-product-name" title={movement?.productName || "-"}>
+                    {movement?.productName || "-"}
+                  </div>
                   <div>{movement?.productCode || "-"}</div>
+                  <div>{movement?.lotNo || "-"}</div>
                   <div>
                     <span className={`movement-type-badge ${getMovementTypeClass(movement?.movementType)}`}>
                       {MOVEMENT_TYPE_LABEL[movement?.movementType] || movement?.movementType || "-"}
                     </span>
                   </div>
-                  <div className={`right movement-delta ${getDeltaClass(movement?.movementType)}`}>
-                    {getDeltaText(movement)}
+                  <div
+                    className={`right movement-delta ${getDeltaClass(movement?.movementType)}`}
+                    title={getDeltaTitle(movement)}
+                  >
+                    {formatDeltaCompact(movement)}
                   </div>
                 </div>
               ))
@@ -669,6 +903,7 @@ export default function Receiving() {
               <div className="row row--placeholder">
                 <div className="center">-</div>
                 <div>ยังไม่มีข้อมูลรายการเคลื่อนไหว</div>
+                <div className="center">-</div>
                 <div className="center">-</div>
                 <div className="center">-</div>
                 <div className="right">-</div>
@@ -697,7 +932,7 @@ export default function Receiving() {
                 <select
                   id="movementType"
                   className="qinput"
-                  value={movementForm.movementType}
+                  value={movementForm.movementType ?? ""}
                   onChange={handleMovementTypeChange}
                   required
                 >
@@ -720,7 +955,7 @@ export default function Receiving() {
                   <select
                     id="movementFromLocation"
                     className="qinput"
-                    value={movementForm.fromLocationId}
+                    value={movementForm.fromLocationId ?? ""}
                     onChange={(event) => setField("fromLocationId", event.target.value)}
                     disabled={isLoadingLocations || !locationOptions.length}
                     required={isFromRequired}
@@ -749,7 +984,7 @@ export default function Receiving() {
                     <select
                       id="movementToLocation"
                       className="qinput"
-                      value={movementForm.toLocationId}
+                      value={movementForm.toLocationId ?? ""}
                       onChange={(event) => setField("toLocationId", event.target.value)}
                       disabled={isLoadingLocations || !locationOptions.length}
                       required={isToRequired}
@@ -780,7 +1015,7 @@ export default function Receiving() {
                     id="movementProductSearch"
                     type="text"
                     className="qinput"
-                    value={movementForm.productSearch}
+                    value={movementForm.productSearch ?? ""}
                     onChange={handleProductSearchInputChange}
                     placeholder="ชื่อสามัญ / บริษัท / บาร์โค้ด"
                     onKeyDown={(event) => {
@@ -808,6 +1043,10 @@ export default function Receiving() {
                   <div className="movement-search-status">กำลังค้นหาสินค้า...</div>
                 ) : null}
                 {productSearchError ? <div className="field-error">{productSearchError}</div> : null}
+                {isLoadingProductUnits ? (
+                  <div className="movement-search-status">กำลังโหลดรายการหน่วยจาก product_unit_levels...</div>
+                ) : null}
+                {productUnitLoadError ? <div className="field-error">{productUnitLoadError}</div> : null}
                 {productSearchStatus ? <div className="movement-search-status">{productSearchStatus}</div> : null}
                 {productSearchResults.length > 0 ? (
                   <div className="product-search-results" role="region" aria-label="ผลลัพธ์การค้นหาสินค้า">
@@ -843,7 +1082,7 @@ export default function Receiving() {
                     min="0"
                     step="0.001"
                     className="qinput"
-                    value={movementForm.qty}
+                    value={movementForm.qty ?? ""}
                     onChange={(event) => setField("qty", event.target.value)}
                     required
                   />
@@ -852,16 +1091,59 @@ export default function Receiving() {
 
                 <div className="field-block">
                   <label htmlFor="movementUnit">หน่วย</label>
-                  <input
+                  <select
                     id="movementUnit"
+                    className="qinput"
+                    value={movementForm.unit ?? ""}
+                    onChange={(event) => setField("unit", event.target.value)}
+                    disabled={
+                      !movementForm.productId || isLoadingProductUnits || productUnitOptions.length === 0
+                    }
+                    required
+                  >
+                    <option value="">
+                      {!movementForm.productId
+                        ? "เลือกสินค้าก่อน"
+                        : isLoadingProductUnits
+                        ? "กำลังโหลดรายการหน่วย..."
+                        : "เลือกหน่วยจาก product_unit_levels"}
+                    </option>
+                    {productUnitOptions.map((unitOption) => (
+                      <option key={unitOption.id} value={unitOption.displayName}>
+                        {unitOption.displayName}
+                      </option>
+                    ))}
+                  </select>
+                  {formErrors.unit ? <div className="field-error">{formErrors.unit}</div> : null}
+                </div>
+              </div>
+
+              <div className="movement-grid">
+                <div className="field-block">
+                  <label htmlFor="movementLotNo">Lot Number</label>
+                  <input
+                    id="movementLotNo"
                     type="text"
                     className="qinput"
-                    value={movementForm.unit}
-                    onChange={(event) => setField("unit", event.target.value)}
-                    placeholder="เช่น กล่อง / แผง / ขวด"
+                    value={movementForm.lotNo ?? ""}
+                    onChange={(event) => setField("lotNo", event.target.value)}
+                    placeholder="เช่น LOT2402A"
                     required
                   />
-                  {formErrors.unit ? <div className="field-error">{formErrors.unit}</div> : null}
+                  {formErrors.lotNo ? <div className="field-error">{formErrors.lotNo}</div> : null}
+                </div>
+
+                <div className="field-block">
+                  <label htmlFor="movementExpDate">วันหมดอายุ (Exp)</label>
+                  <input
+                    id="movementExpDate"
+                    type="date"
+                    className="qinput"
+                    value={movementForm.expDate ?? ""}
+                    onChange={(event) => setField("expDate", event.target.value)}
+                    required
+                  />
+                  {formErrors.expDate ? <div className="field-error">{formErrors.expDate}</div> : null}
                 </div>
               </div>
 
@@ -871,7 +1153,7 @@ export default function Receiving() {
                   id="movementOccurredAt"
                   type="datetime-local"
                   className="qinput"
-                  value={movementForm.occurredAt}
+                  value={movementForm.occurredAt ?? ""}
                   onChange={(event) => setField("occurredAt", event.target.value)}
                   required
                 />

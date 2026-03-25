@@ -15,10 +15,42 @@ export const productsApi = {
       params: value ? { search: value } : undefined,
     });
   },
+  unitLevels(productId) {
+    const id = String(productId || "").trim();
+    if (!id) {
+      return Promise.resolve({ items: [] });
+    }
+    return requestJson({
+      method: "GET",
+      url: `/api/products/${encodeURIComponent(id)}/unit-levels`,
+    });
+  },
   reportGroups() {
     return requestJson({
       method: "GET",
       url: "/api/products/report-groups",
+    });
+  },
+  genericNames() {
+    return requestJson({
+      method: "GET",
+      url: "/api/products/generic-names",
+    });
+  },
+  activeIngredients(search = "") {
+    const value = String(search || "").trim();
+    return requestJson({
+      method: "GET",
+      url: "/api/active-ingredients",
+      params: value ? { q: value } : undefined,
+    });
+  },
+  unitTypes(search = "") {
+    const value = String(search || "").trim();
+    return requestJson({
+      method: "GET",
+      url: "/api/products/unit-types",
+      params: value ? { q: value } : undefined,
     });
   },
   create(payload) {
@@ -53,6 +85,10 @@ export const inventoryApi = {
       payload.from_location_id ?? payload.fromLocationId ?? ""
     ).trim();
     const toLocationId = String(payload.to_location_id ?? payload.toLocationId ?? "").trim();
+    const lotNo = String(payload.lotNo ?? payload.lot_no ?? "").trim();
+    const expDate = String(payload.expDate ?? payload.exp_date ?? "").trim();
+    const mfgDate = String(payload.mfgDate ?? payload.mfg_date ?? "").trim();
+    const manufacturer = String(payload.manufacturer ?? payload.manufacturerName ?? "").trim();
 
     if (!movementType) {
       throw new Error("movementType is required");
@@ -66,6 +102,12 @@ export const inventoryApi = {
     if (!unitLabel) {
       throw new Error("unitLabel is required");
     }
+    if (!lotNo) {
+      throw new Error("lotNo is required");
+    }
+    if (!expDate) {
+      throw new Error("expDate is required");
+    }
 
     const occurredAt = payload.occurredAt;
     const note = String(payload.note || "").trim() || null;
@@ -74,9 +116,17 @@ export const inventoryApi = {
       productId,
       qty,
       unitLabel,
+      lotNo,
+      expDate,
       occurredAt,
       note,
     };
+    if (mfgDate) {
+      requestPayload.mfgDate = mfgDate;
+    }
+    if (manufacturer) {
+      requestPayload.manufacturer = manufacturer;
+    }
 
     if (fromLocationId) {
       requestPayload.from_location_id = fromLocationId;
@@ -174,6 +224,20 @@ export const dispenseApi = {
       method: "POST",
       url: "/api/dispense",
       data: payload,
+    });
+  },
+  history(filters = {}) {
+    const params = {};
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      const text = String(value).trim();
+      if (!text) return;
+      params[key] = text;
+    });
+    return requestJson({
+      method: "GET",
+      url: "/api/dispense/history",
+      params: Object.keys(params).length ? params : undefined,
     });
   },
   byPid(pid, filters = {}) {

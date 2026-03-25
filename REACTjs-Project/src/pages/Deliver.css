@@ -83,6 +83,15 @@
   margin: 0px 15px 0px 15px;
 }
 
+.pos-rail-field {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(14, 42, 59, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
 .pos-table {
   position: static;
   width: 100%;
@@ -178,6 +187,46 @@
   box-sizing: border-box;
 }
 
+.pos-notes-block {
+  margin-top: 10px;
+}
+
+.pos-notes-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.pos-notes-column {
+  min-width: 0;
+}
+
+.pos-notes-column--meta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pos-notes-field {
+  display: block;
+}
+
+.pos-notes-active-product {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 8px 10px;
+}
+
+.pos-notes-label {
+  display: block;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
 .pos-notes-textarea {
   width: 100%;
   min-height: 96px;
@@ -195,6 +244,44 @@
   border-color: rgba(0, 0, 0, 0.35);
 }
 
+.pos-notes-select {
+  width: 100%;
+  height: 42px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.pos-notes-select:focus {
+  outline: none;
+  border-color: rgba(0, 0, 0, 0.35);
+}
+
+.pos-notes-readonly {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+  box-sizing: border-box;
+}
+
+.pos-notes-help {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(226, 232, 240, 0.82);
+}
+
+.pos-notes-help--error {
+  color: #fecaca;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -208,10 +295,19 @@
 }
 
 .mult {
-  background: #ffc107;
+  min-width: 64px;
   padding: 4px 12px;
   border-radius: 4px;
   font-weight: bold;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.mult.is-active {
+  background: #ffc107;
+  color: #1f2937;
+  opacity: 1;
 }
 
 .total {
@@ -243,6 +339,11 @@
   background: #388e3c;
 }
 
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .coupon {
   background: #ffc107;
   padding: 15px;
@@ -250,6 +351,7 @@
   border-radius: 6px;
   font-weight: bold;
   color: #1f2937;
+  cursor: pointer;
 }
 
 .coupon:hover {
@@ -274,6 +376,33 @@
   fill: #ef4444;
 }
 
+.pos-item-row {
+  cursor: pointer;
+}
+
+.pos-item-row.is-active {
+  background: rgba(12, 74, 166, 0.08);
+}
+
+.pos-feedback {
+  border-radius: 8px;
+  font-size: 14px;
+  margin: 0 20px 12px;
+  padding: 10px 12px;
+}
+
+.pos-feedback--error {
+  background: rgba(185, 28, 28, 0.22);
+  border: 1px solid rgba(248, 113, 113, 0.55);
+  color: #fecaca;
+}
+
+.pos-feedback--success {
+  background: rgba(22, 101, 52, 0.22);
+  border: 1px solid rgba(134, 239, 172, 0.55);
+  color: #bbf7d0;
+}
+
 .pos-modal {
   position: fixed;
   z-index: 10000;
@@ -282,6 +411,59 @@
   width: 100%;
   height: 100%;
   background-color: rgba(0, 0, 0, 0.4);
+}
+
+.pos-confirm-dialog {
+  background: #0f1f34;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 12px;
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.45);
+  color: #e2e8f0;
+  margin: 12vh auto;
+  max-width: 560px;
+  padding: 20px;
+  width: min(90vw, 560px);
+}
+
+.pos-confirm-title {
+  font-size: 24px;
+  margin: 0 0 10px;
+}
+
+.pos-confirm-body {
+  font-size: 14px;
+  line-height: 1.45;
+  margin: 0 0 14px;
+}
+
+.pos-confirm-summary {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 10px;
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 12px;
+}
+
+.pos-confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.pos-confirm-actions .btn {
+  max-width: 120px;
+  width: auto;
+}
+
+.pos-confirm-cancel {
+  background: #ef4444;
+  color: #fff;
+}
+
+.pos-confirm-cancel:hover {
+  background: #dc2626;
 }
 
 .pos-modal .modal-content {
@@ -460,6 +642,10 @@
   .thead,
   .tbody > div {
     grid-template-columns: 50px 100px 1fr 90px 70px;
+  }
+
+  .pos-notes-grid {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -223,7 +223,7 @@
 
 .receiving-page .pos-table .thead {
   display: grid;
-  grid-template-columns: 170px 1fr 140px 170px 180px;
+  grid-template-columns: 160px 1fr 120px 140px 140px 240px;
   gap: 8px;
   padding: 10px;
   background: linear-gradient(#0e2a3b, #0b1f2a);
@@ -243,13 +243,14 @@
 
 .receiving-page .pos-table .row {
   display: grid;
-  grid-template-columns: 170px 1fr 140px 170px 180px;
+  grid-template-columns: 160px 1fr 120px 140px 140px 240px;
   gap: 8px;
   align-items: center;
   padding: 10px;
   border-radius: 8px;
   background: #0f172a;
   border: 1px solid #1f2a37;
+  color: #ffffff;
 }
 
 .receiving-page .pos-table .row--placeholder {
@@ -270,20 +271,20 @@
 }
 
 .receiving-page .movement-type-receive {
-  color: #9de3be;
+  color: #ffffff;
   background: rgba(39, 122, 86, 0.25);
   border-color: rgba(90, 177, 137, 0.45);
 }
 
 .receiving-page .movement-type-transfer,
 .receiving-page .movement-type-dispense {
-  color: #f0afb5;
+  color: #ffffff;
   background: rgba(138, 58, 69, 0.24);
   border-color: rgba(204, 112, 124, 0.42);
 }
 
 .receiving-page .movement-type-unknown {
-  color: #b4c4d8;
+  color: #ffffff;
   background: rgba(101, 122, 151, 0.18);
   border-color: rgba(141, 164, 198, 0.35);
 }
@@ -293,11 +294,11 @@
 }
 
 .receiving-page .movement-delta.delta-positive {
-  color: #8edcb2;
+  color: #ffffff;
 }
 
 .receiving-page .movement-delta.delta-negative {
-  color: #f4a4aa;
+  color: #ffffff;
 }
 
 .receiving-page .center {
@@ -488,7 +489,7 @@
 
   .receiving-page .pos-table .thead,
   .receiving-page .pos-table .row {
-    grid-template-columns: 150px 1fr 120px 140px 130px;
+    grid-template-columns: 140px 1fr 100px 120px 120px 170px;
   }
 }
 

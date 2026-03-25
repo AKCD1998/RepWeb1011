@@ -1,19 +1,109 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { productsApi } from "../lib/api";
 import "./Products.css";
 
 const EMPTY_INGREDIENT = {
+  activeIngredientId: "",
   activeIngredientCode: "",
   nameEn: "",
   nameTh: "",
+  useCustomActiveIngredient: false,
   strengthNumerator: "",
   numeratorUnitCode: "",
+  useCustomNumeratorUnit: false,
   strengthDenominator: "",
   denominatorUnitCode: "",
+  useCustomDenominatorUnit: false,
 };
+
+const PACKAGE_SIZE_OPTIONS = [
+  "1 กระปุก x 60 เม็ด",
+  "1 กล่อง x 100 แผง x 10 เม็ด",
+  "1 กล่อง x 10 แผง x 10 เม็ด",
+  "1 กล่อง x 1 ขวด x 30 mL",
+  "1 กล่อง x 1 ขวด x 60 mL",
+  "1 กล่อง x 1 ตลับ x 60 inhalations",
+  "1 กล่อง x 1 แผง x 10 เม็ด",
+  "1 กล่อง x 1 หลอด x 10 กรัม",
+  "1 กล่อง x 1 หลอด x 120 doses",
+  "1 กล่อง x 1 หลอด x 120 metered actuations",
+  "1 กล่อง x 1 หลอด x 200 metered actuations",
+  "1 กล่อง x 20 แผง x 10 เม็ด",
+  "1 กล่อง x 25 แผง x 10 เม็ด",
+  "1 กล่อง x 25 แผง x 4 เม็ด",
+  "1 กล่อง x 3 แผง x 10 เม็ด",
+  "1 กล่อง x 50 แผง x 10 เม็ด",
+  "1 แผง x 10 เม็ด",
+];
+
+const UNIT_TYPE_CODE_OPTIONS = [
+  "ACCUHALER",
+  "BLISTER",
+  "BOTTLE",
+  "BOX",
+  "MDI",
+  "TUBE",
+  "TURBUHALER",
+];
+
+const DOSAGE_FORM_CODE_OPTIONS = [
+  "INHALER",
+  "OINTMENT",
+  "ORAL_SOLUTION",
+  "SOFT_GEL",
+  "TABLET",
+];
+const CUSTOM_GENERIC_VALUE = "__CUSTOM__";
+const CUSTOM_ACTIVE_INGREDIENT_VALUE = "__CUSTOM_ACTIVE_INGREDIENT__";
+const CUSTOM_NUMERATOR_UNIT_VALUE = "__CUSTOM_NUMERATOR_UNIT__";
+const CUSTOM_DENOMINATOR_UNIT_VALUE = "__CUSTOM_DENOMINATOR_UNIT__";
 
 function createEmptyIngredient() {
   return { ...EMPTY_INGREDIENT };
+}
+
+function getIngredientNameKey(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function getUnitCodeKey(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function normalizeActiveIngredientOptions(payload) {
+  const rows = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload) ? payload : [];
+  const byId = new Map();
+
+  for (const row of rows) {
+    const id = String(row?.id || "").trim();
+    const nameEn = String(row?.nameEn ?? row?.name_en ?? "").trim();
+    if (!id || !nameEn) continue;
+    byId.set(id, {
+      id,
+      code: String(row?.code || "").trim().toUpperCase(),
+      nameEn,
+    });
+  }
+
+  return [...byId.values()].sort((a, b) => a.nameEn.localeCompare(b.nameEn));
+}
+
+function normalizeUnitTypeOptions(payload) {
+  const rows = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload) ? payload : [];
+  const byCode = new Map();
+
+  for (const row of rows) {
+    const code = getUnitCodeKey(row?.code);
+    if (!code) continue;
+    byCode.set(code, {
+      id: String(row?.id || "").trim(),
+      code,
+      nameEn: String(row?.nameEn ?? "").trim(),
+      symbol: String(row?.symbol || "").trim(),
+    });
+  }
+
+  return [...byCode.values()].sort((a, b) => a.code.localeCompare(b.code));
 }
 
 function createEmptyForm() {
@@ -35,6 +125,7 @@ function createEmptyForm() {
 
 function isIngredientRowBlank(ingredient) {
   return (
+    !String(ingredient?.activeIngredientId || "").trim() &&
     !String(ingredient?.activeIngredientCode || "").trim() &&
     !String(ingredient?.nameEn || "").trim() &&
     !String(ingredient?.nameTh || "").trim() &&
@@ -45,21 +136,48 @@ function isIngredientRowBlank(ingredient) {
   );
 }
 
-function normalizeIngredientForForm(ingredient) {
+function normalizeIngredientForForm(
+  ingredient,
+  activeIngredientOptionsByName = new Map(),
+  unitTypeOptionsByCode = new Map()
+) {
+  const nameEn = ingredient?.nameEn || "";
+  const activeIngredientIdRaw = String(
+    ingredient?.activeIngredientId ?? ingredient?.ingredientId ?? ""
+  ).trim();
+  const matchedOption =
+    !activeIngredientIdRaw && nameEn
+      ? activeIngredientOptionsByName.get(getIngredientNameKey(nameEn))
+      : null;
+  const activeIngredientId = activeIngredientIdRaw || matchedOption?.id || "";
+  const numeratorUnitCodeRaw = getUnitCodeKey(ingredient?.numeratorUnitCode);
+  const denominatorUnitCodeRaw = getUnitCodeKey(ingredient?.denominatorUnitCode);
+  const numeratorUnitOption = numeratorUnitCodeRaw
+    ? unitTypeOptionsByCode.get(numeratorUnitCodeRaw)
+    : null;
+  const denominatorUnitOption = denominatorUnitCodeRaw
+    ? unitTypeOptionsByCode.get(denominatorUnitCodeRaw)
+    : null;
+
   return {
-    activeIngredientCode: ingredient?.activeIngredientCode || "",
-    nameEn: ingredient?.nameEn || "",
+    activeIngredientId,
+    activeIngredientCode:
+      ingredient?.activeIngredientCode || (activeIngredientIdRaw ? "" : matchedOption?.code || ""),
+    nameEn: activeIngredientIdRaw ? nameEn : matchedOption?.nameEn || nameEn,
     nameTh: ingredient?.nameTh || "",
+    useCustomActiveIngredient: !activeIngredientId && Boolean(nameEn),
     strengthNumerator:
       ingredient?.strengthNumerator === null || ingredient?.strengthNumerator === undefined
         ? ""
         : String(ingredient.strengthNumerator),
-    numeratorUnitCode: ingredient?.numeratorUnitCode || "",
+    numeratorUnitCode: numeratorUnitOption?.code || numeratorUnitCodeRaw,
+    useCustomNumeratorUnit: Boolean(numeratorUnitCodeRaw) && !numeratorUnitOption,
     strengthDenominator:
       ingredient?.strengthDenominator === null || ingredient?.strengthDenominator === undefined
         ? ""
         : String(ingredient.strengthDenominator),
-    denominatorUnitCode: ingredient?.denominatorUnitCode || "",
+    denominatorUnitCode: denominatorUnitOption?.code || denominatorUnitCodeRaw,
+    useCustomDenominatorUnit: Boolean(denominatorUnitCodeRaw) && !denominatorUnitOption,
   };
 }
 
@@ -72,6 +190,18 @@ function normalizeApiError(error) {
 export default function Products() {
   const [items, setItems] = useState([]);
   const [reportGroups, setReportGroups] = useState([]);
+  const [genericNameOptions, setGenericNameOptions] = useState([]);
+  const [activeIngredientOptions, setActiveIngredientOptions] = useState([]);
+  const [ingredientUnitOptions, setIngredientUnitOptions] = useState([]);
+  const [genericSelection, setGenericSelection] = useState("");
+  const [customGenericName, setCustomGenericName] = useState("");
+  const [isLoadingGenericNames, setIsLoadingGenericNames] = useState(false);
+  const [genericNamesError, setGenericNamesError] = useState("");
+  const [isLoadingActiveIngredients, setIsLoadingActiveIngredients] = useState(false);
+  const [activeIngredientsError, setActiveIngredientsError] = useState("");
+  const [isLoadingIngredientUnits, setIsLoadingIngredientUnits] = useState(false);
+  const [ingredientUnitsError, setIngredientUnitsError] = useState("");
+  const [activeIngredientSearch, setActiveIngredientSearch] = useState("");
   const [query, setQuery] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [form, setForm] = useState(createEmptyForm);
@@ -80,6 +210,9 @@ export default function Products() {
   const [saving, setSaving] = useState(false);
   const [errorText, setErrorText] = useState("");
   const [statusText, setStatusText] = useState("");
+  const customGenericInputRef = useRef(null);
+  const activeIngredientsCacheRef = useRef(new Map());
+  const ingredientUnitsCacheRef = useRef(new Map());
 
   const loadProducts = useCallback(async (searchValue) => {
     setLoading(true);
@@ -94,6 +227,77 @@ export default function Products() {
       setLoading(false);
     }
   }, []);
+
+  const loadActiveIngredients = useCallback(async (searchValue) => {
+    const normalizedSearch = String(searchValue || "").trim();
+    const cacheKey = normalizedSearch.toUpperCase();
+    const cached = activeIngredientsCacheRef.current.get(cacheKey);
+    if (cached) {
+      setActiveIngredientOptions(cached);
+      setActiveIngredientsError("");
+      return;
+    }
+
+    setIsLoadingActiveIngredients(true);
+    setActiveIngredientsError("");
+    try {
+      const payload = await productsApi.activeIngredients(normalizedSearch);
+      const options = normalizeActiveIngredientOptions(payload);
+      activeIngredientsCacheRef.current.set(cacheKey, options);
+      setActiveIngredientOptions(options);
+    } catch (error) {
+      setActiveIngredientOptions([]);
+      setActiveIngredientsError(normalizeApiError(error));
+    } finally {
+      setIsLoadingActiveIngredients(false);
+    }
+  }, []);
+
+  const loadIngredientUnits = useCallback(async (searchValue = "") => {
+    const normalizedSearch = String(searchValue || "").trim();
+    const cacheKey = normalizedSearch.toUpperCase();
+    const cached = ingredientUnitsCacheRef.current.get(cacheKey);
+    if (cached) {
+      setIngredientUnitOptions(cached);
+      setIngredientUnitsError("");
+      return;
+    }
+
+    setIsLoadingIngredientUnits(true);
+    setIngredientUnitsError("");
+    try {
+      const payload = await productsApi.unitTypes(normalizedSearch);
+      const options = normalizeUnitTypeOptions(payload);
+      ingredientUnitsCacheRef.current.set(cacheKey, options);
+      setIngredientUnitOptions(options);
+    } catch (error) {
+      setIngredientUnitOptions([]);
+      setIngredientUnitsError(normalizeApiError(error));
+    } finally {
+      setIsLoadingIngredientUnits(false);
+    }
+  }, []);
+
+  const syncGenericControls = useCallback(
+    (rawGenericName, sourceOptions = genericNameOptions) => {
+      const normalized = String(rawGenericName || "").trim().toUpperCase();
+      if (!normalized) {
+        setGenericSelection("");
+        setCustomGenericName("");
+        return;
+      }
+
+      if (sourceOptions.includes(normalized)) {
+        setGenericSelection(normalized);
+        setCustomGenericName("");
+        return;
+      }
+
+      setGenericSelection(CUSTOM_GENERIC_VALUE);
+      setCustomGenericName(normalized);
+    },
+    [genericNameOptions]
+  );
 
   useEffect(() => {
     loadProducts(query);
@@ -117,7 +321,77 @@ export default function Products() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoadingGenericNames(true);
+    setGenericNamesError("");
+
+    productsApi
+      .genericNames()
+      .then((payload) => {
+        if (cancelled) return;
+        const rawRows = Array.isArray(payload?.generic_names)
+          ? payload.generic_names
+          : Array.isArray(payload)
+            ? payload
+            : [];
+        const normalizedRows = [...new Set(rawRows.map((value) => String(value || "").trim().toUpperCase()))]
+          .filter(Boolean)
+          .sort((a, b) => a.localeCompare(b));
+        setGenericNameOptions(normalizedRows);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setGenericNameOptions([]);
+        setGenericNamesError(normalizeApiError(error));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsLoadingGenericNames(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      loadActiveIngredients(activeIngredientSearch);
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [activeIngredientSearch, loadActiveIngredients]);
+
+  useEffect(() => {
+    loadIngredientUnits("");
+  }, [loadIngredientUnits]);
+
+  useEffect(() => {
+    syncGenericControls(form.genericName, genericNameOptions);
+  }, [genericNameOptions, syncGenericControls]);
+
+  useEffect(() => {
+    if (genericSelection !== CUSTOM_GENERIC_VALUE) return;
+    customGenericInputRef.current?.focus();
+  }, [genericSelection]);
+
   const isEditMode = Boolean(editingId);
+  const activeIngredientOptionsById = useMemo(
+    () => new Map(activeIngredientOptions.map((option) => [option.id, option])),
+    [activeIngredientOptions]
+  );
+  const activeIngredientOptionsByName = useMemo(
+    () =>
+      new Map(activeIngredientOptions.map((option) => [getIngredientNameKey(option.nameEn), option])),
+    [activeIngredientOptions]
+  );
+  const ingredientUnitOptionsByCode = useMemo(
+    () => new Map(ingredientUnitOptions.map((option) => [option.code, option])),
+    [ingredientUnitOptions]
+  );
   const titleText = useMemo(
     () => (isEditMode ? "แก้ไขสินค้า" : "เพิ่มสินค้าใหม่"),
     [isEditMode]
@@ -129,6 +403,116 @@ export default function Products() {
       { code: "KY11", thaiName: "บัญชีการขายยาอันตราย (ข.ย.11)" },
     ];
   }, [reportGroups]);
+  const packageSizeOptions = useMemo(() => PACKAGE_SIZE_OPTIONS, []);
+  const isLegacyPackageSizeValue = useMemo(() => {
+    if (!form.packageSize) return false;
+    return !packageSizeOptions.includes(form.packageSize);
+  }, [form.packageSize, packageSizeOptions]);
+  const unitTypeCodeOptions = useMemo(() => UNIT_TYPE_CODE_OPTIONS, []);
+  const isLegacyUnitTypeCodeValue = useMemo(() => {
+    if (!form.unitTypeCode) return false;
+    return !unitTypeCodeOptions.includes(form.unitTypeCode);
+  }, [form.unitTypeCode, unitTypeCodeOptions]);
+  const dosageFormCodeOptions = useMemo(() => DOSAGE_FORM_CODE_OPTIONS, []);
+  const isLegacyDosageFormCodeValue = useMemo(() => {
+    if (!form.dosageFormCode) return false;
+    return !dosageFormCodeOptions.includes(form.dosageFormCode);
+  }, [form.dosageFormCode, dosageFormCodeOptions]);
+  const genericNameValueForSubmit = useMemo(() => {
+    if (genericSelection === CUSTOM_GENERIC_VALUE) {
+      return customGenericName.trim();
+    }
+    return String(genericSelection || "").trim();
+  }, [customGenericName, genericSelection]);
+
+  useEffect(() => {
+    if (!isEditMode || !activeIngredientOptionsByName.size) return;
+
+    setForm((prev) => {
+      let changed = false;
+      const nextIngredients = prev.ingredients.map((ingredient) => {
+        if (!ingredient.useCustomActiveIngredient || ingredient.activeIngredientId) {
+          return ingredient;
+        }
+        const matched = activeIngredientOptionsByName.get(getIngredientNameKey(ingredient.nameEn));
+        if (!matched) return ingredient;
+        changed = true;
+        return {
+          ...ingredient,
+          activeIngredientId: matched.id,
+          activeIngredientCode: matched.code || ingredient.activeIngredientCode,
+          nameEn: matched.nameEn,
+          useCustomActiveIngredient: false,
+        };
+      });
+
+      if (!changed) return prev;
+      return { ...prev, ingredients: nextIngredients };
+    });
+  }, [activeIngredientOptionsByName, isEditMode]);
+
+  useEffect(() => {
+    if (!isEditMode || !ingredientUnitOptionsByCode.size) return;
+
+    setForm((prev) => {
+      let changed = false;
+      const nextIngredients = prev.ingredients.map((ingredient) => {
+        let nextIngredient = ingredient;
+
+        if (ingredient.useCustomNumeratorUnit) {
+          const numeratorUnitCode = getUnitCodeKey(ingredient.numeratorUnitCode);
+          const matchedNumerator = ingredientUnitOptionsByCode.get(numeratorUnitCode);
+          if (matchedNumerator) {
+            nextIngredient = {
+              ...nextIngredient,
+              numeratorUnitCode: matchedNumerator.code,
+              useCustomNumeratorUnit: false,
+            };
+            changed = true;
+          }
+        }
+
+        if (ingredient.useCustomDenominatorUnit) {
+          const denominatorUnitCode = getUnitCodeKey(ingredient.denominatorUnitCode);
+          const matchedDenominator = ingredientUnitOptionsByCode.get(denominatorUnitCode);
+          if (matchedDenominator) {
+            nextIngredient = {
+              ...nextIngredient,
+              denominatorUnitCode: matchedDenominator.code,
+              useCustomDenominatorUnit: false,
+            };
+            changed = true;
+          }
+        }
+
+        return nextIngredient;
+      });
+
+      if (!changed) return prev;
+      return { ...prev, ingredients: nextIngredients };
+    });
+  }, [ingredientUnitOptionsByCode, isEditMode]);
+
+  const handleGenericSelectionChange = (event) => {
+    const nextValue = String(event.target.value || "").trim();
+    setGenericSelection(nextValue);
+    setGenericNamesError("");
+
+    if (nextValue === CUSTOM_GENERIC_VALUE) {
+      setCustomGenericName("");
+      setForm((prev) => ({ ...prev, genericName: "" }));
+      return;
+    }
+
+    setCustomGenericName("");
+    setForm((prev) => ({ ...prev, genericName: nextValue }));
+  };
+
+  const handleCustomGenericNameChange = (event) => {
+    const nextValue = String(event.target.value || "").toUpperCase();
+    setCustomGenericName(nextValue);
+    setForm((prev) => ({ ...prev, genericName: nextValue }));
+  };
 
   const handleSearchSubmit = (event) => {
     event.preventDefault();
@@ -138,6 +522,8 @@ export default function Products() {
   const resetForm = () => {
     setForm(createEmptyForm());
     setEditingId("");
+    setGenericSelection("");
+    setCustomGenericName("");
   };
 
   const updateIngredientField = (index, field, value) => {
@@ -145,6 +531,168 @@ export default function Products() {
       ...prev,
       ingredients: prev.ingredients.map((ingredient, currentIndex) =>
         currentIndex === index ? { ...ingredient, [field]: value } : ingredient
+      ),
+    }));
+  };
+
+  const getIngredientSelectValue = (ingredient) => {
+    if (ingredient.useCustomActiveIngredient) return CUSTOM_ACTIVE_INGREDIENT_VALUE;
+    return ingredient.activeIngredientId || "";
+  };
+
+  const handleIngredientSelectionChange = (index, selectedValue) => {
+    setForm((prev) => ({
+      ...prev,
+      ingredients: prev.ingredients.map((ingredient, currentIndex) => {
+        if (currentIndex !== index) return ingredient;
+
+        const nextValue = String(selectedValue || "").trim();
+        if (nextValue === CUSTOM_ACTIVE_INGREDIENT_VALUE) {
+          return {
+            ...ingredient,
+            activeIngredientId: "",
+            activeIngredientCode: "",
+            nameEn: "",
+            useCustomActiveIngredient: true,
+          };
+        }
+
+        if (!nextValue) {
+          return {
+            ...ingredient,
+            activeIngredientId: "",
+            activeIngredientCode: "",
+            nameEn: "",
+            useCustomActiveIngredient: false,
+          };
+        }
+
+        const selectedOption = activeIngredientOptionsById.get(nextValue);
+        return {
+          ...ingredient,
+          activeIngredientId: nextValue,
+          activeIngredientCode: selectedOption?.code || "",
+          nameEn: selectedOption?.nameEn || ingredient.nameEn,
+          useCustomActiveIngredient: false,
+        };
+      }),
+    }));
+  };
+
+  const handleCustomIngredientNameChange = (index, value) => {
+    const nextValue = String(value || "").toUpperCase();
+    setForm((prev) => ({
+      ...prev,
+      ingredients: prev.ingredients.map((ingredient, currentIndex) =>
+        currentIndex === index
+          ? {
+              ...ingredient,
+              activeIngredientId: "",
+              activeIngredientCode: "",
+              nameEn: nextValue,
+              useCustomActiveIngredient: true,
+            }
+          : ingredient
+      ),
+    }));
+  };
+
+  const getNumeratorUnitSelectValue = (ingredient) => {
+    if (ingredient.useCustomNumeratorUnit) return CUSTOM_NUMERATOR_UNIT_VALUE;
+    return getUnitCodeKey(ingredient.numeratorUnitCode);
+  };
+
+  const getDenominatorUnitSelectValue = (ingredient) => {
+    if (ingredient.useCustomDenominatorUnit) return CUSTOM_DENOMINATOR_UNIT_VALUE;
+    return getUnitCodeKey(ingredient.denominatorUnitCode);
+  };
+
+  const handleNumeratorUnitSelectionChange = (index, selectedValue) => {
+    setForm((prev) => ({
+      ...prev,
+      ingredients: prev.ingredients.map((ingredient, currentIndex) => {
+        if (currentIndex !== index) return ingredient;
+
+        const nextValue = String(selectedValue || "").trim();
+        if (nextValue === CUSTOM_NUMERATOR_UNIT_VALUE) {
+          return {
+            ...ingredient,
+            numeratorUnitCode: "",
+            useCustomNumeratorUnit: true,
+          };
+        }
+        if (!nextValue) {
+          return {
+            ...ingredient,
+            numeratorUnitCode: "",
+            useCustomNumeratorUnit: false,
+          };
+        }
+        return {
+          ...ingredient,
+          numeratorUnitCode: getUnitCodeKey(nextValue),
+          useCustomNumeratorUnit: false,
+        };
+      }),
+    }));
+  };
+
+  const handleDenominatorUnitSelectionChange = (index, selectedValue) => {
+    setForm((prev) => ({
+      ...prev,
+      ingredients: prev.ingredients.map((ingredient, currentIndex) => {
+        if (currentIndex !== index) return ingredient;
+
+        const nextValue = String(selectedValue || "").trim();
+        if (nextValue === CUSTOM_DENOMINATOR_UNIT_VALUE) {
+          return {
+            ...ingredient,
+            denominatorUnitCode: "",
+            useCustomDenominatorUnit: true,
+          };
+        }
+        if (!nextValue) {
+          return {
+            ...ingredient,
+            denominatorUnitCode: "",
+            useCustomDenominatorUnit: false,
+          };
+        }
+        return {
+          ...ingredient,
+          denominatorUnitCode: getUnitCodeKey(nextValue),
+          useCustomDenominatorUnit: false,
+        };
+      }),
+    }));
+  };
+
+  const handleCustomNumeratorUnitChange = (index, value) => {
+    setForm((prev) => ({
+      ...prev,
+      ingredients: prev.ingredients.map((ingredient, currentIndex) =>
+        currentIndex === index
+          ? {
+              ...ingredient,
+              numeratorUnitCode: getUnitCodeKey(value),
+              useCustomNumeratorUnit: true,
+            }
+          : ingredient
+      ),
+    }));
+  };
+
+  const handleCustomDenominatorUnitChange = (index, value) => {
+    setForm((prev) => ({
+      ...prev,
+      ingredients: prev.ingredients.map((ingredient, currentIndex) =>
+        currentIndex === index
+          ? {
+              ...ingredient,
+              denominatorUnitCode: getUnitCodeKey(value),
+              useCustomDenominatorUnit: true,
+            }
+          : ingredient
       ),
     }));
   };
@@ -181,6 +729,7 @@ export default function Products() {
     try {
       const ingredientsPayload = form.ingredients
         .map((ingredient) => ({
+          activeIngredientId: ingredient.activeIngredientId.trim() || null,
           activeIngredientCode: ingredient.activeIngredientCode.trim() || null,
           nameEn: ingredient.nameEn.trim() || null,
           nameTh: ingredient.nameTh.trim() || null,
@@ -195,7 +744,7 @@ export default function Products() {
         productCode: form.productCode || null,
         barcode: form.barcode || null,
         tradeName: form.tradeName,
-        genericName: form.genericName || null,
+        genericName: genericNameValueForSubmit || null,
         dosageFormCode: form.dosageFormCode || "TABLET",
         manufacturerName: form.manufacturerName || null,
         packageSize: form.packageSize || null,
@@ -226,7 +775,13 @@ export default function Products() {
   const handleEditClick = (item) => {
     const ingredientRows =
       Array.isArray(item.ingredients) && item.ingredients.length
-        ? item.ingredients.map(normalizeIngredientForForm)
+        ? item.ingredients.map((ingredient) =>
+            normalizeIngredientForForm(
+              ingredient,
+              activeIngredientOptionsByName,
+              ingredientUnitOptionsByCode
+            )
+          )
         : [createEmptyIngredient()];
 
     setEditingId(item.id);
@@ -244,6 +799,7 @@ export default function Products() {
       noteText: item.noteText || "",
       ingredients: ingredientRows,
     });
+    syncGenericControls(item.genericName || "");
     setStatusText("");
   };
 
@@ -326,47 +882,96 @@ export default function Products() {
               }
             />
           </label>
-          <label>
+          <label className="products-generic-field">
             ชื่อสามัญ (สรุป)
-            <input
-              type="text"
-              value={form.genericName}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, genericName: event.target.value }))
-              }
-            />
+            <select
+              value={genericSelection}
+              onChange={handleGenericSelectionChange}
+              disabled={isLoadingGenericNames}
+            >
+              <option value="">เลือกชื่อสามัญ (สรุป)</option>
+              {genericNameOptions.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+              <option value={CUSTOM_GENERIC_VALUE}>กำหนดเอง (กรณีสูตรยาใหม่)</option>
+            </select>
+            {genericSelection === CUSTOM_GENERIC_VALUE ? (
+              <input
+                ref={customGenericInputRef}
+                type="text"
+                className="products-generic-custom-input"
+                value={customGenericName}
+                onChange={handleCustomGenericNameChange}
+                placeholder="ระบุชื่อสามัญใหม่"
+              />
+            ) : null}
+            {isLoadingGenericNames ? (
+              <small className="products-generic-help">กำลังโหลดรายการชื่อสามัญ...</small>
+            ) : null}
+            {genericNamesError ? (
+              <small className="products-generic-help products-generic-help--error">
+                โหลดรายการชื่อสามัญไม่สำเร็จ สามารถเลือกกำหนดเองได้
+              </small>
+            ) : null}
           </label>
           <label>
             ขนาดบรรจุภัณฑ์
-            <input
-              type="text"
-              placeholder="เช่น 1 กล่อง = 10 แผง"
+            <select
               value={form.packageSize}
               onChange={(event) =>
                 setForm((prev) => ({ ...prev, packageSize: event.target.value }))
               }
-            />
+            >
+              <option value="">เลือกขนาดบรรจุภัณฑ์</option>
+              {isLegacyPackageSizeValue ? (
+                <option value={form.packageSize}>{`${form.packageSize} (legacy)`}</option>
+              ) : null}
+              {packageSizeOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             Dosage Form Code
-            <input
-              type="text"
+            <select
               value={form.dosageFormCode}
               onChange={(event) =>
                 setForm((prev) => ({ ...prev, dosageFormCode: event.target.value }))
               }
-            />
+            >
+              <option value="">เลือก Dosage Form Code</option>
+              {isLegacyDosageFormCodeValue ? (
+                <option value={form.dosageFormCode}>{`${form.dosageFormCode} (legacy)`}</option>
+              ) : null}
+              {dosageFormCodeOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             Unit Type Code
-            <input
-              type="text"
-              placeholder="เช่น BLISTER / BOTTLE"
+            <select
               value={form.unitTypeCode}
               onChange={(event) =>
                 setForm((prev) => ({ ...prev, unitTypeCode: event.target.value }))
               }
-            />
+            >
+              <option value="">เลือก Unit Type Code</option>
+              {isLegacyUnitTypeCodeValue ? (
+                <option value={form.unitTypeCode}>{`${form.unitTypeCode} (legacy)`}</option>
+              ) : null}
+              {unitTypeCodeOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             ราคาขายต่อหน่วย
@@ -402,55 +1007,163 @@ export default function Products() {
                 เพิ่มตัวยา
               </button>
             </div>
-            {form.ingredients.map((ingredient, index) => (
-              <div className="products-ingredient-row" key={`ingredient-${index}`}>
-                <input
-                  type="text"
-                  placeholder="ชื่อสารสำคัญ (EN) *"
-                  value={ingredient.nameEn}
-                  onChange={(event) => updateIngredientField(index, "nameEn", event.target.value)}
-                />
-                <input
-                  type="text"
-                  placeholder="ความแรง"
-                  value={ingredient.strengthNumerator}
-                  onChange={(event) =>
-                    updateIngredientField(index, "strengthNumerator", event.target.value)
-                  }
-                />
-                <input
-                  type="text"
-                  placeholder="หน่วยตัวตั้ง (เช่น MG)"
-                  value={ingredient.numeratorUnitCode}
-                  onChange={(event) =>
-                    updateIngredientField(index, "numeratorUnitCode", event.target.value)
-                  }
-                />
-                <input
-                  type="text"
-                  placeholder="ตัวหาร (ถ้ามี)"
-                  value={ingredient.strengthDenominator}
-                  onChange={(event) =>
-                    updateIngredientField(index, "strengthDenominator", event.target.value)
-                  }
-                />
-                <input
-                  type="text"
-                  placeholder="หน่วยตัวหาร (เช่น ML)"
-                  value={ingredient.denominatorUnitCode}
-                  onChange={(event) =>
-                    updateIngredientField(index, "denominatorUnitCode", event.target.value)
-                  }
-                />
-                <button
-                  type="button"
-                  className="products-btn small danger"
-                  onClick={() => removeIngredientRow(index)}
-                >
-                  ลบ
-                </button>
-              </div>
-            ))}
+            <input
+              type="text"
+              className="products-ingredient-search"
+              value={activeIngredientSearch}
+              onChange={(event) => setActiveIngredientSearch(event.target.value)}
+              placeholder="ค้นหาสารสำคัญ (EN / code)"
+            />
+            {isLoadingActiveIngredients ? (
+              <p className="products-ingredient-help">กำลังโหลดรายการสารสำคัญ...</p>
+            ) : null}
+            {activeIngredientsError ? (
+              <p className="products-ingredient-help products-ingredient-help--error">
+                โหลดรายการสารสำคัญไม่สำเร็จ สามารถเลือกกำหนดเองได้
+              </p>
+            ) : null}
+            {isLoadingIngredientUnits ? (
+              <p className="products-ingredient-help">กำลังโหลดรายการหน่วย...</p>
+            ) : null}
+            {ingredientUnitsError ? (
+              <p className="products-ingredient-help products-ingredient-help--error">
+                โหลดรายการหน่วยไม่สำเร็จ สามารถกำหนดเองได้
+              </p>
+            ) : null}
+            {form.ingredients.map((ingredient, index) => {
+              const hasMissingSelectedOption =
+                Boolean(ingredient.activeIngredientId) &&
+                !activeIngredientOptionsById.has(ingredient.activeIngredientId);
+              const numeratorUnitCode = getUnitCodeKey(ingredient.numeratorUnitCode);
+              const denominatorUnitCode = getUnitCodeKey(ingredient.denominatorUnitCode);
+              const hasMissingNumeratorOption =
+                Boolean(numeratorUnitCode) && !ingredientUnitOptionsByCode.has(numeratorUnitCode);
+              const hasMissingDenominatorOption =
+                Boolean(denominatorUnitCode) &&
+                !ingredientUnitOptionsByCode.has(denominatorUnitCode);
+
+              return (
+                <div className="products-ingredient-row" key={`ingredient-${index}`}>
+                  <div className="products-ingredient-name-field">
+                    <select
+                      value={getIngredientSelectValue(ingredient)}
+                      onChange={(event) => handleIngredientSelectionChange(index, event.target.value)}
+                      disabled={isLoadingActiveIngredients}
+                    >
+                      <option value="">เลือกสารสำคัญ (EN) *</option>
+                      {hasMissingSelectedOption ? (
+                        <option value={ingredient.activeIngredientId}>
+                          {ingredient.nameEn || ingredient.activeIngredientCode || "(legacy)"}
+                        </option>
+                      ) : null}
+                      {activeIngredientOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.nameEn}
+                        </option>
+                      ))}
+                      <option value={CUSTOM_ACTIVE_INGREDIENT_VALUE}>
+                        กำหนดเอง (กรณีตัวยาใหม่)
+                      </option>
+                    </select>
+                    {ingredient.useCustomActiveIngredient ? (
+                      <input
+                        type="text"
+                        placeholder="ชื่อสารสำคัญใหม่ (EN) *"
+                        value={ingredient.nameEn}
+                        onChange={(event) =>
+                          handleCustomIngredientNameChange(index, event.target.value)
+                        }
+                      />
+                    ) : null}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="ความแรง"
+                    value={ingredient.strengthNumerator}
+                    onChange={(event) =>
+                      updateIngredientField(index, "strengthNumerator", event.target.value)
+                    }
+                  />
+                  <div className="products-ingredient-unit-field">
+                    <select
+                      value={getNumeratorUnitSelectValue(ingredient)}
+                      onChange={(event) =>
+                        handleNumeratorUnitSelectionChange(index, event.target.value)
+                      }
+                      disabled={isLoadingIngredientUnits}
+                    >
+                      <option value="">หน่วยตัวตั้ง (เช่น MG)</option>
+                      {hasMissingNumeratorOption ? (
+                        <option value={numeratorUnitCode}>{numeratorUnitCode}</option>
+                      ) : null}
+                      {ingredientUnitOptions.map((option) => (
+                        <option key={option.code} value={option.code}>
+                          {option.code}
+                          {option.symbol ? ` (${option.symbol})` : ""}
+                        </option>
+                      ))}
+                      <option value={CUSTOM_NUMERATOR_UNIT_VALUE}>กำหนดเอง</option>
+                    </select>
+                    {ingredient.useCustomNumeratorUnit ? (
+                      <input
+                        type="text"
+                        placeholder="ระบุหน่วยตัวตั้ง (เช่น MG)"
+                        value={ingredient.numeratorUnitCode}
+                        onChange={(event) =>
+                          handleCustomNumeratorUnitChange(index, event.target.value)
+                        }
+                      />
+                    ) : null}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="ตัวหาร (ถ้ามี)"
+                    value={ingredient.strengthDenominator}
+                    onChange={(event) =>
+                      updateIngredientField(index, "strengthDenominator", event.target.value)
+                    }
+                  />
+                  <div className="products-ingredient-unit-field">
+                    <select
+                      value={getDenominatorUnitSelectValue(ingredient)}
+                      onChange={(event) =>
+                        handleDenominatorUnitSelectionChange(index, event.target.value)
+                      }
+                      disabled={isLoadingIngredientUnits}
+                    >
+                      <option value="">หน่วยตัวหาร (เช่น ML)</option>
+                      {hasMissingDenominatorOption ? (
+                        <option value={denominatorUnitCode}>{denominatorUnitCode}</option>
+                      ) : null}
+                      {ingredientUnitOptions.map((option) => (
+                        <option key={`${option.code}-den`} value={option.code}>
+                          {option.code}
+                          {option.symbol ? ` (${option.symbol})` : ""}
+                        </option>
+                      ))}
+                      <option value={CUSTOM_DENOMINATOR_UNIT_VALUE}>กำหนดเอง</option>
+                    </select>
+                    {ingredient.useCustomDenominatorUnit ? (
+                      <input
+                        type="text"
+                        placeholder="ระบุหน่วยตัวหาร (เช่น ML)"
+                        value={ingredient.denominatorUnitCode}
+                        onChange={(event) =>
+                          handleCustomDenominatorUnitChange(index, event.target.value)
+                        }
+                      />
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    className="products-btn small danger"
+                    onClick={() => removeIngredientRow(index)}
+                  >
+                    ลบ
+                  </button>
+                </div>
+              );
+            })}
             <p className="products-ingredient-hint">
               ตัวอย่าง: Paracetamol 500 MG, หรือ Amoxicillin 125 MG / 5 ML
             </p>

@@ -86,18 +86,34 @@ function normalizeBarcode(input) {
   return trimmed.slice(-13);
 }
 
+function normalizeReportGroupCodes(value) {
+  if (!Array.isArray(value)) return [];
+  const unique = new Set();
+  value.forEach((entry) => {
+    const code = String(entry || "").trim().toUpperCase();
+    if (code) unique.add(code);
+  });
+  return [...unique];
+}
+
 function normalizeProduct(data) {
   if (!data) return null;
   const barcode = String(data.barcode || "").trim();
   if (!barcode) return null;
+  const companyCode = String(
+    data.companyCode ?? data.productCode ?? data.product_code ?? data.company_code ?? ""
+  ).trim();
 
   return {
+    id: data.id ?? data.productId ?? data.product_id ?? "",
     barcode,
-    companyCode: data.companyCode ?? data.product_code ?? data.company_code ?? "",
+    companyCode,
+    productCode: companyCode,
     name: data.name ?? data.brand_name ?? data.product_name ?? "",
     price: Number(data.price ?? data.price_baht ?? 0),
     qtyPerUnit: Number(data.qtyPerUnit ?? data.qty_per_unit ?? 1),
     unit: data.unit ?? "",
+    reportGroupCodes: normalizeReportGroupCodes(data.reportGroupCodes ?? data.report_group_codes),
   };
 }
 
@@ -136,6 +152,42 @@ async function fetchProductFromServer(barcode) {
   if (!res.ok) return null;
   const data = await res.json();
   return normalizeProduct(data);
+}
+
+async function fetchProductsBySearch(search) {
+  const term = String(search || "").trim();
+  if (!term) return [];
+  const res = await fetch(`${API_BASE}/api/products?search=${encodeURIComponent(term)}`);
+  if (!res.ok) return [];
+  const rows = await res.json();
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((row) =>
+      normalizeProduct({
+        id: row?.id,
+        barcode: row?.barcode,
+        productCode: row?.productCode ?? row?.product_code,
+        name: row?.tradeName ?? row?.productName,
+        price: row?.price,
+        unit: row?.unitSymbol ?? row?.unit,
+        reportGroupCodes: row?.reportGroupCodes ?? row?.report_group_codes,
+      })
+    )
+    .filter(Boolean);
+}
+
+function pickMatchedProductCandidate(candidates, seedProduct) {
+  if (!Array.isArray(candidates) || !candidates.length) return null;
+  const seedBarcode = String(seedProduct?.barcode || "").trim();
+  const seedProductCode = String(
+    seedProduct?.productCode ?? seedProduct?.companyCode ?? ""
+  ).trim();
+
+  return (
+    candidates.find((item) => String(item?.barcode || "").trim() === seedBarcode) ||
+    candidates.find((item) => String(item?.productCode || "").trim() === seedProductCode) ||
+    candidates[0]
+  );
 }
 
 async function fetchSnapshot() {
@@ -188,6 +240,20 @@ export async function productLookup(barcode) {
 
   const cached = await getCachedProduct(normalized);
   if (cached) {
+    const hasMetadata =
+      String(cached.id || "").trim() && Array.isArray(cached.reportGroupCodes);
+    if (!hasMetadata) {
+      try {
+        const fresh = await fetchProductFromServer(normalized);
+        if (fresh) {
+          await setCachedProduct(fresh);
+          return fresh;
+        }
+      } catch {
+        // fallback to cached
+      }
+    }
+
     fetchProductFromServer(normalized)
       .then((fresh) => {
         if (fresh) setCachedProduct(fresh);
@@ -207,4 +273,93 @@ export async function productLookup(barcode) {
   }
 
   return null;
+}
+
+export async function hydrateProductMetadata(seedProduct) {
+  const normalizedSeed = normalizeProduct(seedProduct);
+  if (!normalizedSeed) return null;
+
+  const hasId = String(normalizedSeed.id || "").trim();
+  const hasReportCodes = Array.isArray(normalizedSeed.reportGroupCodes);
+  if (hasId && hasReportCodes) return normalizedSeed;
+
+  const probes = [
+    normalizedSeed.productCode || normalizedSeed.companyCode,
+    normalizedSeed.barcode,
+    normalizedSeed.name,
+  ]
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean);
+
+  const uniqueProbes = [...new Set(probes)];
+  for (const probe of uniqueProbes) {
+    try {
+      const candidates = await fetchProductsBySearch(probe);
+      const matched = pickMatchedProductCandidate(candidates, normalizedSeed);
+      if (!matched) continue;
+      const merged = {
+        ...normalizedSeed,
+        ...matched,
+        reportGroupCodes: normalizeReportGroupCodes(
+          matched.reportGroupCodes?.length ? matched.reportGroupCodes : normalizedSeed.reportGroupCodes
+        ),
+      };
+      await setCachedProduct(merged);
+      return merged;
+    } catch {
+      // try next probe
+    }
+  }
+
+  return normalizedSeed;
+}
+
+export async function fetchProductLots(filters = {}) {
+  const safeProductId = String(filters?.productId || "").trim();
+  const safeProductCode = String(filters?.productCode || "").trim();
+  if (!safeProductId && !safeProductCode) return [];
+
+  const requestUrl = safeProductId
+    ? `${API_BASE}/api/stock/on-hand?productId=${encodeURIComponent(safeProductId)}`
+    : `${API_BASE}/api/stock/on-hand`;
+  const res = await fetch(requestUrl);
+  if (!res.ok) return [];
+
+  const rows = await res.json();
+  const list = Array.isArray(rows) ? rows : [];
+  const seen = new Set();
+  const lots = [];
+
+  list.forEach((row) => {
+    const rowProductId = String(row?.productId ?? row?.product_id ?? "").trim();
+    const rowProductCode = String(row?.productCode ?? row?.product_code ?? "").trim();
+    if (safeProductId) {
+      if (rowProductId && rowProductId !== safeProductId) return;
+    } else if (safeProductCode && rowProductCode !== safeProductCode) {
+      return;
+    }
+
+    const lotNo = String(row?.lotNo ?? row?.lot_no ?? "").trim();
+    if (!lotNo) return;
+
+    const expDate = String(row?.expDate ?? row?.exp_date ?? "").trim();
+    const lotId = String(row?.lotId ?? row?.lot_id ?? "").trim();
+    const key = `${lotNo}|${expDate}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    lots.push({
+      lotId,
+      lotNo,
+      expDate,
+    });
+  });
+
+  lots.sort((a, b) => {
+    const expA = a.expDate || "9999-12-31";
+    const expB = b.expDate || "9999-12-31";
+    if (expA !== expB) return expA.localeCompare(expB);
+    return a.lotNo.localeCompare(b.lotNo);
+  });
+
+  return lots;
 }

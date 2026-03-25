@@ -1,12 +1,23 @@
 import { NavLink, useNavigate } from "react-router-dom";
-import { FiBox, FiDownload, FiFileText, FiHome, FiLogOut, FiMenu, FiTruck } from "react-icons/fi";
+import {
+  FiBox,
+  FiClock,
+  FiDownload,
+  FiFileText,
+  FiHome,
+  FiLogOut,
+  FiMenu,
+  FiTruck,
+} from "react-icons/fi";
 import { useOptionalAuth } from "../context/AuthContext";
+import { clearAuthStorage, logoutRequest } from "../lib/authApi";
 
 const navItems = [
   { to: "/", label: "หน้าหลัก", icon: FiHome, end: true },
   { to: "/reports", label: "หน้าเอกสารรายงาน", icon: FiFileText },
   { to: "/products", label: "จัดการสินค้า", icon: FiBox },
   { to: "/deliver", label: "หน้าส่งมอบยา", icon: FiTruck },
+  { to: "/patient-history", label: "ประวัติการจ่ายยา", icon: FiClock },
   { to: "/receiving", label: "รับยาเข้า", icon: FiDownload },
 ];
 
@@ -15,22 +26,12 @@ export default function Sidebar({ collapsed, onToggle }) {
   const auth = useOptionalAuth();
 
   async function fallbackLogout() {
-    const token = String(window.localStorage.getItem("rx1011_auth_token") || "").trim();
-
     try {
-      if (token) {
-        await fetch("http://localhost:5050/api/auth/logout", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-      }
+      await logoutRequest();
     } catch {
       // Ignore network/backend errors for safe client-side logout.
     } finally {
-      window.localStorage.removeItem("rx1011_auth_token");
-      window.localStorage.removeItem("rx1011_auth_user");
+      clearAuthStorage();
       navigate("/login", { replace: true });
     }
   }

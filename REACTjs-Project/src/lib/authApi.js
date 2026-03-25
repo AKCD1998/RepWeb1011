@@ -1,6 +1,8 @@
 import axios from "axios";
 
-const rawApiBase = String(import.meta.env.VITE_API_BASE || "").trim();
+const rawApiBase = String(
+  import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_BASE_URL || ""
+).trim();
 const apiBase = rawApiBase.replace(/\/+$/, "");
 
 export const AUTH_TOKEN_KEY = "rx1011_auth_token";

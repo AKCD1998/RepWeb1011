@@ -2,9 +2,12 @@ import { query, withTransaction } from "../db/pool.js";
 import {
   applyStockDelta,
   assertLotBelongsToProduct,
+  convertMovementToSignedBase,
+  convertToBase,
   ensureLot,
   ensureProductExists,
   ensureProductUnitLevel,
+  resolveProductBaseUnitLevel,
   resolveActorUserId,
   resolveBranchByCode,
   toIsoTimestamp,
@@ -45,6 +48,16 @@ function parseBoolean(value, fallback = false) {
   return fallback;
 }
 
+function toIsoDateOnly(value, fieldName) {
+  const text = normalizeText(value);
+  if (!text) return "";
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    throw httpError(400, `${fieldName} must be a valid date`);
+  }
+  return date.toISOString().slice(0, 10);
+}
+
 function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     String(value || "").trim()
@@ -83,6 +96,50 @@ async function resolveActiveLocationById(client, locationId, fieldName) {
   return result.rows[0];
 }
 
+async function resolveLotIdForMovement(
+  client,
+  { productId, movementType, explicitLotId, lotNo, expDate, mfgDate, manufacturer }
+) {
+  if (explicitLotId) {
+    await assertLotBelongsToProduct(client, productId, explicitLotId);
+    return explicitLotId;
+  }
+
+  if (!lotNo) throw httpError(400, "lotNo is required");
+  if (!expDate) throw httpError(400, "expDate is required");
+
+  if (movementType === "RECEIVE") {
+    return ensureLot(client, {
+      productId,
+      lotNo,
+      mfgDate: mfgDate || null,
+      expDate,
+      manufacturer: manufacturer || null,
+    });
+  }
+
+  const lotResult = await client.query(
+    `
+      SELECT id
+      FROM product_lots
+      WHERE product_id = $1
+        AND lot_no = $2
+        AND exp_date = $3::date
+      LIMIT 1
+    `,
+    [productId, lotNo, expDate]
+  );
+
+  if (!lotResult.rows[0]) {
+    throw httpError(
+      404,
+      `Lot not found for product ${productId}: ${lotNo} (exp ${expDate})`
+    );
+  }
+
+  return lotResult.rows[0].id;
+}
+
 export async function receiveInventory(req, res) {
   const toBranchCode = String(req.body?.toBranchCode || "").trim();
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
@@ -105,7 +162,9 @@ export async function receiveInventory(req, res) {
       if (!unitLabel) throw httpError(400, "unitLabel is required");
 
       await ensureProductExists(client, productId);
-      const unitLevel = await ensureProductUnitLevel(client, productId, unitLabel);
+      const unitLevel = await ensureProductUnitLevel(client, productId, unitLabel, item || {});
+      const baseUnitLevel = await resolveProductBaseUnitLevel(client, productId);
+      const quantityBase = convertToBase(qty, unitLevel);
 
       const lotId =
         item?.lotId ||
@@ -130,6 +189,7 @@ export async function receiveInventory(req, res) {
             product_id,
             lot_id,
             quantity,
+            quantity_base,
             unit_level_id,
             occurred_at,
             created_by,
@@ -143,20 +203,31 @@ export async function receiveInventory(req, res) {
             $3,
             $4,
             $5,
-            $6::timestamptz,
-            $7,
-            $8
+            $6,
+            $7::timestamptz,
+            $8,
+            $9
           )
         `,
-        [branch.id, productId, lotId || null, qty, unitLevel.id, occurredAt, actorUserId, note]
+        [
+          branch.id,
+          productId,
+          lotId || null,
+          qty,
+          quantityBase,
+          unitLevel.id,
+          occurredAt,
+          actorUserId,
+          note,
+        ]
       );
 
       await applyStockDelta(client, {
         branchId: branch.id,
         productId,
         lotId: lotId || null,
-        unitLevelId: unitLevel.id,
-        deltaQty: qty,
+        baseUnitLevelId: baseUnitLevel.id,
+        deltaQtyBase: quantityBase,
       });
 
       movementCount += 1;
@@ -202,7 +273,9 @@ export async function transferInventory(req, res) {
       if (!unitLabel) throw httpError(400, "unitLabel is required");
 
       await ensureProductExists(client, productId);
-      const unitLevel = await ensureProductUnitLevel(client, productId, unitLabel);
+      const unitLevel = await ensureProductUnitLevel(client, productId, unitLabel, item || {});
+      const baseUnitLevel = await resolveProductBaseUnitLevel(client, productId);
+      const quantityBase = convertToBase(qty, unitLevel);
       const lotId = item?.lotId || null;
       if (lotId) {
         await assertLotBelongsToProduct(client, productId, lotId);
@@ -212,15 +285,15 @@ export async function transferInventory(req, res) {
         branchId: fromBranch.id,
         productId,
         lotId,
-        unitLevelId: unitLevel.id,
-        deltaQty: -qty,
+        baseUnitLevelId: baseUnitLevel.id,
+        deltaQtyBase: -quantityBase,
       });
       await applyStockDelta(client, {
         branchId: toBranch.id,
         productId,
         lotId,
-        unitLevelId: unitLevel.id,
-        deltaQty: qty,
+        baseUnitLevelId: baseUnitLevel.id,
+        deltaQtyBase: quantityBase,
       });
 
       await client.query(
@@ -232,16 +305,29 @@ export async function transferInventory(req, res) {
             product_id,
             lot_id,
             quantity,
+            quantity_base,
             unit_level_id,
             occurred_at,
             created_by,
             note_text
           )
           VALUES
-            ('TRANSFER_OUT', $1, $2, $3, $4, $5, $6, $7::timestamptz, $8, $9),
-            ('TRANSFER_IN',  $1, $2, $3, $4, $5, $6, $7::timestamptz, $8, $9)
+            ('TRANSFER_OUT', $1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9, $10),
+            ('TRANSFER_IN',  $1, $2, $3, $4, $5, $11, $7, $8::timestamptz, $9, $10)
         `,
-        [fromBranch.id, toBranch.id, productId, lotId, qty, unitLevel.id, occurredAt, actorUserId, note]
+        [
+          fromBranch.id,
+          toBranch.id,
+          productId,
+          lotId,
+          qty,
+          -quantityBase,
+          unitLevel.id,
+          occurredAt,
+          actorUserId,
+          note,
+          quantityBase,
+        ]
       );
 
       movementCount += 2;
@@ -265,6 +351,11 @@ export async function createMovement(req, res) {
   const productId = normalizeText(req.body?.productId);
   const qty = toPositiveNumeric(req.body?.qty, "qty");
   const unitLabel = normalizeText(req.body?.unitLabel || req.body?.unit);
+  const lotIdInput = normalizeText(req.body?.lotId || req.body?.lot_id);
+  const lotNo = normalizeText(req.body?.lotNo || req.body?.lot_no);
+  const expDate = toIsoDateOnly(req.body?.expDate || req.body?.exp_date, "expDate");
+  const mfgDate = toIsoDateOnly(req.body?.mfgDate || req.body?.mfg_date, "mfgDate");
+  const manufacturer = normalizeText(req.body?.manufacturer || req.body?.manufacturerName);
   const occurredAt = toIsoTimestamp(req.body?.occurredAt);
   const note = req.body?.note || null;
   const createdByUserId = req.user?.id || req.body?.createdByUserId || null;
@@ -279,6 +370,8 @@ export async function createMovement(req, res) {
   }
   if (!productId) throw httpError(400, "productId is required");
   if (!unitLabel) throw httpError(400, "unitLabel is required");
+  if (!lotIdInput && !lotNo) throw httpError(400, "lotNo is required");
+  if (!lotIdInput && !expDate) throw httpError(400, "expDate is required");
 
   if (!isAdmin && !userLocationId) {
     throw httpError(403, "Branch-scoped access requires location_id");
@@ -338,7 +431,18 @@ export async function createMovement(req, res) {
   const result = await withTransaction(async (client) => {
     const actorUserId = await resolveActorUserId(client, createdByUserId);
     await ensureProductExists(client, productId);
-    const unitLevel = await ensureProductUnitLevel(client, productId, unitLabel);
+    const unitLevel = await ensureProductUnitLevel(client, productId, unitLabel, req.body || {});
+    const baseUnitLevel = await resolveProductBaseUnitLevel(client, productId);
+    const quantityBase = convertToBase(qty, unitLevel);
+    const lotId = await resolveLotIdForMovement(client, {
+      productId,
+      movementType,
+      explicitLotId: lotIdInput || null,
+      lotNo,
+      expDate,
+      mfgDate,
+      manufacturer,
+    });
     const fromLocation = await resolveActiveLocationById(
       client,
       effectiveFromLocationId,
@@ -357,6 +461,7 @@ export async function createMovement(req, res) {
             product_id,
             lot_id,
             quantity,
+            quantity_base,
             unit_level_id,
             occurred_at,
             created_by,
@@ -367,23 +472,35 @@ export async function createMovement(req, res) {
             $1,
             $2,
             $3,
-            NULL,
             $4,
             $5,
-            $6::timestamptz,
+            $6,
             $7,
-            $8
+            $8::timestamptz,
+            $9,
+            $10
           )
         `,
-        [fromLocation?.id || null, toLocation?.id || null, productId, qty, unitLevel.id, occurredAt, actorUserId, note]
+        [
+          fromLocation?.id || null,
+          toLocation?.id || null,
+          productId,
+          lotId,
+          qty,
+          convertMovementToSignedBase(qty, "RECEIVE", unitLevel),
+          unitLevel.id,
+          occurredAt,
+          actorUserId,
+          note,
+        ]
       );
 
       await applyStockDelta(client, {
         branchId: toLocation.id,
         productId,
-        lotId: null,
-        unitLevelId: unitLevel.id,
-        deltaQty: qty,
+        lotId,
+        baseUnitLevelId: baseUnitLevel.id,
+        deltaQtyBase: quantityBase,
       });
 
       movementCount = 1;
@@ -391,16 +508,16 @@ export async function createMovement(req, res) {
       await applyStockDelta(client, {
         branchId: fromLocation.id,
         productId,
-        lotId: null,
-        unitLevelId: unitLevel.id,
-        deltaQty: -qty,
+        lotId,
+        baseUnitLevelId: baseUnitLevel.id,
+        deltaQtyBase: -quantityBase,
       });
       await applyStockDelta(client, {
         branchId: toLocation.id,
         productId,
-        lotId: null,
-        unitLevelId: unitLevel.id,
-        deltaQty: qty,
+        lotId,
+        baseUnitLevelId: baseUnitLevel.id,
+        deltaQtyBase: quantityBase,
       });
 
       await client.query(
@@ -412,16 +529,29 @@ export async function createMovement(req, res) {
             product_id,
             lot_id,
             quantity,
+            quantity_base,
             unit_level_id,
             occurred_at,
             created_by,
             note_text
           )
           VALUES
-            ('TRANSFER_OUT', $1, $2, $3, NULL, $4, $5, $6::timestamptz, $7, $8),
-            ('TRANSFER_IN',  $1, $2, $3, NULL, $4, $5, $6::timestamptz, $7, $8)
+            ('TRANSFER_OUT', $1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9, $10),
+            ('TRANSFER_IN',  $1, $2, $3, $4, $5, $11, $7, $8::timestamptz, $9, $10)
         `,
-        [fromLocation.id, toLocation.id, productId, qty, unitLevel.id, occurredAt, actorUserId, note]
+        [
+          fromLocation.id,
+          toLocation.id,
+          productId,
+          lotId,
+          qty,
+          convertMovementToSignedBase(qty, "TRANSFER_OUT", unitLevel),
+          unitLevel.id,
+          occurredAt,
+          actorUserId,
+          note,
+          convertMovementToSignedBase(qty, "TRANSFER_IN", unitLevel),
+        ]
       );
 
       movementCount = 2;
@@ -429,9 +559,9 @@ export async function createMovement(req, res) {
       await applyStockDelta(client, {
         branchId: fromLocation.id,
         productId,
-        lotId: null,
-        unitLevelId: unitLevel.id,
-        deltaQty: -qty,
+        lotId,
+        baseUnitLevelId: baseUnitLevel.id,
+        deltaQtyBase: -quantityBase,
       });
 
       await client.query(
@@ -443,6 +573,7 @@ export async function createMovement(req, res) {
             product_id,
             lot_id,
             quantity,
+            quantity_base,
             unit_level_id,
             occurred_at,
             created_by,
@@ -453,15 +584,26 @@ export async function createMovement(req, res) {
             $1,
             NULL,
             $2,
-            NULL,
             $3,
             $4,
-            $5::timestamptz,
+            $5,
             $6,
-            $7
+            $7::timestamptz,
+            $8,
+            $9
           )
         `,
-        [fromLocation.id, productId, qty, unitLevel.id, occurredAt, actorUserId, note]
+        [
+          fromLocation.id,
+          productId,
+          lotId,
+          qty,
+          convertMovementToSignedBase(qty, "DISPENSE", unitLevel),
+          unitLevel.id,
+          occurredAt,
+          actorUserId,
+          note,
+        ]
       );
 
       movementCount = 1;
@@ -518,6 +660,7 @@ export async function listLocations(req, res) {
 
 export async function getStockOnHand(req, res) {
   const branchCode = String(req.query.branchCode || "").trim();
+  const productId = String(req.query.productId || "").trim();
 
   const params = [];
   const where = ["l.location_type = 'BRANCH'"];
@@ -525,9 +668,53 @@ export async function getStockOnHand(req, res) {
     params.push(branchCode);
     where.push(`l.code = $${params.length}`);
   }
+  if (productId) {
+    params.push(productId);
+    where.push(`mb.product_id = $${params.length}::uuid`);
+  }
 
   const result = await query(
     `
+      WITH movement_branches AS (
+        SELECT
+          COALESCE(
+            CASE
+              WHEN sm.quantity_base > 0 THEN sm.to_location_id
+              WHEN sm.quantity_base < 0 THEN sm.from_location_id
+              ELSE NULL
+            END,
+            sm.to_location_id,
+            sm.from_location_id
+          ) AS branch_id,
+          sm.product_id,
+          sm.lot_id,
+          SUM(sm.quantity_base) AS quantity_base
+        FROM stock_movements sm
+        GROUP BY
+          COALESCE(
+            CASE
+              WHEN sm.quantity_base > 0 THEN sm.to_location_id
+              WHEN sm.quantity_base < 0 THEN sm.from_location_id
+              ELSE NULL
+            END,
+            sm.to_location_id,
+            sm.from_location_id
+          ),
+          sm.product_id,
+          sm.lot_id
+      ),
+      base_unit_pick AS (
+        SELECT DISTINCT ON (pul.product_id)
+          pul.product_id,
+          pul.id AS base_unit_level_id,
+          pul.code AS base_unit_code,
+          pul.display_name AS base_unit_label,
+          ut.code AS base_unit_type_code,
+          COALESCE(NULLIF(ut.name_th, ''), NULLIF(ut.name_en, ''), NULLIF(ut.symbol, ''), ut.code, 'base') AS base_unit_symbol
+        FROM product_unit_levels pul
+        LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
+        ORDER BY pul.product_id, pul.is_base DESC, pul.sort_order ASC, pul.created_at ASC
+      )
       SELECT
         l.code AS "branchCode",
         l.name AS "branchName",
@@ -537,15 +724,18 @@ export async function getStockOnHand(req, res) {
         pl.id AS "lotId",
         pl.lot_no AS "lotNo",
         pl.exp_date AS "expDate",
-        soh.quantity_on_hand AS "quantity",
-        pul.code AS "unitCode",
-        pul.display_name AS "unitLabel"
-      FROM stock_on_hand soh
-      JOIN locations l ON l.id = soh.branch_id
-      JOIN products p ON p.id = soh.product_id
-      LEFT JOIN product_lots pl ON pl.id = soh.lot_id
-      JOIN product_unit_levels pul ON pul.id = soh.base_unit_level_id
+        mb.quantity_base AS "quantityBase",
+        mb.quantity_base AS "quantity",
+        COALESCE(bu.base_unit_type_code, bu.base_unit_code, 'BASE') AS "unitCode",
+        COALESCE(NULLIF(trim(bu.base_unit_label), ''), bu.base_unit_symbol, 'base') AS "unitLabel",
+        bu.base_unit_symbol AS "baseUnitLabel"
+      FROM movement_branches mb
+      JOIN locations l ON l.id = mb.branch_id
+      JOIN products p ON p.id = mb.product_id
+      LEFT JOIN product_lots pl ON pl.id = mb.lot_id
+      LEFT JOIN base_unit_pick bu ON bu.product_id = mb.product_id
       WHERE ${where.join(" AND ")}
+        AND mb.quantity_base > 0
       ORDER BY l.code, p.trade_name, pl.exp_date NULLS LAST, pl.lot_no
     `,
     params
@@ -620,13 +810,17 @@ export async function getMovements(req, res) {
         sm.movement_type AS "movementType",
         sm.occurred_at AS "occurredAt",
         sm.quantity,
+        sm.quantity_base AS "quantityBase",
         sm.note_text AS note,
         p.id AS "productId",
         p.product_code AS "productCode",
         p.trade_name AS "tradeName",
         pl.id AS "lotId",
         pl.lot_no AS "lotNo",
-        pul.display_name AS "unitLabel",
+        COALESCE(NULLIF(trim(sellable_pul.display_name), ''), sellable_pul.code, COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit')) AS "unitLabel",
+        COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit') AS "movementUnitLabel",
+        COALESCE(NULLIF(trim(sellable_pul.display_name), ''), sellable_pul.code, COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit')) AS "sellableUnitLabel",
+        COALESCE(base_pul.base_unit_symbol, 'base') AS "baseUnitLabel",
         from_l.code AS "fromBranchCode",
         from_l.name AS "fromBranchName",
         to_l.code AS "toBranchCode",
@@ -635,6 +829,24 @@ export async function getMovements(req, res) {
       JOIN products p ON p.id = sm.product_id
       LEFT JOIN product_lots pl ON pl.id = sm.lot_id
       JOIN product_unit_levels pul ON pul.id = sm.unit_level_id
+      LEFT JOIN LATERAL (
+        SELECT
+          puls.display_name,
+          puls.code
+        FROM product_unit_levels puls
+        WHERE puls.product_id = sm.product_id
+        ORDER BY puls.is_sellable DESC, puls.is_base DESC, puls.sort_order ASC, puls.created_at ASC
+        LIMIT 1
+      ) sellable_pul ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          COALESCE(NULLIF(utb.name_th, ''), NULLIF(utb.name_en, ''), NULLIF(utb.symbol, ''), utb.code, 'base') AS base_unit_symbol
+        FROM product_unit_levels pulb
+        LEFT JOIN unit_types utb ON utb.id = pulb.unit_type_id
+        WHERE pulb.product_id = sm.product_id
+        ORDER BY pulb.is_base DESC, pulb.sort_order ASC, pulb.created_at ASC
+        LIMIT 1
+      ) base_pul ON true
       LEFT JOIN locations from_l ON from_l.id = sm.from_location_id
       LEFT JOIN locations to_l ON to_l.id = sm.to_location_id
       WHERE ${where.join(" AND ")}
