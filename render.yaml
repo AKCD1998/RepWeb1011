@@ -2,11 +2,19 @@ services:
   - type: web
     name: rx1011-api
     runtime: node
+    branch: main
     rootDir: REACTjs-Project
     buildCommand: npm ci
     startCommand: npm run start
-    autoDeploy: false
+    autoDeployTrigger: checksPass
     healthCheckPath: /api/health
+    buildFilter:
+      paths:
+        - REACTjs-Project/server/**
+        - REACTjs-Project/package.json
+        - REACTjs-Project/package-lock.json
+        - REACTjs-Project/patients_rows.csv
+        - render.yaml
     envVars:
       - key: NODE_VERSION
         value: 20

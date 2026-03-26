@@ -33,6 +33,7 @@ Vite dev server proxies `/api` to the backend target from `VITE_API_PROXY_TARGET
 Production note:
 - The frontend now uses `HashRouter`, so deployed URLs look like `/#/deliver` and avoid 404 on static hosting without rewrite rules.
 - For deployed frontend builds, set `VITE_API_BASE=https://your-backend-service.onrender.com`
+- For GitHub Pages deployment, store `VITE_API_BASE` as a repository variable and `VITE_API_KEY` as a repository secret.
 - Vite proxy is only for local development, not for production.
 
 ## 3) Install and run
@@ -94,18 +95,30 @@ GitHub Actions:
 - Workflow file is at `../.github/workflows/ci-cd.yml`
 - On push / pull request, it runs `npm ci` and `npm run ci` inside `REACTjs-Project`
 - `npm run ci` currently runs backend syntax checks and frontend production build
+- On push to `main`, the same workflow deploys the frontend `dist/` folder to GitHub Pages after CI passes
+- Required GitHub repository variable for Pages builds:
+  - `VITE_API_BASE`
+- Optional GitHub repository secret for Pages builds:
+  - `VITE_API_KEY`
 
 Render backend deployment:
 - Blueprint file is at `../render.yaml`
-- Backend service uses `rootDir: REACTjs-Project`
+- Backend service name is `rx1011-api`
+- Backend service uses `branch: main` and `rootDir: REACTjs-Project`
+- Auto-deploy is handled by Render using `autoDeployTrigger: checksPass`
+- Keep Render `Pre-Deploy Command` empty for now
+- Do not configure `RENDER_DEPLOY_HOOK_URL` when using Render auto-deploy for this service
 - Recommended Render environment variables:
   - `DATABASE_URL`
   - `JWT_SECRET`
   - `CORS_ORIGIN`
 
-Optional GitHub Actions CD to Render:
-- Add repository secret `RENDER_DEPLOY_HOOK_URL`
-- When pushing to `main` or `master`, the workflow will trigger Render deploy automatically after CI passes
+Database migrations:
+- Migrations remain manual in this setup. Do not auto-run them from Render yet.
+- Follow the ordered commands in section `4) Database migrations (PostgreSQL)`.
+- `migrations/0003_ky1011_example_queries.sql` must never be auto-run.
+- The repo currently contains both `0010_active_ingredients_name_en_uppercase_guard.sql` and `0010_seed_login_usernames_refresh.sql`.
+  Treat that duplicate numbering as a known risk for future migration automation until it is intentionally resolved.
 
 
 

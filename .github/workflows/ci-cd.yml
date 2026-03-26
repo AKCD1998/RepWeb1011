@@ -1,4 +1,4 @@
-name: Rx1011 CI/CD
+name: Rx1011 CI
 
 on:
   push:
@@ -20,6 +20,9 @@ on:
       - ".github/workflows/ci-cd.yml"
       - "render.yaml"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   ci:
@@ -45,13 +48,61 @@ jobs:
       - name: Run CI script
         run: npm run ci
 
-  deploy-render:
-    name: Deploy Backend To Render
+  deploy-frontend-pages:
+    name: Deploy Frontend To GitHub Pages
     needs: ci
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && secrets.RENDER_DEPLOY_HOOK_URL != ''
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    defaults:
+      run:
+        working-directory: REACTjs-Project
     steps:
-      - name: Trigger Render deploy hook
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: REACTjs-Project/package-lock.json
+
+      - name: Validate frontend deploy environment
         env:
-          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
-        run: curl --fail --silent --show-error --request POST "$RENDER_DEPLOY_HOOK_URL"
+          VITE_API_BASE: ${{ vars.VITE_API_BASE }}
+        run: |
+          if [ -z "$VITE_API_BASE" ]; then
+            echo "Missing repository variable VITE_API_BASE"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        env:
+          VITE_API_BASE: ${{ vars.VITE_API_BASE }}
+          VITE_API_KEY: ${{ secrets.VITE_API_KEY }}
+        run: npm run build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: REACTjs-Project/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
