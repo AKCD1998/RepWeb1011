@@ -278,8 +278,20 @@
   color: rgba(226, 232, 240, 0.82);
 }
 
+.pos-notes-help--smartcard {
+  white-space: pre-wrap;
+}
+
 .pos-notes-help--error {
   color: #fecaca;
+}
+
+.pos-notes-help--warn {
+  color: #fde68a;
+}
+
+.pos-notes-help--success {
+  color: #bbf7d0;
 }
 
 .sr-only {

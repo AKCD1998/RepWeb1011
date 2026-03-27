@@ -3,6 +3,11 @@ import { useAuth } from "../context/AuthContext";
 import { dispenseApi, inventoryApi } from "../lib/api";
 import { parseDeliverNotes } from "../utils/deliverPatientParser";
 import {
+  SMARTCARD_DEFAULTS,
+  buildDeliverNotesFromCard,
+  startSmartcardListener,
+} from "../utils/deliverSmartcard";
+import {
   fetchProductLots,
   hydrateProductMetadata,
   productLookup,
@@ -16,6 +21,13 @@ const REPORT_TYPE_META = {
   KY11: "KY11 - ขย.11 ยาอันตรายที่ต้องมีการควบคุมปริมาณการจำหน่าย",
 };
 const SUPPORTED_REPORT_TYPES = new Set(Object.keys(REPORT_TYPE_META));
+const SMARTCARD_BROKER_URL =
+  toCleanText(import.meta.env.VITE_SMARTCARD_MQTT_URL) ||
+  SMARTCARD_DEFAULTS.brokerUrl;
+const SMARTCARD_TOPIC =
+  toCleanText(import.meta.env.VITE_SMARTCARD_MQTT_TOPIC) ||
+  SMARTCARD_DEFAULTS.topic;
+const SMARTCARD_DUPLICATE_WINDOW_MS = 10000;
 
 function toCleanText(value) {
   return String(value || "").trim();
@@ -73,10 +85,21 @@ export default function Deliver() {
   const [selectedBranchCode, setSelectedBranchCode] = useState(userBranchCode);
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
   const [branchLoadError, setBranchLoadError] = useState("");
+  const [smartcardStatus, setSmartcardStatus] = useState({
+    tone: "info",
+    message: "กำลังเริ่ม smartcard listener",
+  });
   const barcodeInputRef = useRef(null);
   const lotOptionsCacheRef = useRef(new Map());
+  const deliverNotesRef = useRef("");
+  const lastAutoFilledNotesRef = useRef("");
+  const lastSmartcardFillRef = useRef({ signature: "", at: 0 });
 
   const parsedNotes = useMemo(() => parseDeliverNotes(deliverNotes), [deliverNotes]);
+
+  useEffect(() => {
+    deliverNotesRef.current = deliverNotes;
+  }, [deliverNotes]);
 
   useEffect(() => {
     setSelectedBranchCode(userBranchCode);
@@ -85,6 +108,88 @@ export default function Deliver() {
   useEffect(() => {
     syncSnapshot().catch(() => {});
   }, []);
+
+  const handleSmartcardData = useCallback((normalized) => {
+    const nextNotes = buildDeliverNotesFromCard(normalized?.fields);
+    if (!nextNotes) {
+      console.warn("[deliver-smartcard] no usable card fields for note autofill", normalized);
+      setSmartcardStatus({
+        tone: "warn",
+        message: "ได้รับข้อมูลบัตรแล้ว แต่ยังไม่มีฟิลด์ที่ใช้กรอกผู้รับมอบยาได้",
+      });
+      return;
+    }
+
+    const currentNotes = deliverNotesRef.current;
+    const canReplaceCurrentNotes =
+      !toCleanText(currentNotes) || currentNotes === lastAutoFilledNotesRef.current;
+    const now = Date.now();
+    const duplicateWithinWindow =
+      lastSmartcardFillRef.current.signature === nextNotes &&
+      now - lastSmartcardFillRef.current.at < SMARTCARD_DUPLICATE_WINDOW_MS;
+
+    if (duplicateWithinWindow && (!canReplaceCurrentNotes || currentNotes === lastAutoFilledNotesRef.current)) {
+      lastSmartcardFillRef.current = { signature: nextNotes, at: now };
+      console.debug("[deliver-smartcard] duplicate card event ignored", {
+        duplicateWindowMs: SMARTCARD_DUPLICATE_WINDOW_MS,
+        note: nextNotes,
+      });
+      setSmartcardStatus({
+        tone: "info",
+        message: "ได้รับ event ซ้ำของบัตรเดิม ระบบจึงไม่กรอกข้อความซ้ำ",
+      });
+      return;
+    }
+
+    lastSmartcardFillRef.current = { signature: nextNotes, at: now };
+
+    if (!canReplaceCurrentNotes) {
+      console.info("[deliver-smartcard] card data received but notes were preserved", {
+        note: nextNotes,
+      });
+      setSmartcardStatus({
+        tone: "warn",
+        message:
+          "ได้รับข้อมูลบัตรแล้ว แต่ช่องหมายเหตุถูกแก้ไขเอง ระบบจึงไม่เขียนทับอัตโนมัติ",
+      });
+      return;
+    }
+
+    lastAutoFilledNotesRef.current = nextNotes;
+    deliverNotesRef.current = nextNotes;
+    setDeliverNotes(nextNotes);
+
+    const patientName = toCleanText(
+      normalized?.fields?.thaiName ||
+        normalized?.fields?.fullName ||
+        normalized?.fields?.englishName
+    );
+
+    setSmartcardStatus({
+      tone: "success",
+      message: patientName
+        ? `ดึงข้อมูลบัตรสำเร็จและกรอกผู้รับมอบยา: ${patientName}`
+        : "ดึงข้อมูลบัตรสำเร็จและกรอกข้อมูลลงในช่องผู้รับมอบยาแล้ว",
+    });
+  }, []);
+
+  useEffect(() => {
+    const stopSmartcardListener = startSmartcardListener({
+      brokerUrl: SMARTCARD_BROKER_URL,
+      topic: SMARTCARD_TOPIC,
+      onStatusChange: (nextStatus) => {
+        setSmartcardStatus({
+          tone: nextStatus?.tone || "info",
+          message: nextStatus?.message || "smartcard listener ทำงานอยู่",
+        });
+      },
+      onCardData: handleSmartcardData,
+    });
+
+    return () => {
+      stopSmartcardListener();
+    };
+  }, [handleSmartcardData]);
 
   const loadBranchOptions = useCallback(async () => {
     if (!isAdmin) {
@@ -571,6 +676,9 @@ export default function Deliver() {
       setItems([]);
       setPendingMultiplier(null);
       setDeliverNotes("");
+      deliverNotesRef.current = "";
+      lastAutoFilledNotesRef.current = "";
+      lastSmartcardFillRef.current = { signature: "", at: 0 };
       setReportTypeOptions([]);
       setSelectedReportType("");
       setLotOptions([]);
@@ -746,6 +854,19 @@ export default function Deliver() {
                           value={deliverNotes}
                           onChange={(event) => setDeliverNotes(event.target.value)}
                         />
+                        <div
+                          className={`pos-notes-help pos-notes-help--smartcard${
+                            smartcardStatus.tone === "error"
+                              ? " pos-notes-help--error"
+                              : smartcardStatus.tone === "warn"
+                              ? " pos-notes-help--warn"
+                              : smartcardStatus.tone === "success"
+                              ? " pos-notes-help--success"
+                              : ""
+                          }`}
+                        >
+                          {smartcardStatus.message}
+                        </div>
                       </div>
 
                       <div className="pos-notes-column pos-notes-column--meta">

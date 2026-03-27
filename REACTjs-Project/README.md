@@ -22,9 +22,12 @@ Copy `.env.example` to `.env`:
 ```env
 VITE_API_BASE=http://localhost:5050
 VITE_API_PROXY_TARGET=http://localhost:5050
+VITE_SMARTCARD_MQTT_URL=ws://localhost:10884/mqtt
+VITE_SMARTCARD_MQTT_TOPIC=moph/ict/mqtt
 ```
 
 If `VITE_API_BASE` is missing, frontend can still use Vite proxy for `/api` in local development.
+If the smartcard vars are missing, the deliver page falls back to `ws://localhost:10884/mqtt` and `moph/ict/mqtt`.
 
 ## 2) Vite proxy
 
@@ -33,8 +36,15 @@ Vite dev server proxies `/api` to the backend target from `VITE_API_PROXY_TARGET
 Production note:
 - The frontend now uses `HashRouter`, so deployed URLs look like `/#/deliver` and avoid 404 on static hosting without rewrite rules.
 - For deployed frontend builds, set `VITE_API_BASE=https://your-backend-service.onrender.com`
+- For deployed smartcard usage, `VITE_SMARTCARD_MQTT_URL` must point to a browser-reachable local bridge on the end-user machine.
 - For GitHub Pages deployment, store `VITE_API_BASE` as a repository variable and `VITE_API_KEY` as a repository secret.
 - Vite proxy is only for local development, not for production.
+
+Smartcard note:
+- The deliver page now opens an MQTT-over-WebSocket listener when the route is active.
+- Default broker/topic are `ws://localhost:10884/mqtt` and `moph/ict/mqtt`, matching the `expWeb` prototype.
+- The listener is page-scoped, auto-fills the deliver textarea when valid card data arrives, and does not auto-clear the textarea on card removal.
+- Deployed browser access still depends on the end-user browser being allowed to reach that localhost WebSocket endpoint and on the local broker accepting the page origin.
 
 ## 3) Install and run
 
