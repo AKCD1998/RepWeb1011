@@ -9,7 +9,6 @@ import {
   resolveActorUserId,
   resolveBranchById,
   resolveBranchByCode,
-  toIsoTimestamp,
   toPositiveNumeric,
   upsertPatientByPid,
 } from "./helpers.js";
@@ -134,7 +133,6 @@ export async function createDispense(req, res) {
   const lines = Array.isArray(req.body?.lines) ? req.body.lines : [];
   const patient = req.body?.patient || {};
   const pharmacistUserIdInput = req.user?.id || req.body?.pharmacistUserId || null;
-  const occurredAt = toIsoTimestamp(req.body?.occurredAt);
   const reportType = toCleanText(req.body?.reportType).toUpperCase();
   const actionSource = toCleanText(req.body?.actionSource) || "DELIVER_PAGE_FINAL";
   const note = composeHeaderNote({
@@ -165,10 +163,10 @@ export async function createDispense(req, res) {
           created_at,
           updated_at
         )
-        VALUES ($1, $2, $3, $4::timestamptz, $5, $3, now(), now())
+        VALUES ($1, $2, $3, now(), $4, $3, now(), now())
         RETURNING id
       `,
-      [branch.id, patientId, pharmacistUserId, occurredAt, note]
+      [branch.id, patientId, pharmacistUserId, note]
     );
     const headerId = headerResult.rows[0].id;
 
@@ -245,9 +243,9 @@ export async function createDispense(req, res) {
             $7,
             'DISPENSE_HEADER',
             $8,
-            $9::timestamptz,
-            $10,
-            $11
+            now(),
+            $9,
+            $10
           )
         `,
         [
@@ -259,7 +257,6 @@ export async function createDispense(req, res) {
           unitLevel.id,
           dispenseLineId,
           headerId,
-          occurredAt,
           pharmacistUserId,
           note,
         ]

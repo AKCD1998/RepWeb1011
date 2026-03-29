@@ -74,6 +74,7 @@ psql "$DATABASE_URL" -f migrations/0009_stock_movements_quantity_base_ssot.sql
 psql "$DATABASE_URL" -f migrations/0010_seed_login_usernames_refresh.sql
 psql "$DATABASE_URL" -f migrations/0011_fix_ic003358_prednisolone_unit_levels.sql
 psql "$DATABASE_URL" -f migrations/0012_stock_movement_occurred_at_corrections.sql
+psql "$DATABASE_URL" -f migrations/0013_backfill_stock_movement_occurred_at_from_created_at.sql
 ```
 
 Important:

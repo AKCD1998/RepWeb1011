@@ -195,7 +195,6 @@ async function resolveRequestedUnitLevel(
 export async function receiveInventory(req, res) {
   const toBranchCode = String(req.body?.toBranchCode || "").trim();
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
-  const occurredAt = toIsoTimestamp(req.body?.occurredAt);
   const note = req.body?.note || null;
   const createdByUserId = req.user?.id || req.body?.createdByUserId || null;
 
@@ -264,9 +263,9 @@ export async function receiveInventory(req, res) {
             $4,
             $5,
             $6,
-            $7::timestamptz,
-            $8,
-            $9
+            now(),
+            $7,
+            $8
           )
         `,
         [
@@ -276,7 +275,6 @@ export async function receiveInventory(req, res) {
           qty,
           quantityBase,
           unitLevel.id,
-          occurredAt,
           actorUserId,
           note,
         ]
@@ -309,7 +307,6 @@ export async function transferInventory(req, res) {
   const fromBranchCode = String(req.body?.fromBranchCode || "").trim();
   const toBranchCode = String(req.body?.toBranchCode || "").trim();
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
-  const occurredAt = toIsoTimestamp(req.body?.occurredAt);
   const note = req.body?.note || null;
   const createdByUserId = req.user?.id || req.body?.createdByUserId || null;
 
@@ -380,8 +377,8 @@ export async function transferInventory(req, res) {
             note_text
           )
           VALUES
-            ('TRANSFER_OUT', $1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9, $10),
-            ('TRANSFER_IN',  $1, $2, $3, $4, $5, $11, $7, $8::timestamptz, $9, $10)
+            ('TRANSFER_OUT', $1, $2, $3, $4, $5, $6, $7, now(), $8, $9),
+            ('TRANSFER_IN',  $1, $2, $3, $4, $5, $10, $7, now(), $8, $9)
         `,
         [
           fromBranch.id,
@@ -391,7 +388,6 @@ export async function transferInventory(req, res) {
           qty,
           -quantityBase,
           unitLevel.id,
-          occurredAt,
           actorUserId,
           note,
           quantityBase,
@@ -425,7 +421,6 @@ export async function createMovement(req, res) {
   const expDate = toIsoDateOnly(req.body?.expDate || req.body?.exp_date, "expDate");
   const mfgDate = toIsoDateOnly(req.body?.mfgDate || req.body?.mfg_date, "mfgDate");
   const manufacturer = normalizeText(req.body?.manufacturer || req.body?.manufacturerName);
-  const occurredAt = toIsoTimestamp(req.body?.occurredAt);
   const note = req.body?.note || null;
   const createdByUserId = req.user?.id || req.body?.createdByUserId || null;
   const userRole = normalizeRole(req.user?.role);
@@ -552,9 +547,9 @@ export async function createMovement(req, res) {
             $5,
             $6,
             $7,
-            $8::timestamptz,
-            $9,
-            $10
+            now(),
+            $8,
+            $9
           )
         `,
         [
@@ -565,7 +560,6 @@ export async function createMovement(req, res) {
           qty,
           convertMovementToSignedBase(qty, "RECEIVE", unitLevel),
           unitLevel.id,
-          occurredAt,
           actorUserId,
           note,
         ]
@@ -612,8 +606,8 @@ export async function createMovement(req, res) {
             note_text
           )
           VALUES
-            ('TRANSFER_OUT', $1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9, $10),
-            ('TRANSFER_IN',  $1, $2, $3, $4, $5, $11, $7, $8::timestamptz, $9, $10)
+            ('TRANSFER_OUT', $1, $2, $3, $4, $5, $6, $7, now(), $8, $9),
+            ('TRANSFER_IN',  $1, $2, $3, $4, $5, $10, $7, now(), $8, $9)
         `,
         [
           fromLocation.id,
@@ -623,7 +617,6 @@ export async function createMovement(req, res) {
           qty,
           convertMovementToSignedBase(qty, "TRANSFER_OUT", unitLevel),
           unitLevel.id,
-          occurredAt,
           actorUserId,
           note,
           convertMovementToSignedBase(qty, "TRANSFER_IN", unitLevel),
@@ -664,9 +657,9 @@ export async function createMovement(req, res) {
             $4,
             $5,
             $6,
-            $7::timestamptz,
-            $8,
-            $9
+            now(),
+            $7,
+            $8
           )
         `,
         [
@@ -676,7 +669,6 @@ export async function createMovement(req, res) {
           qty,
           convertMovementToSignedBase(qty, "DISPENSE", unitLevel),
           unitLevel.id,
-          occurredAt,
           actorUserId,
           note,
         ]

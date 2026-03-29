@@ -148,7 +148,6 @@ function createInitialMovementForm({ isAdmin, branchLocationId }) {
     unit: "",
     lotNo: "",
     expDate: "",
-    occurredAt: toDateTimeLocalValue(),
   };
 }
 
@@ -901,10 +900,6 @@ export default function Receiving() {
     if (!String(movementForm.expDate || "").trim()) {
       errors.expDate = "กรุณาระบุวันหมดอายุ (Exp)";
     }
-    if (!String(movementForm.occurredAt || "").trim()) {
-      errors.occurredAt = "กรุณาระบุวันและเวลา";
-    }
-
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   }
@@ -929,7 +924,6 @@ export default function Receiving() {
         unitLabel: movementForm.unit,
         lotNo: String(movementForm.lotNo || "").trim(),
         expDate: String(movementForm.expDate || "").trim(),
-        occurredAt: movementForm.occurredAt,
       };
 
       if (isAdmin) {
@@ -1385,18 +1379,8 @@ export default function Receiving() {
               </div>
 
               <div className="field-block">
-                <label htmlFor="movementOccurredAt">วันเวลาเกิดรายการ</label>
-                <input
-                  id="movementOccurredAt"
-                  type="datetime-local"
-                  className="qinput"
-                  value={movementForm.occurredAt ?? ""}
-                  onChange={(event) => setField("occurredAt", event.target.value)}
-                  required
-                />
-                {formErrors.occurredAt ? (
-                  <div className="field-error">{formErrors.occurredAt}</div>
-                ) : null}
+                <label>วันเวลาเกิดรายการ</label>
+                <div className="location-readonly">ระบบจะใช้เวลาปัจจุบันอัตโนมัติ ณ ตอนกดบันทึก</div>
               </div>
 
               <div className="modal-actions">
