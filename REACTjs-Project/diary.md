@@ -1020,3 +1020,37 @@ Start with Deliver line-model refactor to support multiple rows for the same pro
 - Verification:
   - `npm run check:server` -> pass
   - `npm run build` -> pass
+
+## 2026-03-29 19:12:00 +07:00 - Fix Receiving datetime-local timezone handling to use Asia/Bangkok explicitly
+- Issue observed:
+  - Receiving used HTML `datetime-local` values without timezone offset.
+  - Backend parsed those values on the Render server using `new Date(value)`, which treated them as server-local UTC time.
+  - Result: entries created from Bangkok local time appeared shifted forward by `+7` hours when rendered back in Thailand.
+  - Example confirmed in production:
+    - `IC-005418` / lot `MA04219A`
+    - saved `occurred_at` became `2026-03-30 01:28` Asia/Bangkok
+    - while `created_at` showed the real save time `2026-03-29 18:29:15` Asia/Bangkok
+- Fix applied:
+  - `server/controllers/helpers.js`
+    - `toIsoTimestamp(...)` now interprets timestamp strings without an explicit timezone as `Asia/Bangkok` local time before converting to UTC ISO.
+    - explicit timestamps with `Z` / `+07:00` / other offsets still keep their existing behavior.
+  - `src/lib/api.js`
+    - `inventoryApi.createMovement(...)`
+    - `inventoryApi.updateMovementOccurredAtCorrection(...)`
+    - both now append `+07:00` to `datetime-local` values before sending them to the backend
+  - `src/pages/Receiving.jsx`
+    - default datetime value generation for the form now uses Bangkok time explicitly
+    - movement table / correction modal formatting now renders timestamps in `Asia/Bangkok` explicitly instead of relying on browser local timezone
+- Data correction applied:
+  - corrected production movement `fa8d7e02-d854-4db5-b786-71e4d6fe6a78`
+  - product `IC-005418`, lot `MA04219A`
+  - set `corrected_occurred_at = created_at`
+  - inserted audit entry with reason referencing the timezone parsing bug and user confirmation
+- Files changed:
+  - `server/controllers/helpers.js`
+  - `src/lib/api.js`
+  - `src/pages/Receiving.jsx`
+  - `diary.md`
+- Verification:
+  - `npm run check:server` -> pass
+  - `npm run build` -> pass

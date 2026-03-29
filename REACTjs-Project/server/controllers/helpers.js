@@ -326,7 +326,50 @@ export async function resolveProductBaseUnitLevel(client, productId) {
 
 export function toIsoTimestamp(value) {
   if (!value) return new Date().toISOString();
-  const date = new Date(value);
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      throw httpError(400, "Invalid datetime value");
+    }
+    return value.toISOString();
+  }
+
+  const normalized = String(value || "").trim();
+  if (!normalized) return new Date().toISOString();
+
+  if (!/(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(normalized)) {
+    const bangkokMatch = normalized.match(
+      /^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/
+    );
+
+    if (bangkokMatch) {
+      const [, yearText, monthText, dayText, hourText, minuteText, secondText, millisecondText] =
+        bangkokMatch;
+      const year = Number(yearText);
+      const month = Number(monthText);
+      const day = Number(dayText);
+      const hour = Number(hourText);
+      const minute = Number(minuteText);
+      const second = Number(secondText || 0);
+      const millisecond = Number(String(millisecondText || "0").padEnd(3, "0").slice(0, 3));
+      const utcMs = Date.UTC(year, month - 1, day, hour - 7, minute, second, millisecond);
+      const bangkokValidation = new Date(utcMs + 7 * 60 * 60 * 1000);
+
+      if (
+        bangkokValidation.getUTCFullYear() !== year ||
+        bangkokValidation.getUTCMonth() !== month - 1 ||
+        bangkokValidation.getUTCDate() !== day ||
+        bangkokValidation.getUTCHours() !== hour ||
+        bangkokValidation.getUTCMinutes() !== minute ||
+        bangkokValidation.getUTCSeconds() !== second
+      ) {
+        throw httpError(400, "Invalid datetime value");
+      }
+
+      return new Date(utcMs).toISOString();
+    }
+  }
+
+  const date = new Date(normalized);
   if (Number.isNaN(date.getTime())) {
     throw httpError(400, "Invalid datetime value");
   }

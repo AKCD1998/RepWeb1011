@@ -6,6 +6,18 @@ async function requestJson(config) {
   return response.data;
 }
 
+function normalizeBangkokDateTimeInput(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return value;
+  if (/(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(text)) {
+    return text;
+  }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?$/.test(text)) {
+    return `${text}+07:00`;
+  }
+  return text;
+}
+
 export const productsApi = {
   list(search = "") {
     const value = String(search || "").trim();
@@ -110,7 +122,7 @@ export const inventoryApi = {
       throw new Error("expDate is required");
     }
 
-    const occurredAt = payload.occurredAt;
+    const occurredAt = normalizeBangkokDateTimeInput(payload.occurredAt);
     const note = String(payload.note || "").trim() || null;
     const requestPayload = {
       movementType,
@@ -149,9 +161,9 @@ export const inventoryApi = {
   },
   updateMovementOccurredAtCorrection(id, payload = {}) {
     const movementId = String(id || "").trim();
-    const correctedOccurredAt = String(
-      payload.correctedOccurredAt ?? payload.corrected_occurred_at ?? payload.occurredAt ?? ""
-    ).trim();
+    const correctedOccurredAt = normalizeBangkokDateTimeInput(
+      String(payload.correctedOccurredAt ?? payload.corrected_occurred_at ?? payload.occurredAt ?? "").trim()
+    );
     const reason = String(payload.reason ?? payload.reasonText ?? payload.reason_text ?? "").trim();
 
     if (!movementId) {

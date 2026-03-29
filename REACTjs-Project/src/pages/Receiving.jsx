@@ -18,14 +18,44 @@ const MOVEMENT_TYPE_LABEL = {
 
 const SUPPORTED_TABLE_TYPES = new Set(["RECEIVE", "TRANSFER_OUT", "DISPENSE"]);
 const PRODUCT_SEARCH_LIMIT = 20;
+const BANGKOK_TIME_ZONE = "Asia/Bangkok";
+const BANGKOK_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  timeZone: BANGKOK_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+function getBangkokDateTimeParts(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const parts = Object.fromEntries(
+    BANGKOK_DATE_TIME_FORMATTER.formatToParts(date)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value])
+  );
+
+  return {
+    year: parts.year,
+    month: parts.month,
+    day: parts.day,
+    hour: parts.hour,
+    minute: parts.minute,
+    second: parts.second,
+  };
+}
 
 function toDateTimeLocalValue(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
+  const parts = getBangkokDateTimeParts(date);
+  if (!parts) return "";
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 
 function toDateTimeLocalInputValue(value) {
@@ -39,16 +69,11 @@ function toDateTimeLocalInputValue(value) {
 
 function formatOccurredAtDisplay(value) {
   if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
+  const parts = getBangkokDateTimeParts(value);
+  if (!parts) {
     return String(value).replace("T", " ");
   }
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${day} ${hours}:${minutes}`;
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
 }
 
 function formatQty(value) {
