@@ -39,6 +39,14 @@ function toNullableText(value) {
   return normalized || "";
 }
 
+function requireNonEmptyText(value, fieldName) {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    throw httpError(400, `${fieldName} is required`);
+  }
+  return normalized;
+}
+
 function parseBoolean(value, fallback = false) {
   if (value === undefined || value === null || String(value).trim() === "") return fallback;
   if (typeof value === "boolean") return value;
@@ -62,6 +70,14 @@ function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     String(value || "").trim()
   );
+}
+
+function toExistingIsoTimestamp(value, fieldName) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw httpError(500, `Stored ${fieldName} is invalid`);
+  }
+  return date.toISOString();
 }
 
 async function resolveActiveLocationById(client, locationId, fieldName) {
@@ -804,6 +820,131 @@ export async function getStockOnHand(req, res) {
   return res.json(result.rows);
 }
 
+export async function updateMovementOccurredAtCorrection(req, res) {
+  const movementId = normalizeText(req.params?.id);
+  const correctedOccurredAtInput = normalizeText(
+    req.body?.correctedOccurredAt ?? req.body?.corrected_occurred_at ?? req.body?.occurredAt
+  );
+  const reason = requireNonEmptyText(
+    req.body?.reason ?? req.body?.reasonText ?? req.body?.reason_text,
+    "reason"
+  );
+  const editedByUserId = req.user?.id || req.body?.editedByUserId || null;
+
+  if (!isUuid(movementId)) {
+    throw httpError(400, "movement id must be a valid UUID");
+  }
+  if (!correctedOccurredAtInput) {
+    throw httpError(400, "correctedOccurredAt is required");
+  }
+
+  const requestedOccurredAt = toIsoTimestamp(correctedOccurredAtInput);
+
+  const result = await withTransaction(async (client) => {
+    const actorUserId = await resolveActorUserId(client, editedByUserId);
+    const movementResult = await client.query(
+      `
+        SELECT
+          sm.id,
+          sm.movement_type AS "movementType",
+          sm.occurred_at AS "originalOccurredAt",
+          sm.corrected_occurred_at AS "correctedOccurredAt"
+        FROM stock_movements sm
+        WHERE sm.id = $1
+        LIMIT 1
+      `,
+      [movementId]
+    );
+
+    const movement = movementResult.rows[0];
+    if (!movement) {
+      throw httpError(404, "Movement not found");
+    }
+    if (movement.movementType !== "RECEIVE") {
+      throw httpError(400, "Only RECEIVE movements support occurred_at correction");
+    }
+
+    const originalOccurredAtIso = toExistingIsoTimestamp(
+      movement.originalOccurredAt,
+      "stock_movements.occurred_at"
+    );
+    const previousCorrectedOccurredAtIso = movement.correctedOccurredAt
+      ? toExistingIsoTimestamp(
+          movement.correctedOccurredAt,
+          "stock_movements.corrected_occurred_at"
+        )
+      : null;
+    const previousEffectiveOccurredAtIso =
+      previousCorrectedOccurredAtIso || originalOccurredAtIso;
+    const nextCorrectedOccurredAtIso =
+      requestedOccurredAt === originalOccurredAtIso ? null : requestedOccurredAt;
+    const nextEffectiveOccurredAtIso =
+      nextCorrectedOccurredAtIso || originalOccurredAtIso;
+
+    if (nextEffectiveOccurredAtIso === previousEffectiveOccurredAtIso) {
+      throw httpError(400, "No occurredAt change detected");
+    }
+
+    await client.query(
+      `
+        UPDATE stock_movements
+        SET corrected_occurred_at = $2::timestamptz
+        WHERE id = $1
+      `,
+      [movementId, nextCorrectedOccurredAtIso]
+    );
+
+    await client.query(
+      `
+        INSERT INTO stock_movement_occurred_at_audits (
+          movement_id,
+          original_occurred_at,
+          previous_corrected_occurred_at,
+          previous_effective_occurred_at,
+          new_corrected_occurred_at,
+          new_effective_occurred_at,
+          reason_text,
+          edited_by
+        )
+        VALUES (
+          $1,
+          $2::timestamptz,
+          $3::timestamptz,
+          $4::timestamptz,
+          $5::timestamptz,
+          $6::timestamptz,
+          $7,
+          $8
+        )
+      `,
+      [
+        movementId,
+        originalOccurredAtIso,
+        previousCorrectedOccurredAtIso,
+        previousEffectiveOccurredAtIso,
+        nextCorrectedOccurredAtIso,
+        nextEffectiveOccurredAtIso,
+        reason,
+        actorUserId,
+      ]
+    );
+
+    return {
+      id: movementId,
+      movementType: movement.movementType,
+      originalOccurredAt: originalOccurredAtIso,
+      correctedOccurredAt: nextCorrectedOccurredAtIso,
+      occurredAt: nextEffectiveOccurredAtIso,
+      correctionCleared: nextCorrectedOccurredAtIso === null,
+    };
+  });
+
+  return res.json({
+    ok: true,
+    ...result,
+  });
+}
+
 export async function getMovements(req, res) {
   const productId = req.query.productId ? String(req.query.productId).trim() : "";
   const branchCode = req.query.branchCode ? String(req.query.branchCode).trim() : "";
@@ -835,6 +976,7 @@ export async function getMovements(req, res) {
 
   const params = [];
   const where = ["1=1"];
+  const effectiveOccurredAtSql = "COALESCE(sm.corrected_occurred_at, sm.occurred_at)";
 
   if (productId) {
     params.push(productId);
@@ -853,12 +995,12 @@ export async function getMovements(req, res) {
 
   if (from) {
     params.push(from.toISOString());
-    where.push(`sm.occurred_at >= $${params.length}::timestamptz`);
+    where.push(`${effectiveOccurredAtSql} >= $${params.length}::timestamptz`);
   }
 
   if (to) {
     params.push(to.toISOString());
-    where.push(`sm.occurred_at < $${params.length}::timestamptz`);
+    where.push(`${effectiveOccurredAtSql} < $${params.length}::timestamptz`);
   }
 
   params.push(safeLimit);
@@ -868,7 +1010,9 @@ export async function getMovements(req, res) {
       SELECT
         sm.id,
         sm.movement_type AS "movementType",
-        sm.occurred_at AS "occurredAt",
+        ${effectiveOccurredAtSql} AS "occurredAt",
+        sm.occurred_at AS "originalOccurredAt",
+        sm.corrected_occurred_at AS "correctedOccurredAt",
         sm.quantity,
         sm.quantity_base AS "quantityBase",
         sm.note_text AS note,
@@ -881,6 +1025,10 @@ export async function getMovements(req, res) {
         COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit') AS "movementUnitLabel",
         COALESCE(NULLIF(trim(sellable_pul.display_name), ''), sellable_pul.code, COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit')) AS "sellableUnitLabel",
         COALESCE(base_pul.base_unit_symbol, 'base') AS "baseUnitLabel",
+        latest_correction.reason_text AS "occurredAtCorrectionReason",
+        latest_correction.edited_at AS "occurredAtCorrectedAt",
+        latest_correction.edited_by_name AS "occurredAtCorrectedByName",
+        latest_correction.edited_by_username AS "occurredAtCorrectedByUsername",
         from_l.code AS "fromBranchCode",
         from_l.name AS "fromBranchName",
         to_l.code AS "toBranchCode",
@@ -907,10 +1055,22 @@ export async function getMovements(req, res) {
         ORDER BY pulb.is_base DESC, pulb.sort_order ASC, pulb.created_at ASC
         LIMIT 1
       ) base_pul ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          sma.reason_text,
+          sma.edited_at,
+          COALESCE(NULLIF(trim(u.full_name), ''), NULLIF(trim(u.username), ''), 'unknown') AS edited_by_name,
+          u.username AS edited_by_username
+        FROM stock_movement_occurred_at_audits sma
+        LEFT JOIN users u ON u.id = sma.edited_by
+        WHERE sma.movement_id = sm.id
+        ORDER BY sma.edited_at DESC
+        LIMIT 1
+      ) latest_correction ON true
       LEFT JOIN locations from_l ON from_l.id = sm.from_location_id
       LEFT JOIN locations to_l ON to_l.id = sm.to_location_id
       WHERE ${where.join(" AND ")}
-      ORDER BY sm.occurred_at DESC, sm.created_at DESC
+      ORDER BY ${effectiveOccurredAtSql} DESC, sm.created_at DESC
       LIMIT $${params.length}
     `,
     params

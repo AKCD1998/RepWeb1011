@@ -28,6 +28,15 @@ function toDateTimeLocalValue(date = new Date()) {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
+function toDateTimeLocalInputValue(value) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return toDateTimeLocalValue(date);
+}
+
 function formatOccurredAtDisplay(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -118,12 +127,31 @@ function createInitialMovementForm({ isAdmin, branchLocationId }) {
   };
 }
 
+function createInitialOccurredAtCorrectionForm(movement) {
+  const initialOccurredAt =
+    movement?.correctedOccurredAtRaw || movement?.occurredAtRaw || movement?.originalOccurredAtRaw;
+
+  return {
+    correctedOccurredAt: toDateTimeLocalInputValue(initialOccurredAt || new Date()),
+    reason: "",
+  };
+}
+
 function mapMovementRecord(row) {
   const parsedQuantity = Number(row?.quantity ?? row?.qtyValue ?? 0);
   const parsedQuantityBase = Number(row?.quantityBase);
+  const occurredAtRaw = toCleanText(row?.occurredAt);
+  const originalOccurredAtRaw = toCleanText(row?.originalOccurredAt || row?.occurredAt);
+  const correctedOccurredAtRaw = toCleanText(row?.correctedOccurredAt);
+  const correctionEditedAtRaw = toCleanText(row?.occurredAtCorrectedAt);
   return {
     id: row?.id || `row-${Math.random().toString(36).slice(2)}`,
-    occurredAt: formatOccurredAtDisplay(row?.occurredAt),
+    occurredAt: formatOccurredAtDisplay(occurredAtRaw),
+    occurredAtRaw,
+    originalOccurredAt: formatOccurredAtDisplay(originalOccurredAtRaw),
+    originalOccurredAtRaw,
+    correctedOccurredAt: formatOccurredAtDisplay(correctedOccurredAtRaw),
+    correctedOccurredAtRaw,
     productName: row?.tradeName || row?.productName || "-",
     productCode: row?.productCode || "-",
     lotNo: row?.lotNo || "-",
@@ -133,6 +161,12 @@ function mapMovementRecord(row) {
     unit: String(row?.unitLabel || row?.unit || "").trim(),
     movementUnit: String(row?.movementUnitLabel || "").trim(),
     baseUnitLabel: String(row?.baseUnitLabel || "").trim(),
+    occurredAtCorrectionReason: toCleanText(row?.occurredAtCorrectionReason),
+    occurredAtCorrectedAt: formatOccurredAtDisplay(correctionEditedAtRaw),
+    occurredAtCorrectedAtRaw: correctionEditedAtRaw,
+    occurredAtCorrectedByName: toCleanText(row?.occurredAtCorrectedByName),
+    occurredAtCorrectedByUsername: toCleanText(row?.occurredAtCorrectedByUsername),
+    isOccurredAtCorrected: Boolean(correctedOccurredAtRaw),
   };
 }
 
@@ -240,6 +274,40 @@ function getDeltaTitle(movement) {
   return `${fullDeltaText}\nหน่วยที่บันทึกในรายการเดิม: ${movementUnit}`;
 }
 
+function getOccurredAtCorrectionActorLabel(movement) {
+  return (
+    toCleanText(movement?.occurredAtCorrectedByName) ||
+    toCleanText(movement?.occurredAtCorrectedByUsername) ||
+    "-"
+  );
+}
+
+function getOccurredAtTitle(movement) {
+  const effectiveOccurredAt = toCleanText(movement?.occurredAt) || "-";
+
+  if (!movement?.isOccurredAtCorrected) {
+    return effectiveOccurredAt;
+  }
+
+  const lines = [
+    `เวลาแสดงผล: ${effectiveOccurredAt}`,
+    `เวลาต้นฉบับ: ${toCleanText(movement?.originalOccurredAt) || "-"}`,
+  ];
+
+  if (toCleanText(movement?.occurredAtCorrectedAt)) {
+    lines.push(`แก้ล่าสุดเมื่อ: ${movement.occurredAtCorrectedAt}`);
+  }
+  const correctedBy = getOccurredAtCorrectionActorLabel(movement);
+  if (correctedBy !== "-") {
+    lines.push(`ผู้แก้ล่าสุด: ${correctedBy}`);
+  }
+  if (toCleanText(movement?.occurredAtCorrectionReason)) {
+    lines.push(`เหตุผล: ${movement.occurredAtCorrectionReason}`);
+  }
+
+  return lines.join("\n");
+}
+
 export default function Receiving() {
   const { user } = useAuth();
   const userRole = normalizeRole(user?.role);
@@ -251,7 +319,9 @@ export default function Receiving() {
   const [isLoadingMovements, setIsLoadingMovements] = useState(false);
   const [isLoadingLocations, setIsLoadingLocations] = useState(false);
   const [isMovementModalOpen, setIsMovementModalOpen] = useState(false);
+  const [isOccurredAtCorrectionModalOpen, setIsOccurredAtCorrectionModalOpen] = useState(false);
   const [isSavingMovement, setIsSavingMovement] = useState(false);
+  const [isSavingOccurredAtCorrection, setIsSavingOccurredAtCorrection] = useState(false);
   const [isSearchingProduct, setIsSearchingProduct] = useState(false);
   const [productSearchResults, setProductSearchResults] = useState([]);
   const [productSearchError, setProductSearchError] = useState("");
@@ -259,6 +329,11 @@ export default function Receiving() {
   const [movementForm, setMovementForm] = useState(() =>
     createInitialMovementForm({ isAdmin, branchLocationId })
   );
+  const [movementCorrectionTarget, setMovementCorrectionTarget] = useState(null);
+  const [occurredAtCorrectionForm, setOccurredAtCorrectionForm] = useState(() =>
+    createInitialOccurredAtCorrectionForm(null)
+  );
+  const [occurredAtCorrectionErrors, setOccurredAtCorrectionErrors] = useState({});
   const [formErrors, setFormErrors] = useState({});
   const [pageError, setPageError] = useState("");
   const [productSearchStatus, setProductSearchStatus] = useState("");
@@ -368,17 +443,21 @@ export default function Receiving() {
   }, [loadLocations]);
 
   useEffect(() => {
-    if (!isMovementModalOpen) return undefined;
+    if (!isMovementModalOpen && !isOccurredAtCorrectionModalOpen) return undefined;
 
     function handleEscape(event) {
       if (event.key === "Escape") {
-        setIsMovementModalOpen(false);
+        if (isOccurredAtCorrectionModalOpen) {
+          closeOccurredAtCorrectionModal();
+          return;
+        }
+        closeMovementModal();
       }
     }
 
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [isMovementModalOpen]);
+  }, [isMovementModalOpen, isOccurredAtCorrectionModalOpen]);
 
   function openMovementModal() {
     if (!isAdmin && !branchLocationId) {
@@ -410,12 +489,42 @@ export default function Receiving() {
     setIsMovementModalOpen(false);
   }
 
+  function openOccurredAtCorrectionModal(movement) {
+    if (!isAdmin || !movement || movement.movementType !== "RECEIVE") {
+      return;
+    }
+
+    setMovementCorrectionTarget(movement);
+    setOccurredAtCorrectionForm(createInitialOccurredAtCorrectionForm(movement));
+    setOccurredAtCorrectionErrors({});
+    setPageError("");
+    setIsOccurredAtCorrectionModalOpen(true);
+  }
+
+  function closeOccurredAtCorrectionModal() {
+    setMovementCorrectionTarget(null);
+    setOccurredAtCorrectionForm(createInitialOccurredAtCorrectionForm(null));
+    setOccurredAtCorrectionErrors({});
+    setIsOccurredAtCorrectionModalOpen(false);
+  }
+
   function setField(field, value) {
     setMovementForm((prev) => ({
       ...prev,
       [field]: value,
     }));
     setFormErrors((prev) => ({
+      ...prev,
+      [field]: "",
+    }));
+  }
+
+  function setOccurredAtCorrectionField(field, value) {
+    setOccurredAtCorrectionForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+    setOccurredAtCorrectionErrors((prev) => ({
       ...prev,
       [field]: "",
     }));
@@ -823,9 +932,66 @@ export default function Receiving() {
     }
   }
 
+  function validateOccurredAtCorrectionForm() {
+    const errors = {};
+    const nextOccurredAt = toCleanText(occurredAtCorrectionForm.correctedOccurredAt);
+    const reason = toCleanText(occurredAtCorrectionForm.reason);
+
+    if (!movementCorrectionTarget?.id) {
+      errors.form = "ไม่พบรายการที่ต้องการแก้ไข";
+    }
+    if (!nextOccurredAt) {
+      errors.correctedOccurredAt = "กรุณาระบุวันและเวลาใหม่";
+    }
+    if (!reason) {
+      errors.reason = "กรุณาระบุเหตุผลในการแก้ไข";
+    }
+
+    setOccurredAtCorrectionErrors(errors);
+    return Object.keys(errors).length === 0;
+  }
+
+  async function handleSaveOccurredAtCorrection(event) {
+    event.preventDefault();
+    setPageError("");
+
+    if (!isAdmin) {
+      setPageError("เฉพาะผู้ดูแลระบบเท่านั้นที่แก้ไขวันเวลารับเข้าได้");
+      return;
+    }
+    if (!validateOccurredAtCorrectionForm()) return;
+
+    const confirmed = window.confirm(
+      "ยืนยันการแก้ไขวันเวลารับเข้าสินค้ารายการนี้? ระบบจะเก็บเหตุผลและผู้แก้ไขไว้ในประวัติ"
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsSavingOccurredAtCorrection(true);
+    try {
+      await inventoryApi.updateMovementOccurredAtCorrection(movementCorrectionTarget.id, {
+        correctedOccurredAt: occurredAtCorrectionForm.correctedOccurredAt,
+        reason: occurredAtCorrectionForm.reason,
+      });
+      await loadMovements();
+      closeOccurredAtCorrectionModal();
+    } catch (error) {
+      setPageError(error?.message || "แก้ไขวันเวลารับเข้าไม่สำเร็จ");
+    } finally {
+      setIsSavingOccurredAtCorrection(false);
+    }
+  }
+
   function handleModalBackdropClick(event) {
     if (event.target === event.currentTarget) {
       closeMovementModal();
+    }
+  }
+
+  function handleOccurredAtCorrectionModalBackdropClick(event) {
+    if (event.target === event.currentTarget) {
+      closeOccurredAtCorrectionModal();
     }
   }
 
@@ -912,7 +1078,21 @@ export default function Receiving() {
                   key={movement?.id || `${movement?.productCode || "mv"}-${index}`}
                   className="row"
                 >
-                  <div>{movement?.occurredAt || "-"}</div>
+                  <div className="movement-time-cell" title={getOccurredAtTitle(movement)}>
+                    <div className="movement-time-text">{movement?.occurredAt || "-"}</div>
+                    {movement?.isOccurredAtCorrected ? (
+                      <div className="movement-correction-note">แก้เวลาแล้ว</div>
+                    ) : null}
+                    {isAdmin && movement?.movementType === "RECEIVE" ? (
+                      <button
+                        type="button"
+                        className="movement-inline-action"
+                        onClick={() => openOccurredAtCorrectionModal(movement)}
+                      >
+                        แก้เวลา
+                      </button>
+                    ) : null}
+                  </div>
                   <div className="cell-product-name" title={movement?.productName || "-"}>
                     {movement?.productName || "-"}
                   </div>
@@ -1200,6 +1380,112 @@ export default function Receiving() {
                 </button>
                 <button className="btn btn--yellow" type="submit" disabled={isSavingMovement}>
                   {isSavingMovement ? "กำลังบันทึก..." : "บันทึก"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {isOccurredAtCorrectionModalOpen ? (
+        <div
+          className="modal"
+          aria-hidden="false"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="movement-occurred-at-correction-modal-title"
+          onClick={handleOccurredAtCorrectionModalBackdropClick}
+        >
+          <div className="qcard modal-card movement-modal-card">
+            <div className="section-header">
+              <strong id="movement-occurred-at-correction-modal-title">
+                แก้ไขวันเวลารับเข้าสินค้า
+              </strong>
+            </div>
+            <form className="movement-form" onSubmit={handleSaveOccurredAtCorrection}>
+              <div className="correction-summary">
+                <div>
+                  <strong>สินค้า:</strong>{" "}
+                  {movementCorrectionTarget?.productName || "-"} (
+                  {movementCorrectionTarget?.productCode || "-"})
+                </div>
+                <div>
+                  <strong>Lot:</strong> {movementCorrectionTarget?.lotNo || "-"}
+                </div>
+                <div>
+                  <strong>เวลาที่แสดงตอนนี้:</strong> {movementCorrectionTarget?.occurredAt || "-"}
+                </div>
+                <div>
+                  <strong>เวลาต้นฉบับ:</strong>{" "}
+                  {movementCorrectionTarget?.originalOccurredAt || "-"}
+                </div>
+                {movementCorrectionTarget?.isOccurredAtCorrected ? (
+                  <div className="movement-search-status">
+                    correction ล่าสุดโดย {getOccurredAtCorrectionActorLabel(movementCorrectionTarget)} เมื่อ{" "}
+                    {movementCorrectionTarget?.occurredAtCorrectedAt || "-"}:{" "}
+                    {movementCorrectionTarget?.occurredAtCorrectionReason || "-"}
+                  </div>
+                ) : (
+                  <div className="movement-search-status">
+                    ถ้าเลือกเวลาเท่ากับค่าต้นฉบับ ระบบจะกลับไปใช้ `occurred_at` เดิมโดยไม่กระทบ stock
+                  </div>
+                )}
+              </div>
+
+              {occurredAtCorrectionErrors.form ? (
+                <div className="field-error">{occurredAtCorrectionErrors.form}</div>
+              ) : null}
+
+              <div className="field-block">
+                <label htmlFor="movementOccurredAtCorrection">วันเวลาใหม่ที่ต้องการแสดง</label>
+                <input
+                  id="movementOccurredAtCorrection"
+                  type="datetime-local"
+                  className="qinput"
+                  value={occurredAtCorrectionForm.correctedOccurredAt ?? ""}
+                  onChange={(event) =>
+                    setOccurredAtCorrectionField("correctedOccurredAt", event.target.value)
+                  }
+                  required
+                />
+                {occurredAtCorrectionErrors.correctedOccurredAt ? (
+                  <div className="field-error">
+                    {occurredAtCorrectionErrors.correctedOccurredAt}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="field-block">
+                <label htmlFor="movementOccurredAtCorrectionReason">เหตุผลในการแก้ไข</label>
+                <textarea
+                  id="movementOccurredAtCorrectionReason"
+                  className="qinput correction-reason-input"
+                  value={occurredAtCorrectionForm.reason ?? ""}
+                  onChange={(event) => setOccurredAtCorrectionField("reason", event.target.value)}
+                  placeholder="ระบุเหตุผล เช่น พนักงานกรอกเวลาผิดจากใบรับสินค้า"
+                  rows={4}
+                  required
+                />
+                {occurredAtCorrectionErrors.reason ? (
+                  <div className="field-error">{occurredAtCorrectionErrors.reason}</div>
+                ) : null}
+              </div>
+
+              <div className="modal-actions">
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={closeOccurredAtCorrectionModal}
+                  disabled={isSavingOccurredAtCorrection}
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  className="btn btn--yellow"
+                  type="submit"
+                  disabled={isSavingOccurredAtCorrection}
+                >
+                  {isSavingOccurredAtCorrection ? "กำลังบันทึก..." : "ยืนยันการแก้เวลา"}
                 </button>
               </div>
             </form>

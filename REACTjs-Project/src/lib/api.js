@@ -147,6 +147,32 @@ export const inventoryApi = {
       data: requestPayload,
     });
   },
+  updateMovementOccurredAtCorrection(id, payload = {}) {
+    const movementId = String(id || "").trim();
+    const correctedOccurredAt = String(
+      payload.correctedOccurredAt ?? payload.corrected_occurred_at ?? payload.occurredAt ?? ""
+    ).trim();
+    const reason = String(payload.reason ?? payload.reasonText ?? payload.reason_text ?? "").trim();
+
+    if (!movementId) {
+      throw new Error("movement id is required");
+    }
+    if (!correctedOccurredAt) {
+      throw new Error("correctedOccurredAt is required");
+    }
+    if (!reason) {
+      throw new Error("reason is required");
+    }
+
+    return requestJson({
+      method: "PATCH",
+      url: `/api/inventory/movements/${encodeURIComponent(movementId)}/occurred-at-correction`,
+      data: {
+        correctedOccurredAt,
+        reason,
+      },
+    });
+  },
   receive(payload) {
     return requestJson({
       method: "POST",

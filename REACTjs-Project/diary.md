@@ -968,3 +968,55 @@ Start with Deliver line-model refactor to support multiple rows for the same pro
     - `GET /api/stock/on-hand?branchCode=004` -> product `IC-003358` now shows `unitLabel=1 แผง x 10 เม็ด`, quantity still `20`
 - Operator note:
   - This migration is manual like the existing migration flow in `README.md`; apply it explicitly in PostgreSQL before expecting live data/UI to change.
+
+## 2026-03-29 18:44:37 +07:00 - Admin-only receive-date correction via additive audit layer
+- Issue/goal:
+  - Need admin ability to correct the displayed receive datetime in `Receiving.jsx` without mutating legacy stock logic that still depends on the original `stock_movements.occurred_at`.
+  - Every correction must require a reason and preserve a durable audit trail.
+- Design applied:
+  - Added additive column on `stock_movements`:
+    - `corrected_occurred_at timestamptz`
+  - Added dedicated audit table:
+    - `stock_movement_occurred_at_audits`
+    - stores `original_occurred_at`, previous/new corrected value, previous/new effective value, `reason_text`, `edited_by`, `edited_at`
+  - Kept original `occurred_at` untouched for legacy SQL and stock trigger compatibility.
+- Backend changes:
+  - `server/controllers/inventoryController.js`
+    - added admin-only `updateMovementOccurredAtCorrection(...)`
+    - restricts correction to `RECEIVE` movements
+    - updates only `corrected_occurred_at`
+    - inserts one audit row per change
+    - `getMovements(...)` now returns:
+      - effective `occurredAt = COALESCE(corrected_occurred_at, occurred_at)`
+      - original/corrected raw values
+      - latest correction metadata (`reason`, `edited_at`, editor name/username)
+    - movement list filtering/sorting for the page now uses effective occurred time
+  - `server/routes/inventoryRoutes.js`
+    - added `PATCH /api/inventory/movements/:id/occurred-at-correction`
+    - protected by `verifyToken + requireRole("ADMIN")`
+- Frontend changes:
+  - `src/lib/api.js`
+    - added `inventoryApi.updateMovementOccurredAtCorrection(...)`
+  - `src/pages/Receiving.jsx`
+    - admin-only inline `แก้เวลา` action for `RECEIVE` rows
+    - correction modal with:
+      - current/effective time
+      - original time
+      - required new datetime
+      - required reason
+      - final confirmation before submit
+    - corrected rows now show `แก้เวลาแล้ว` and expose reason/editor metadata via tooltip
+  - `src/pages/Receiving.css`
+    - added styles for inline action, corrected-state hint, and correction modal summary
+- Files added/changed:
+  - `migrations/0012_stock_movement_occurred_at_corrections.sql`
+  - `server/controllers/inventoryController.js`
+  - `server/routes/inventoryRoutes.js`
+  - `src/lib/api.js`
+  - `src/pages/Receiving.jsx`
+  - `src/pages/Receiving.css`
+  - `README.md`
+  - `diary.md`
+- Verification:
+  - `npm run check:server` -> pass
+  - `npm run build` -> pass

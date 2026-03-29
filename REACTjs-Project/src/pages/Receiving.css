@@ -301,6 +301,41 @@
   color: #ffffff;
 }
 
+.receiving-page .movement-time-cell {
+  display: grid;
+  gap: 4px;
+}
+
+.receiving-page .movement-time-text {
+  line-height: 1.25;
+}
+
+.receiving-page .movement-correction-note {
+  font-size: 11px;
+  color: #facc15;
+}
+
+.receiving-page .movement-inline-action {
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(76, 192, 255, 0.45);
+  background: rgba(15, 40, 63, 0.85);
+  color: #bde7ff;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.receiving-page .movement-inline-action:hover {
+  background: rgba(20, 52, 81, 0.95);
+}
+
+.receiving-page .movement-inline-action:focus-visible {
+  outline: 2px solid rgba(76, 192, 255, 0.45);
+  outline-offset: 1px;
+}
+
 .receiving-page .center {
   text-align: center;
 }
@@ -458,6 +493,22 @@
   gap: 8px;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.receiving-page .correction-summary {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #294254;
+  background: #0b1424;
+  color: #dbe8f4;
+  font-size: 13px;
+}
+
+.receiving-page .correction-reason-input {
+  min-height: 108px;
+  resize: vertical;
 }
 
 @media (max-width: 960px) {

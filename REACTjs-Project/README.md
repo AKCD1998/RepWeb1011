@@ -73,6 +73,7 @@ psql "$DATABASE_URL" -f migrations/0008_fix_movement_unit_level_refs.sql
 psql "$DATABASE_URL" -f migrations/0009_stock_movements_quantity_base_ssot.sql
 psql "$DATABASE_URL" -f migrations/0010_seed_login_usernames_refresh.sql
 psql "$DATABASE_URL" -f migrations/0011_fix_ic003358_prednisolone_unit_levels.sql
+psql "$DATABASE_URL" -f migrations/0012_stock_movement_occurred_at_corrections.sql
 ```
 
 Important:
@@ -95,6 +96,7 @@ Password for all accounts above: `123123`
 - `DELETE /api/products/:id` (soft delete)
 - `POST /api/inventory/receive`
 - `POST /api/inventory/transfer`
+- `PATCH /api/inventory/movements/:id/occurred-at-correction` (admin only)
 - `POST /api/dispense`
 - `GET /api/stock/on-hand?branchCode=...`
 - `GET /api/movements?productId=&branchCode=&from=&to=`
