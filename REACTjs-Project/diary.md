@@ -1094,3 +1094,55 @@ Start with Deliver line-model refactor to support multiple rows for the same pro
 - Verification:
   - `npm run check:server` -> pass
   - `npm run build` -> pass
+
+## 2026-03-29 20:37:40 +07:00 - Batch blister/base unit normalization for Receiving smallest-unit-first flow
+- Goal:
+  - Fix products whose packaging label implied `กล่อง x ... แผง x ... เม็ด` but whose database still had only one `product_unit_levels` row.
+  - Ensure Receiving can default to the smallest unit (`แผง`) without rewriting existing stock/movement references.
+- Approach:
+  - Added migration:
+    - `migrations/0014_fix_batch_blister_base_unit_levels.sql`
+  - For each target product:
+    - keep the original `product_unit_levels.id` row
+    - normalize that original row to:
+      - `SELLABLE`
+      - base blister unit (`1 แผง x 10 เม็ด` or `1 แผง x 4 เม็ด`)
+      - `is_base = true`
+      - `is_sellable = true`
+      - `sort_order = 1`
+      - `qpb = 1`
+    - insert/update one box packaging row:
+      - `BOX_<multiplier>_BLISTER`
+      - `sort_order = 2`
+      - `qpb = multiplier`
+    - insert/update one `product_unit_conversions` row for blister -> box packaging
+- Products included:
+  - `IC-002205`
+  - `IC-005120`
+  - `IC-001159`
+  - `IC-000474`
+  - `IC-000491`
+  - `IC-000541`
+  - `IC-000542`
+  - `IC-001288`
+  - `IC-001674`
+  - `IC-002343`
+  - `IC-002918`
+  - `IC-003023`
+  - `IC-003245`
+  - `IC-003429`
+  - `IC-005159`
+  - `IC-005607`
+  - `IC-005622`
+- Regression checks:
+  - Before migration, only `IC-000474` and `IC-000491` had existing movement/stock rows in this batch.
+  - After migration:
+    - both products kept their original `unit_level_id` references
+    - those referenced rows now display `1 แผง x 10 เม็ด`
+    - `stock_on_hand` for both still points to the same base row id, now normalized as blister
+  - `product_unit_conversions` was empty for this batch before the migration, so no legacy conversion rows had to be merged/repointed.
+- Verification:
+  - Applied migration successfully in PostgreSQL
+  - Verified each target now has 2 unit levels (`แผง` + `กล่อง`) and 1 conversion row
+  - `npm run check:server` -> pass
+  - `npm run build` -> pass

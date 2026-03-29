@@ -75,6 +75,7 @@ psql "$DATABASE_URL" -f migrations/0010_seed_login_usernames_refresh.sql
 psql "$DATABASE_URL" -f migrations/0011_fix_ic003358_prednisolone_unit_levels.sql
 psql "$DATABASE_URL" -f migrations/0012_stock_movement_occurred_at_corrections.sql
 psql "$DATABASE_URL" -f migrations/0013_backfill_stock_movement_occurred_at_from_created_at.sql
+psql "$DATABASE_URL" -f migrations/0014_fix_batch_blister_base_unit_levels.sql
 ```
 
 Important:
