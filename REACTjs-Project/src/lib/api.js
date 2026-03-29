@@ -80,6 +80,7 @@ export const inventoryApi = {
     const movementType = String(payload.movementType || "").trim().toUpperCase();
     const productId = String(payload.productId || "").trim();
     const qty = Number(payload.qty);
+    const unitLevelId = String(payload.unitLevelId ?? payload.unit_level_id ?? "").trim();
     const unitLabel = String(payload.unitLabel || payload.unit || "").trim();
     const fromLocationId = String(
       payload.from_location_id ?? payload.fromLocationId ?? ""
@@ -99,8 +100,8 @@ export const inventoryApi = {
     if (!Number.isFinite(qty) || qty <= 0) {
       throw new Error("qty must be a positive number");
     }
-    if (!unitLabel) {
-      throw new Error("unitLabel is required");
+    if (!unitLevelId && !unitLabel) {
+      throw new Error("unitLevelId or unitLabel is required");
     }
     if (!lotNo) {
       throw new Error("lotNo is required");
@@ -115,12 +116,17 @@ export const inventoryApi = {
       movementType,
       productId,
       qty,
-      unitLabel,
       lotNo,
       expDate,
       occurredAt,
       note,
     };
+    if (unitLevelId) {
+      requestPayload.unit_level_id = unitLevelId;
+    }
+    if (unitLabel) {
+      requestPayload.unitLabel = unitLabel;
+    }
     if (mfgDate) {
       requestPayload.mfgDate = mfgDate;
     }

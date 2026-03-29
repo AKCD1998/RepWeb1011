@@ -140,6 +140,42 @@ async function resolveLotIdForMovement(
   return lotResult.rows[0].id;
 }
 
+async function resolveRequestedUnitLevel(
+  client,
+  { productId, unitLevelId, unitLabel, unitStructure = {} }
+) {
+  const normalizedUnitLevelId = normalizeText(unitLevelId);
+  if (normalizedUnitLevelId) {
+    if (!isUuid(normalizedUnitLevelId)) {
+      throw httpError(400, "unit_level_id must be a valid UUID");
+    }
+
+    const result = await client.query(
+      `
+        SELECT id, code, display_name, unit_key, sort_order
+        FROM product_unit_levels
+        WHERE product_id = $1
+          AND id = $2
+        LIMIT 1
+      `,
+      [productId, normalizedUnitLevelId]
+    );
+
+    if (!result.rows[0]) {
+      throw httpError(404, `unit_level_id not found for product ${productId}`);
+    }
+
+    return result.rows[0];
+  }
+
+  const normalizedUnitLabel = normalizeText(unitLabel);
+  if (!normalizedUnitLabel) {
+    throw httpError(400, "unitLabel is required");
+  }
+
+  return ensureProductUnitLevel(client, productId, normalizedUnitLabel, unitStructure);
+}
+
 export async function receiveInventory(req, res) {
   const toBranchCode = String(req.body?.toBranchCode || "").trim();
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
@@ -158,11 +194,19 @@ export async function receiveInventory(req, res) {
     for (const item of items) {
       const productId = item?.productId;
       const qty = toPositiveNumeric(item?.qty, "qty");
-      const unitLabel = String(item?.unitLabel || "").trim();
-      if (!unitLabel) throw httpError(400, "unitLabel is required");
+      const unitLabel = normalizeText(item?.unitLabel || item?.unit);
+      const unitLevelId = normalizeText(item?.unitLevelId || item?.unit_level_id);
+      if (!unitLevelId && !unitLabel) {
+        throw httpError(400, "unitLevelId or unitLabel is required");
+      }
 
       await ensureProductExists(client, productId);
-      const unitLevel = await ensureProductUnitLevel(client, productId, unitLabel, item || {});
+      const unitLevel = await resolveRequestedUnitLevel(client, {
+        productId,
+        unitLevelId,
+        unitLabel,
+        unitStructure: item || {},
+      });
       const baseUnitLevel = await resolveProductBaseUnitLevel(client, productId);
       const quantityBase = convertToBase(qty, unitLevel);
 
@@ -269,11 +313,19 @@ export async function transferInventory(req, res) {
     for (const item of items) {
       const productId = item?.productId;
       const qty = toPositiveNumeric(item?.qty, "qty");
-      const unitLabel = String(item?.unitLabel || "").trim();
-      if (!unitLabel) throw httpError(400, "unitLabel is required");
+      const unitLabel = normalizeText(item?.unitLabel || item?.unit);
+      const unitLevelId = normalizeText(item?.unitLevelId || item?.unit_level_id);
+      if (!unitLevelId && !unitLabel) {
+        throw httpError(400, "unitLevelId or unitLabel is required");
+      }
 
       await ensureProductExists(client, productId);
-      const unitLevel = await ensureProductUnitLevel(client, productId, unitLabel, item || {});
+      const unitLevel = await resolveRequestedUnitLevel(client, {
+        productId,
+        unitLevelId,
+        unitLabel,
+        unitStructure: item || {},
+      });
       const baseUnitLevel = await resolveProductBaseUnitLevel(client, productId);
       const quantityBase = convertToBase(qty, unitLevel);
       const lotId = item?.lotId || null;
@@ -350,6 +402,7 @@ export async function createMovement(req, res) {
   const movementType = normalizeText(req.body?.movementType).toUpperCase();
   const productId = normalizeText(req.body?.productId);
   const qty = toPositiveNumeric(req.body?.qty, "qty");
+  const unitLevelIdInput = normalizeText(req.body?.unitLevelId || req.body?.unit_level_id);
   const unitLabel = normalizeText(req.body?.unitLabel || req.body?.unit);
   const lotIdInput = normalizeText(req.body?.lotId || req.body?.lot_id);
   const lotNo = normalizeText(req.body?.lotNo || req.body?.lot_no);
@@ -369,7 +422,9 @@ export async function createMovement(req, res) {
     throw httpError(400, `Unsupported movementType: ${movementType || "-"}`);
   }
   if (!productId) throw httpError(400, "productId is required");
-  if (!unitLabel) throw httpError(400, "unitLabel is required");
+  if (!unitLevelIdInput && !unitLabel) {
+    throw httpError(400, "unitLevelId or unitLabel is required");
+  }
   if (!lotIdInput && !lotNo) throw httpError(400, "lotNo is required");
   if (!lotIdInput && !expDate) throw httpError(400, "expDate is required");
 
@@ -431,7 +486,12 @@ export async function createMovement(req, res) {
   const result = await withTransaction(async (client) => {
     const actorUserId = await resolveActorUserId(client, createdByUserId);
     await ensureProductExists(client, productId);
-    const unitLevel = await ensureProductUnitLevel(client, productId, unitLabel, req.body || {});
+    const unitLevel = await resolveRequestedUnitLevel(client, {
+      productId,
+      unitLevelId: unitLevelIdInput,
+      unitLabel,
+      unitStructure: req.body || {},
+    });
     const baseUnitLevel = await resolveProductBaseUnitLevel(client, productId);
     const quantityBase = convertToBase(qty, unitLevel);
     const lotId = await resolveLotIdForMovement(client, {

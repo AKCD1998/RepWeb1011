@@ -109,6 +109,7 @@ function createInitialMovementForm({ isAdmin, branchLocationId }) {
     productId: "",
     productName: "",
     productCode: "",
+    unitLevelId: "",
     qty: "",
     unit: "",
     lotNo: "",
@@ -427,6 +428,11 @@ export default function Receiving() {
 
     if (!normalizedProductId) {
       setProductUnitOptions([]);
+      setMovementForm((prev) => ({
+        ...prev,
+        unitLevelId: "",
+        unit: "",
+      }));
       setProductUnitLoadError("");
       setIsLoadingProductUnits(false);
       return;
@@ -461,6 +467,7 @@ export default function Receiving() {
       if (!options.length) {
         setMovementForm((prev) => ({
           ...prev,
+          unitLevelId: "",
           unit: "",
         }));
         setFormErrors((prev) => ({
@@ -472,14 +479,16 @@ export default function Receiving() {
       }
 
       const preferredLabel = toCleanText(preferredUnitLabel).toLowerCase();
-      const matchedPreferred = preferredLabel
+      const matchedPreferred =
+        preferredLabel
         ? options.find((row) => row.displayName.toLowerCase() === preferredLabel)
         : null;
-      const nextUnitLabel = matchedPreferred?.displayName || options[0].displayName;
+      const nextUnitOption = matchedPreferred || options[0];
 
       setMovementForm((prev) => ({
         ...prev,
-        unit: nextUnitLabel,
+        unitLevelId: nextUnitOption.id,
+        unit: nextUnitOption.displayName,
       }));
       setFormErrors((prev) => ({
         ...prev,
@@ -490,6 +499,7 @@ export default function Receiving() {
       setProductUnitOptions([]);
       setMovementForm((prev) => ({
         ...prev,
+        unitLevelId: "",
         unit: "",
       }));
       setProductUnitLoadError(error?.message || "โหลดรายการหน่วยไม่สำเร็จ");
@@ -509,6 +519,7 @@ export default function Receiving() {
       productId: "",
       productName: "",
       productCode: "",
+      unitLevelId: "",
       unit: "",
     }));
     setProductSearchResults([]);
@@ -530,6 +541,7 @@ export default function Receiving() {
       productId: product.id,
       productName: product.tradeName,
       productCode: product.productCode,
+      unitLevelId: "",
       unit: "",
     }));
     setProductSearchError("");
@@ -578,6 +590,21 @@ export default function Receiving() {
     }));
   }
 
+  function handleUnitChange(event) {
+    const nextUnitLevelId = toCleanText(event.target.value);
+    const selectedOption = productUnitOptions.find((option) => option.id === nextUnitLevelId);
+
+    setMovementForm((prev) => ({
+      ...prev,
+      unitLevelId: nextUnitLevelId,
+      unit: selectedOption?.displayName || "",
+    }));
+    setFormErrors((prev) => ({
+      ...prev,
+      unit: "",
+    }));
+  }
+
   async function handleProductSearch() {
     const keyword = String(movementForm.productSearch || "").trim();
     if (!keyword) {
@@ -618,6 +645,7 @@ export default function Receiving() {
           productId: "",
           productName: "",
           productCode: "",
+          unitLevelId: "",
           unit: "",
         }));
         setProductUnitOptions([]);
@@ -637,6 +665,7 @@ export default function Receiving() {
         productId: "",
         productName: "",
         productCode: "",
+        unitLevelId: "",
         unit: "",
       }));
       setProductUnitOptions([]);
@@ -656,6 +685,7 @@ export default function Receiving() {
         productId: "",
         productName: "",
         productCode: "",
+        unitLevelId: "",
         unit: "",
       }));
       setProductUnitOptions([]);
@@ -672,6 +702,9 @@ export default function Receiving() {
   function validateForm() {
     const errors = {};
     const qtyNumber = Number(movementForm.qty);
+    const selectedUnitOption = productUnitOptions.find(
+      (option) => option.id === toCleanText(movementForm.unitLevelId)
+    );
 
     if (!movementForm.movementType) {
       errors.movementType = "กรุณาเลือกประเภทการเคลื่อนไหว";
@@ -719,12 +752,12 @@ export default function Receiving() {
     }
     if (isLoadingProductUnits) {
       errors.unit = "กำลังโหลดรายการหน่วย กรุณารอสักครู่";
-    } else if (!String(movementForm.unit || "").trim()) {
+    } else if (!toCleanText(movementForm.unitLevelId)) {
       errors.unit = "กรุณาเลือกหน่วย";
     } else if (
       movementForm.productId &&
       productUnitOptions.length > 0 &&
-      !productUnitOptions.some((option) => option.displayName === movementForm.unit)
+      !selectedUnitOption
     ) {
       errors.unit = "หน่วยที่เลือกไม่ตรงกับ product_unit_levels";
     } else if (movementForm.productId && !productUnitOptions.length) {
@@ -760,6 +793,7 @@ export default function Receiving() {
         movementType: movementForm.movementType,
         productId: movementForm.productId,
         qty: Number(movementForm.qty),
+        unitLevelId: movementForm.unitLevelId,
         unitLabel: movementForm.unit,
         lotNo: String(movementForm.lotNo || "").trim(),
         expDate: String(movementForm.expDate || "").trim(),
@@ -1094,8 +1128,8 @@ export default function Receiving() {
                   <select
                     id="movementUnit"
                     className="qinput"
-                    value={movementForm.unit ?? ""}
-                    onChange={(event) => setField("unit", event.target.value)}
+                    value={movementForm.unitLevelId ?? ""}
+                    onChange={handleUnitChange}
                     disabled={
                       !movementForm.productId || isLoadingProductUnits || productUnitOptions.length === 0
                     }
@@ -1109,7 +1143,7 @@ export default function Receiving() {
                         : "เลือกหน่วยจาก product_unit_levels"}
                     </option>
                     {productUnitOptions.map((unitOption) => (
-                      <option key={unitOption.id} value={unitOption.displayName}>
+                      <option key={unitOption.id} value={unitOption.id}>
                         {unitOption.displayName}
                       </option>
                     ))}
