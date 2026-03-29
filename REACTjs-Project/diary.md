@@ -873,3 +873,41 @@ Start with Deliver line-model refactor to support multiple rows for the same pro
   - do not bypass `applyStockDelta` insufficient-stock guard.
   - do not weaken `withTransaction` atomic behavior in dispense flow.
   - do not migrate away from `lotId` as primary lot key in frontend payload.
+
+## 2026-03-29 16:55:21 +07:00 - Receiving movement save failure (`value too long for type character varying(20)`) fixed via `unitLevelId`
+- Issue observed:
+  - Saving a movement from `src/pages/Receiving.jsx` failed with PostgreSQL error:
+    - `value too long for type character varying(20)`
+  - Repro example from UI:
+    - product barcode `8851007153266`
+    - selected unit text was a long product-specific display label from `product_unit_levels`
+- Root cause:
+  - Receiving submitted the selected unit as free-text `unitLabel`.
+  - Backend movement flow resolved unit by label text (`ensureProductUnitLevel(...)`).
+  - For long labels, fallback unit-type creation attempted to insert the full label into `unit_types.symbol`.
+  - Schema limit:
+    - `migrations/0001_ky1011_schema.sql`
+    - `unit_types.symbol varchar(20)`
+  - Result: valid movement input could fail even when the chosen unit already existed in `product_unit_levels`.
+- Fix applied:
+  - Frontend (`src/pages/Receiving.jsx`):
+    - store selected `product_unit_levels.id` in form state as `unitLevelId`
+    - unit dropdown now uses option `value={unitOption.id}` instead of `displayName`
+    - submit payload now sends both:
+      - `unitLevelId` as canonical identifier
+      - `unitLabel` as display/debug compatibility value
+  - API client (`src/lib/api.js`):
+    - `inventoryApi.createMovement(...)` now accepts and forwards `unit_level_id`
+    - validation updated to require `unitLevelId` or `unitLabel`
+  - Backend (`server/controllers/inventoryController.js`):
+    - added `resolveRequestedUnitLevel(...)`
+    - when `unit_level_id` is present, resolve unit directly from `product_unit_levels`
+    - keep `unitLabel` text path only as fallback for older callers
+  - Side effect:
+    - Receiving no longer depends on label-text matching for unit conversion
+    - this also reduces the unit-creation ambiguity previously noted in audit notes
+- Verification:
+  - `npm run check:server` -> pass
+  - `npm run build` -> pass
+- Operational note:
+  - backend process must be restarted after this change, otherwise old server code will still reject the request using the previous label-based path
