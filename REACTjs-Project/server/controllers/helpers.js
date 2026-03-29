@@ -455,6 +455,7 @@ export async function ensureUnitType(client, unitLabel) {
   if (!rawLabel) throw httpError(400, "unitLabel is required");
   const code = normalizeUnitCode(rawLabel);
   if (!code) throw httpError(400, "unitLabel is invalid");
+  const safeSymbol = rawLabel.slice(0, 20);
 
   const existing = await client.query(
     `
@@ -474,7 +475,7 @@ export async function ensureUnitType(client, unitLabel) {
       VALUES ($1, $2, $2, $3, $4, 3, true)
       RETURNING id, code
     `,
-    [code, rawLabel, unitKindFromCode(code), rawLabel]
+    [code, rawLabel, unitKindFromCode(code), safeSymbol]
   );
 
   return inserted.rows[0];
@@ -483,18 +484,9 @@ export async function ensureUnitType(client, unitLabel) {
 export async function ensureProductUnitLevel(client, productId, unitLabel, unitStructure = {}) {
   const normalizedUnitLabel = normalizeWhitespace(unitLabel);
   if (!normalizedUnitLabel) throw httpError(400, "unitLabel is required");
-
-  const unit = await ensureUnitType(client, normalizedUnitLabel);
-  const productContext = await buildProductUnitContext(client, productId);
   const numericHints = extractNumericHintsFromLabel(normalizedUnitLabel);
-  const normalizedStructure = normalizeUnitStructure(
-    unitStructure,
-    numericHints,
-    productContext.baseUnitCode,
-    unit.code
-  );
-
   const supportsUnitKey = await hasUnitKeyColumn(client);
+
   if (!supportsUnitKey && !unitKeyLegacyWarningPrinted) {
     console.warn(
       "[unit-level] product_unit_levels.unit_key is missing. Run migration 0007_unit_level_code_stability.sql."
@@ -502,45 +494,36 @@ export async function ensureProductUnitLevel(client, productId, unitLabel, unitS
     unitKeyLegacyWarningPrinted = true;
   }
 
-  if (supportsUnitKey && normalizedStructure.level !== null) {
-    const structuralLookupKey = buildUnitLevelKey({
-      productCode: productContext.productCode,
-      level: normalizedStructure.level,
-      parentLevel: normalizedStructure.parentLevel ?? 0,
-      quantityPerParentUnit: normalizedStructure.quantityPerParentUnit,
-      quantityPerBaseUnit: normalizedStructure.quantityPerBaseUnit,
-      baseUnitCode: normalizedStructure.baseUnitCode,
-      unitTypeCode: normalizedStructure.unitTypeCode,
-    });
-    const byUnitKey = await client.query(
-      `
-        SELECT id, code, unit_type_id, unit_key, display_name, sort_order
-        FROM product_unit_levels
-        WHERE product_id = $1
-          AND unit_key = $2
-        LIMIT 1
-      `,
-      [productId, structuralLookupKey]
-    );
-    if (byUnitKey.rows[0]) return byUnitKey.rows[0];
-  }
-
   const byDisplayName = await client.query(
     `
-      SELECT id, code, unit_type_id, unit_key, display_name, sort_order
-      FROM product_unit_levels
-      WHERE product_id = $1
-        AND unit_type_id = $2
-        AND lower(trim(display_name)) = lower(trim($3))
-      ORDER BY sort_order ASC
+      SELECT
+        pul.id,
+        pul.code,
+        pul.unit_type_id,
+        pul.unit_key,
+        pul.display_name,
+        pul.sort_order,
+        ut.code AS unit_type_code
+      FROM product_unit_levels pul
+      LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
+      WHERE pul.product_id = $1
+        AND lower(trim(pul.display_name)) = lower(trim($2))
+      ORDER BY pul.is_sellable DESC, pul.sort_order ASC, pul.created_at ASC
       LIMIT 1
     `,
-    [productId, unit.id, normalizedUnitLabel]
+    [productId, normalizedUnitLabel]
   );
 
   if (byDisplayName.rows[0]) {
     const existingByDisplay = byDisplayName.rows[0];
     if (supportsUnitKey && !existingByDisplay.unit_key) {
+      const productContext = await buildProductUnitContext(client, productId);
+      const normalizedStructure = normalizeUnitStructure(
+        unitStructure,
+        numericHints,
+        productContext.baseUnitCode,
+        existingByDisplay.unit_type_code || "UNIT"
+      );
       const rowKey = buildUnitLevelKey({
         productCode: productContext.productCode,
         level: existingByDisplay.sort_order,
@@ -564,6 +547,38 @@ export async function ensureProductUnitLevel(client, productId, unitLabel, unitS
       };
     }
     return existingByDisplay;
+  }
+
+  const unit = await ensureUnitType(client, normalizedUnitLabel);
+  const productContext = await buildProductUnitContext(client, productId);
+  const normalizedStructure = normalizeUnitStructure(
+    unitStructure,
+    numericHints,
+    productContext.baseUnitCode,
+    unit.code
+  );
+
+  if (supportsUnitKey && normalizedStructure.level !== null) {
+    const structuralLookupKey = buildUnitLevelKey({
+      productCode: productContext.productCode,
+      level: normalizedStructure.level,
+      parentLevel: normalizedStructure.parentLevel ?? 0,
+      quantityPerParentUnit: normalizedStructure.quantityPerParentUnit,
+      quantityPerBaseUnit: normalizedStructure.quantityPerBaseUnit,
+      baseUnitCode: normalizedStructure.baseUnitCode,
+      unitTypeCode: normalizedStructure.unitTypeCode,
+    });
+    const byUnitKey = await client.query(
+      `
+        SELECT id, code, unit_type_id, unit_key, display_name, sort_order
+        FROM product_unit_levels
+        WHERE product_id = $1
+          AND unit_key = $2
+        LIMIT 1
+      `,
+      [productId, structuralLookupKey]
+    );
+    if (byUnitKey.rows[0]) return byUnitKey.rows[0];
   }
 
   const existingByLegacyCode = await client.query(

@@ -72,6 +72,7 @@ psql "$DATABASE_URL" -f migrations/0007_unit_level_code_stability.sql
 psql "$DATABASE_URL" -f migrations/0008_fix_movement_unit_level_refs.sql
 psql "$DATABASE_URL" -f migrations/0009_stock_movements_quantity_base_ssot.sql
 psql "$DATABASE_URL" -f migrations/0010_seed_login_usernames_refresh.sql
+psql "$DATABASE_URL" -f migrations/0011_fix_ic003358_prednisolone_unit_levels.sql
 ```
 
 Important:

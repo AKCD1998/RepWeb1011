@@ -911,3 +911,60 @@ Start with Deliver line-model refactor to support multiple rows for the same pro
   - `npm run build` -> pass
 - Operational note:
   - backend process must be restarted after this change, otherwise old server code will still reject the request using the previous label-based path
+
+## 2026-03-29 17:46:53 +07:00 - IC-003358 / barcode `9999900089530` unit structure repair (`แผง` base, `กล่อง` larger pack) + Receiving unit ordering fix
+- Issue observed:
+  - Product `IC-003358` (`Prednisolone 5 mg tablet`, barcode `9999900089530`) had only one `product_unit_levels` row.
+  - That row was internally a `BLISTER` base unit (`qpb=1`, stock on hand `20`), but its `display_name` was incorrectly saved as:
+    - `1 กล่อง x 100 แผง x 10 เม็ด`
+  - Result:
+    - Receiving unit dropdown showed only the box-sized label.
+    - Stock/on-hand and movement quantities behaved like blister-level stock, but UI labels implied box-level stock.
+- Data findings:
+  - Current live API state before repair:
+    - `GET /api/products?barcode=9999900089530` returned `unit=blister`, `price=10`
+    - `GET /api/products/:id/unit-levels` returned only one row with:
+      - `displayName=1 กล่อง x 100 แผง x 10 เม็ด`
+      - `unitTypeCode=BLISTER`
+      - `isBase=true`
+      - `isSellable=true`
+    - `GET /api/stock/on-hand?branchCode=004` showed this product with `quantityBase=20` and `unitCode=BLISTER`
+  - Conclusion:
+    - operational stock is already blister-based; the broken part is the unit-level structure/labeling, not the stored quantity amount itself.
+- Fixes applied:
+  - Added targeted migration:
+    - `migrations/0011_fix_ic003358_prednisolone_unit_levels.sql`
+  - Migration behavior:
+    - rewrites the existing primary unit row to:
+      - `1 แผง x 10 เม็ด`
+      - `BLISTER`
+      - `is_base=true`
+      - `is_sellable=true`
+      - `qpb=1`
+    - inserts a larger pack row:
+      - `1 กล่อง x 100 แผง x 10 เม็ด`
+      - `BOX`
+      - `sort_order=2`
+      - `qpb=100`
+    - inserts/updates conversion:
+      - `1 กล่อง = 100 แผง`
+  - API enhancement:
+    - `server/controllers/productsController.js`
+    - `GET /api/products/:id/unit-levels` now returns parsed `quantityPerBase` from `unit_key`
+  - Receiving UX/logic:
+    - `src/pages/Receiving.jsx`
+    - unit options are now sorted by smallest `quantityPerBase` first instead of `isSellable` first
+    - default selected unit becomes the smallest available unit
+    - this prevents products with mixed packaging from defaulting to oversized pack units during receive flow
+- Verification:
+  - Local checks after code change:
+    - `npm run check:server` -> pass
+    - `npm run build` -> pass
+  - Live DB / API checks after applying migration:
+    - `psql ... -f migrations/0011_fix_ic003358_prednisolone_unit_levels.sql` -> pass
+    - `GET /api/products/59fae1ac-41f5-46a6-abe5-fcf50ad8716b/unit-levels` ->
+      - row 1: `1 แผง x 10 เม็ด`
+      - row 2: `1 กล่อง x 100 แผง x 10 เม็ด`
+    - `GET /api/stock/on-hand?branchCode=004` -> product `IC-003358` now shows `unitLabel=1 แผง x 10 เม็ด`, quantity still `20`
+- Operator note:
+  - This migration is manual like the existing migration flow in `README.md`; apply it explicitly in PostgreSQL before expecting live data/UI to change.

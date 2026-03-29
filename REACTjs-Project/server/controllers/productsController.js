@@ -1047,6 +1047,7 @@ export async function getProductUnitLevels(req, res) {
         pul.is_base AS "isBase",
         pul.is_sellable AS "isSellable",
         pul.barcode,
+        NULLIF((regexp_match(COALESCE(pul.unit_key, ''), 'qpb=([0-9]+(?:\\.[0-9]+)?)'))[1], '')::numeric AS "quantityPerBase",
         ut.code AS "unitTypeCode",
         COALESCE(NULLIF(ut.name_th, ''), NULLIF(ut.name_en, ''), NULLIF(ut.symbol, ''), ut.code, pul.code) AS "unitTypeLabel"
       FROM product_unit_levels pul
@@ -1066,6 +1067,10 @@ export async function getProductUnitLevels(req, res) {
       isBase: Boolean(row.isBase),
       isSellable: Boolean(row.isSellable),
       barcode: toCleanText(row.barcode),
+      quantityPerBase:
+        row.quantityPerBase === null || row.quantityPerBase === undefined
+          ? null
+          : Number(row.quantityPerBase),
       unitTypeCode: toCleanText(row.unitTypeCode),
       unitTypeLabel: toCleanText(row.unitTypeLabel || row.unitTypeCode),
     })),

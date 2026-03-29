@@ -455,10 +455,13 @@ export default function Receiving() {
           displayName: toCleanText(row?.displayName || row?.display_name || row?.code),
           isSellable: Boolean(row?.isSellable ?? row?.is_sellable),
           sortOrder: Number(row?.sortOrder ?? row?.sort_order ?? 0),
+          quantityPerBase: Number(row?.quantityPerBase ?? row?.quantity_per_base),
         }))
         .filter((row) => row.id && row.displayName)
         .sort((a, b) => {
-          if (a.isSellable !== b.isSellable) return a.isSellable ? -1 : 1;
+          const aQpb = Number.isFinite(a.quantityPerBase) ? a.quantityPerBase : Number.POSITIVE_INFINITY;
+          const bQpb = Number.isFinite(b.quantityPerBase) ? b.quantityPerBase : Number.POSITIVE_INFINITY;
+          if (aQpb !== bQpb) return aQpb - bQpb;
           return a.sortOrder - b.sortOrder;
         });
 
@@ -478,12 +481,7 @@ export default function Receiving() {
         return;
       }
 
-      const preferredLabel = toCleanText(preferredUnitLabel).toLowerCase();
-      const matchedPreferred =
-        preferredLabel
-        ? options.find((row) => row.displayName.toLowerCase() === preferredLabel)
-        : null;
-      const nextUnitOption = matchedPreferred || options[0];
+      const nextUnitOption = options[0];
 
       setMovementForm((prev) => ({
         ...prev,
