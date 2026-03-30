@@ -404,6 +404,7 @@ export default function Receiving() {
   const isAdmin = userRole === "ADMIN";
   const branchLocationId = toCleanText(user?.location_id);
   const userBranchCode = toCleanText(user?.branchCode || user?.branch_code);
+  const viewerLocationId = branchLocationId || "";
 
   const [movements, setMovements] = useState([]);
   const [locations, setLocations] = useState([]);
@@ -493,7 +494,7 @@ export default function Receiving() {
   );
 
   const loadMovements = useCallback(async () => {
-    if (!isAdmin && !branchLocationId) {
+    if (!isAdmin && !viewerLocationId) {
       setMovements([]);
       return;
     }
@@ -501,7 +502,7 @@ export default function Receiving() {
     setIsLoadingMovements(true);
     try {
       const rows = await inventoryApi.listMovements({
-        location_id: isAdmin ? undefined : branchLocationId,
+        location_id: viewerLocationId || undefined,
         limit: 100,
       });
       const normalized = (Array.isArray(rows) ? rows : [])
@@ -514,7 +515,7 @@ export default function Receiving() {
     } finally {
       setIsLoadingMovements(false);
     }
-  }, [branchLocationId, isAdmin]);
+  }, [isAdmin, viewerLocationId]);
 
   const loadLocations = useCallback(async () => {
     setIsLoadingLocations(true);

@@ -56,6 +56,7 @@ export default function TransferNotifications() {
   const dropdownRef = useRef(null);
   const userRole = toCleanText(user?.role).toUpperCase();
   const canReviewTransfers = userRole === "ADMIN" || Boolean(user?.location_id);
+  const viewerLocationId = toCleanText(user?.location_id);
 
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [requests, setRequests] = useState([]);
@@ -91,6 +92,7 @@ export default function TransferNotifications() {
       const rows = await inventoryApi.listTransferRequests({
         status: "PENDING",
         limit: 20,
+        location_id: viewerLocationId || undefined,
       });
       setRequests(Array.isArray(rows) ? rows : []);
       setLoadError("");
@@ -101,7 +103,7 @@ export default function TransferNotifications() {
         setIsLoading(false);
       }
     }
-  }, [canReviewTransfers]);
+  }, [canReviewTransfers, viewerLocationId]);
 
   useEffect(() => {
     if (!canReviewTransfers) return undefined;
