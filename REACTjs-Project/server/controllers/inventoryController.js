@@ -969,6 +969,19 @@ export async function getMovements(req, res) {
   const params = [];
   const where = ["1=1"];
   const effectiveOccurredAtSql = "COALESCE(sm.corrected_occurred_at, sm.occurred_at)";
+  const branchPerspectiveCondition = (columnSql, parameterSql) => `
+    (
+      (sm.movement_type IN ('RECEIVE', 'TRANSFER_IN') AND to_l.${columnSql} = ${parameterSql})
+      OR (sm.movement_type IN ('TRANSFER_OUT', 'DISPENSE') AND from_l.${columnSql} = ${parameterSql})
+      OR (
+        sm.movement_type = 'ADJUST'
+        AND (
+          from_l.${columnSql} = ${parameterSql}
+          OR to_l.${columnSql} = ${parameterSql}
+        )
+      )
+    )
+  `;
 
   if (productId) {
     params.push(productId);
@@ -977,12 +990,12 @@ export async function getMovements(req, res) {
 
   if (branchCode) {
     params.push(branchCode);
-    where.push(`(from_l.code = $${params.length} OR to_l.code = $${params.length})`);
+    where.push(branchPerspectiveCondition("code", `$${params.length}`));
   }
 
   if (effectiveLocationId) {
     params.push(effectiveLocationId);
-    where.push(`(from_l.id = $${params.length}::uuid OR to_l.id = $${params.length}::uuid)`);
+    where.push(branchPerspectiveCondition("id", `$${params.length}::uuid`));
   }
 
   if (from) {

@@ -16,7 +16,7 @@ const MOVEMENT_TYPE_LABEL = {
   DISPENSE: "ส่งมอบลูกค้า",
 };
 
-const SUPPORTED_TABLE_TYPES = new Set(["RECEIVE", "TRANSFER_OUT", "DISPENSE"]);
+const SUPPORTED_TABLE_TYPES = new Set(["RECEIVE", "TRANSFER_OUT", "TRANSFER_IN", "DISPENSE"]);
 const PRODUCT_SEARCH_LIMIT = 20;
 const BANGKOK_TIME_ZONE = "Asia/Bangkok";
 const BANGKOK_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-GB", {
