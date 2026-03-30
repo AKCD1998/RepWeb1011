@@ -102,6 +102,13 @@ export const productsApi = {
   },
 };
 
+export const INVENTORY_CHANGED_EVENT = "inventory:changed";
+
+function emitInventoryChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(INVENTORY_CHANGED_EVENT));
+}
+
 export const inventoryApi = {
   async createMovement(payload = {}) {
     const movementType = String(payload.movementType || "").trim().toUpperCase();
@@ -168,11 +175,13 @@ export const inventoryApi = {
       requestPayload.to_location_id = toLocationId;
     }
 
-    return requestJson({
+    const response = await requestJson({
       method: "POST",
       url: "/api/inventory/movements",
       data: requestPayload,
     });
+    emitInventoryChanged();
+    return response;
   },
   updateMovementOccurredAtCorrection(id, payload = {}) {
     const movementId = String(id || "").trim();
@@ -213,6 +222,58 @@ export const inventoryApi = {
       url: "/api/inventory/transfer",
       data: payload,
     });
+  },
+  listTransferRequests({ status, limit, location_id } = {}) {
+    const params = {};
+    if (status) {
+      params.status = String(status).trim();
+    }
+    if (location_id) {
+      params.location_id = String(location_id).trim();
+    }
+    if (limit !== undefined && limit !== null && Number.isFinite(Number(limit))) {
+      params.limit = String(Math.min(Math.max(Math.floor(Number(limit)), 1), 100));
+    }
+
+    return requestJson({
+      method: "GET",
+      url: "/api/inventory/transfer-requests",
+      params: Object.keys(params).length ? params : undefined,
+    });
+  },
+  async acceptTransferRequest(id, payload = {}) {
+    const requestId = String(id || "").trim();
+    if (!requestId) {
+      throw new Error("transfer request id is required");
+    }
+
+    const response = await requestJson({
+      method: "POST",
+      url: `/api/inventory/transfer-requests/${encodeURIComponent(requestId)}/accept`,
+      data: {
+        note: String(payload.note ?? payload.decisionNote ?? "").trim() || undefined,
+      },
+    });
+    emitInventoryChanged();
+    return response;
+  },
+  async rejectTransferRequest(id, payload = {}) {
+    const requestId = String(id || "").trim();
+    const reason = String(payload.reason ?? payload.decisionNote ?? "").trim();
+    if (!requestId) {
+      throw new Error("transfer request id is required");
+    }
+    if (!reason) {
+      throw new Error("reason is required");
+    }
+
+    const response = await requestJson({
+      method: "POST",
+      url: `/api/inventory/transfer-requests/${encodeURIComponent(requestId)}/reject`,
+      data: { reason },
+    });
+    emitInventoryChanged();
+    return response;
   },
   listStockOnHand(filters = {}) {
     return requestJson({

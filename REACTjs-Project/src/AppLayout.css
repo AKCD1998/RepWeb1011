@@ -195,6 +195,24 @@
 .app-main {
   margin-left: var(--sidebar-current);
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px 0;
+}
+
+.app-topbar-spacer {
+  flex: 1;
+}
+
+.app-content {
+  flex: 1;
 }
 
 .page-placeholder {
@@ -228,5 +246,9 @@
 
   .page-placeholder {
     padding: 28px 20px 36px;
+  }
+
+  .app-topbar {
+    padding: 14px 16px 0;
   }
 }

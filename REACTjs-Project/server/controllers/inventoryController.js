@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { query, withTransaction } from "../db/pool.js";
 import {
   applyStockDelta,
@@ -16,6 +17,8 @@ import {
 import { httpError } from "../utils/httpError.js";
 
 const MOVEMENT_TYPES = new Set(["RECEIVE", "TRANSFER_OUT", "DISPENSE"]);
+const TRANSFER_REQUEST_SOURCE_REF = "TRANSFER_REQUEST";
+const TRANSFER_REQUEST_STATUSES = new Set(["PENDING", "ACCEPTED", "REJECTED"]);
 const LOCATION_TYPES = new Set([
   "BRANCH",
   "OFFICE",
@@ -54,6 +57,32 @@ function parseBoolean(value, fallback = false) {
   if (["true", "1", "yes"].includes(normalized)) return true;
   if (["false", "0", "no"].includes(normalized)) return false;
   return fallback;
+}
+
+function normalizeTransferRequestStatus(value, fallback = "PENDING") {
+  const normalized = normalizeText(value).toUpperCase();
+  if (!normalized) return fallback;
+  if (!TRANSFER_REQUEST_STATUSES.has(normalized)) {
+    throw httpError(400, `Unsupported transfer request status: ${normalized}`);
+  }
+  return normalized;
+}
+
+function composeTransferDecisionNote(baseNote, decisionLabel, reason) {
+  const parts = [];
+  const safeBaseNote = normalizeText(baseNote);
+  if (safeBaseNote) {
+    parts.push(safeBaseNote);
+  }
+
+  const safeReason = normalizeText(reason);
+  if (safeReason) {
+    parts.push(`${decisionLabel}: ${safeReason}`);
+  } else if (decisionLabel) {
+    parts.push(decisionLabel);
+  }
+
+  return parts.join("\n");
 }
 
 function toIsoDateOnly(value, fieldName) {
@@ -190,6 +219,56 @@ async function resolveRequestedUnitLevel(
   }
 
   return ensureProductUnitLevel(client, productId, normalizedUnitLabel, unitStructure);
+}
+
+async function getTransferRequestById(client, requestId, { forUpdate = false } = {}) {
+  const result = await client.query(
+    `
+      SELECT
+        itr.id,
+        itr.from_location_id AS "fromLocationId",
+        itr.to_location_id AS "toLocationId",
+        itr.product_id AS "productId",
+        itr.lot_id AS "lotId",
+        itr.unit_level_id AS "unitLevelId",
+        itr.base_unit_level_id AS "baseUnitLevelId",
+        itr.quantity,
+        itr.quantity_base AS "quantityBase",
+        itr.note_text AS "noteText",
+        itr.status::text AS status,
+        itr.requested_by AS "requestedBy",
+        itr.requested_at AS "requestedAt",
+        itr.decided_by AS "decidedBy",
+        itr.decided_at AS "decidedAt",
+        itr.decision_note AS "decisionNote",
+        itr.transfer_out_movement_id AS "transferOutMovementId",
+        itr.transfer_in_movement_id AS "transferInMovementId",
+        itr.return_movement_id AS "returnMovementId",
+        from_l.code AS "fromLocationCode",
+        from_l.name AS "fromLocationName",
+        from_l.location_type AS "fromLocationType",
+        to_l.code AS "toLocationCode",
+        to_l.name AS "toLocationName",
+        to_l.location_type AS "toLocationType",
+        p.product_code AS "productCode",
+        p.trade_name AS "tradeName",
+        pl.lot_no AS "lotNo",
+        pl.exp_date::text AS "expDate",
+        COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit') AS "unitLabel"
+      FROM inventory_transfer_requests itr
+      JOIN locations from_l ON from_l.id = itr.from_location_id
+      JOIN locations to_l ON to_l.id = itr.to_location_id
+      JOIN products p ON p.id = itr.product_id
+      JOIN product_lots pl ON pl.id = itr.lot_id
+      JOIN product_unit_levels pul ON pul.id = itr.unit_level_id
+      WHERE itr.id = $1
+      ${forUpdate ? "FOR UPDATE" : ""}
+      LIMIT 1
+    `,
+    [requestId]
+  );
+
+  return result.rows[0] || null;
 }
 
 export async function receiveInventory(req, res) {
@@ -521,6 +600,8 @@ export async function createMovement(req, res) {
     );
     const toLocation = await resolveActiveLocationById(client, effectiveToLocationId, "to_location_id");
     let movementCount = 0;
+    let transferRequestId = null;
+    let transferStatus = null;
 
     if (movementType === "RECEIVE") {
       await client.query(
@@ -575,6 +656,9 @@ export async function createMovement(req, res) {
 
       movementCount = 1;
     } else if (movementType === "TRANSFER_OUT") {
+      const isBranchToBranchTransfer =
+        fromLocation?.locationType === "BRANCH" && toLocation?.locationType === "BRANCH";
+
       await applyStockDelta(client, {
         branchId: fromLocation.id,
         productId,
@@ -582,48 +666,156 @@ export async function createMovement(req, res) {
         baseUnitLevelId: baseUnitLevel.id,
         deltaQtyBase: -quantityBase,
       });
-      await applyStockDelta(client, {
-        branchId: toLocation.id,
-        productId,
-        lotId,
-        baseUnitLevelId: baseUnitLevel.id,
-        deltaQtyBase: quantityBase,
-      });
 
-      await client.query(
-        `
-          INSERT INTO stock_movements (
-            movement_type,
-            from_location_id,
-            to_location_id,
-            product_id,
-            lot_id,
-            quantity,
-            quantity_base,
-            unit_level_id,
-            occurred_at,
-            created_by,
-            note_text
-          )
-          VALUES
-            ('TRANSFER_OUT', $1, $2, $3, $4, $5, $6, $7, now(), $8, $9),
-            ('TRANSFER_IN',  $1, $2, $3, $4, $5, $10, $7, now(), $8, $9)
-        `,
-        [
-          fromLocation.id,
-          toLocation.id,
+      if (isBranchToBranchTransfer) {
+        transferRequestId = randomUUID();
+        transferStatus = "PENDING";
+
+        const transferOutMovementResult = await client.query(
+          `
+            INSERT INTO stock_movements (
+              movement_type,
+              from_location_id,
+              to_location_id,
+              product_id,
+              lot_id,
+              quantity,
+              quantity_base,
+              unit_level_id,
+              source_ref_type,
+              source_ref_id,
+              occurred_at,
+              created_by,
+              note_text
+            )
+            VALUES (
+              'TRANSFER_OUT',
+              $1,
+              $2,
+              $3,
+              $4,
+              $5,
+              $6,
+              $7,
+              $8,
+              $9::uuid,
+              now(),
+              $10,
+              $11
+            )
+            RETURNING id
+          `,
+          [
+            fromLocation.id,
+            toLocation.id,
+            productId,
+            lotId,
+            qty,
+            convertMovementToSignedBase(qty, "TRANSFER_OUT", unitLevel),
+            unitLevel.id,
+            TRANSFER_REQUEST_SOURCE_REF,
+            transferRequestId,
+            actorUserId,
+            note,
+          ]
+        );
+
+        await client.query(
+          `
+            INSERT INTO inventory_transfer_requests (
+              id,
+              from_location_id,
+              to_location_id,
+              product_id,
+              lot_id,
+              unit_level_id,
+              base_unit_level_id,
+              quantity,
+              quantity_base,
+              note_text,
+              status,
+              requested_by,
+              requested_at,
+              transfer_out_movement_id
+            )
+            VALUES (
+              $1::uuid,
+              $2,
+              $3,
+              $4,
+              $5,
+              $6,
+              $7,
+              $8,
+              $9,
+              $10,
+              'PENDING',
+              $11,
+              now(),
+              $12
+            )
+          `,
+          [
+            transferRequestId,
+            fromLocation.id,
+            toLocation.id,
+            productId,
+            lotId,
+            unitLevel.id,
+            baseUnitLevel.id,
+            qty,
+            quantityBase,
+            note,
+            actorUserId,
+            transferOutMovementResult.rows[0]?.id || null,
+          ]
+        );
+
+        movementCount = 1;
+      } else {
+        await applyStockDelta(client, {
+          branchId: toLocation.id,
           productId,
           lotId,
-          qty,
-          convertMovementToSignedBase(qty, "TRANSFER_OUT", unitLevel),
-          unitLevel.id,
-          actorUserId,
-          note,
-          convertMovementToSignedBase(qty, "TRANSFER_IN", unitLevel),
-        ]
-      );
+          baseUnitLevelId: baseUnitLevel.id,
+          deltaQtyBase: quantityBase,
+        });
 
-      movementCount = 2;
+        await client.query(
+          `
+            INSERT INTO stock_movements (
+              movement_type,
+              from_location_id,
+              to_location_id,
+              product_id,
+              lot_id,
+              quantity,
+              quantity_base,
+              unit_level_id,
+              occurred_at,
+              created_by,
+              note_text
+            )
+            VALUES
+              ('TRANSFER_OUT', $1, $2, $3, $4, $5, $6, $7, now(), $8, $9),
+              ('TRANSFER_IN',  $1, $2, $3, $4, $5, $10, $7, now(), $8, $9)
+          `,
+          [
+            fromLocation.id,
+            toLocation.id,
+            productId,
+            lotId,
+            qty,
+            convertMovementToSignedBase(qty, "TRANSFER_OUT", unitLevel),
+            unitLevel.id,
+            actorUserId,
+            note,
+            convertMovementToSignedBase(qty, "TRANSFER_IN", unitLevel),
+          ]
+        );
+
+        movementCount = 2;
+      }
     } else {
       await applyStockDelta(client, {
         branchId: fromLocation.id,
@@ -682,10 +874,342 @@ export async function createMovement(req, res) {
       movementCount,
       from_location_id: fromLocation?.id || null,
       to_location_id: toLocation?.id || null,
+      transferRequestId,
+      transferStatus,
     };
   });
 
   return res.status(201).json({
+    ok: true,
+    ...result,
+  });
+}
+
+export async function listTransferRequests(req, res) {
+  const requestedLocationId =
+    req.query.location_id || req.query.locationId
+      ? normalizeText(req.query.location_id || req.query.locationId)
+      : "";
+  const status = normalizeTransferRequestStatus(req.query.status, "PENDING");
+  const requestedLimit = Number(req.query.limit);
+  const safeLimit = Number.isFinite(requestedLimit)
+    ? Math.min(Math.max(Math.floor(requestedLimit), 1), 100)
+    : 20;
+  const userRole = normalizeRole(req.user?.role);
+  const userLocationId = normalizeText(req.user?.location_id);
+  const effectiveToLocationId =
+    userRole === "ADMIN" ? requestedLocationId : userLocationId || requestedLocationId;
+
+  if (userRole !== "ADMIN" && requestedLocationId && requestedLocationId !== userLocationId) {
+    throw httpError(403, "Forbidden: location filter mismatch");
+  }
+  if (userRole !== "ADMIN" && !effectiveToLocationId) {
+    throw httpError(403, "Branch-scoped access requires location_id");
+  }
+
+  const params = [];
+  const where = ["1=1"];
+
+  params.push(status);
+  where.push(`itr.status = $${params.length}::transfer_request_status`);
+
+  if (effectiveToLocationId) {
+    params.push(effectiveToLocationId);
+    where.push(`itr.to_location_id = $${params.length}::uuid`);
+  }
+
+  params.push(safeLimit);
+
+  const result = await query(
+    `
+      SELECT
+        itr.id,
+        itr.status::text AS status,
+        itr.quantity,
+        itr.quantity_base AS "quantityBase",
+        itr.note_text AS note,
+        itr.requested_at AS "requestedAt",
+        itr.decided_at AS "decidedAt",
+        itr.decision_note AS "decisionNote",
+        itr.from_location_id AS "fromLocationId",
+        itr.to_location_id AS "toLocationId",
+        from_l.code AS "fromBranchCode",
+        from_l.name AS "fromBranchName",
+        to_l.code AS "toBranchCode",
+        to_l.name AS "toBranchName",
+        p.id AS "productId",
+        p.product_code AS "productCode",
+        p.trade_name AS "tradeName",
+        pl.id AS "lotId",
+        pl.lot_no AS "lotNo",
+        pl.exp_date::text AS "expDate",
+        COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit') AS "unitLabel",
+        barcode_pick.barcode AS barcode,
+        req_user.username AS "requestedByUsername",
+        COALESCE(NULLIF(trim(req_user.full_name), ''), req_user.username, 'unknown') AS "requestedByName",
+        dec_user.username AS "decidedByUsername",
+        COALESCE(NULLIF(trim(dec_user.full_name), ''), dec_user.username, '') AS "decidedByName"
+      FROM inventory_transfer_requests itr
+      JOIN locations from_l ON from_l.id = itr.from_location_id
+      JOIN locations to_l ON to_l.id = itr.to_location_id
+      JOIN products p ON p.id = itr.product_id
+      JOIN product_lots pl ON pl.id = itr.lot_id
+      JOIN product_unit_levels pul ON pul.id = itr.unit_level_id
+      LEFT JOIN users req_user ON req_user.id = itr.requested_by
+      LEFT JOIN users dec_user ON dec_user.id = itr.decided_by
+      LEFT JOIN LATERAL (
+        SELECT pu.barcode
+        FROM product_unit_levels pu
+        WHERE pu.product_id = itr.product_id
+          AND pu.barcode IS NOT NULL
+        ORDER BY
+          (pu.id = itr.unit_level_id) DESC,
+          pu.is_sellable DESC,
+          pu.is_base DESC,
+          pu.sort_order ASC,
+          pu.created_at ASC
+        LIMIT 1
+      ) barcode_pick ON true
+      WHERE ${where.join(" AND ")}
+      ORDER BY itr.requested_at DESC
+      LIMIT $${params.length}
+    `,
+    params
+  );
+
+  return res.json(result.rows);
+}
+
+export async function acceptTransferRequest(req, res) {
+  const requestId = normalizeText(req.params?.id);
+  const decisionNote = normalizeText(
+    req.body?.note ?? req.body?.decisionNote ?? req.body?.decision_note
+  );
+  const userRole = normalizeRole(req.user?.role);
+  const userLocationId = normalizeText(req.user?.location_id);
+  const decidedByUserId = req.user?.id || req.body?.decidedByUserId || null;
+
+  if (!isUuid(requestId)) {
+    throw httpError(400, "transfer request id must be a valid UUID");
+  }
+
+  const result = await withTransaction(async (client) => {
+    const actorUserId = await resolveActorUserId(client, decidedByUserId);
+    const transferRequest = await getTransferRequestById(client, requestId, { forUpdate: true });
+
+    if (!transferRequest) {
+      throw httpError(404, "Transfer request not found");
+    }
+    if (userRole !== "ADMIN") {
+      if (!userLocationId) {
+        throw httpError(403, "Branch-scoped access requires location_id");
+      }
+      if (transferRequest.toLocationId !== userLocationId) {
+        throw httpError(403, "Forbidden: transfer request does not belong to this branch");
+      }
+    }
+    if (transferRequest.status !== "PENDING") {
+      throw httpError(409, `Transfer request is already ${transferRequest.status.toLowerCase()}`);
+    }
+
+    await applyStockDelta(client, {
+      branchId: transferRequest.toLocationId,
+      productId: transferRequest.productId,
+      lotId: transferRequest.lotId,
+      baseUnitLevelId: transferRequest.baseUnitLevelId,
+      deltaQtyBase: Number(transferRequest.quantityBase),
+    });
+
+    const transferInResult = await client.query(
+      `
+        INSERT INTO stock_movements (
+          movement_type,
+          from_location_id,
+          to_location_id,
+          product_id,
+          lot_id,
+          quantity,
+          quantity_base,
+          unit_level_id,
+          source_ref_type,
+          source_ref_id,
+          occurred_at,
+          created_by,
+          note_text
+        )
+        VALUES (
+          'TRANSFER_IN',
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          $7,
+          $8,
+          $9::uuid,
+          now(),
+          $10,
+          $11
+        )
+        RETURNING id
+      `,
+      [
+        transferRequest.fromLocationId,
+        transferRequest.toLocationId,
+        transferRequest.productId,
+        transferRequest.lotId,
+        transferRequest.quantity,
+        Number(transferRequest.quantityBase),
+        transferRequest.unitLevelId,
+        TRANSFER_REQUEST_SOURCE_REF,
+        transferRequest.id,
+        actorUserId,
+        transferRequest.noteText || null,
+      ]
+    );
+
+    await client.query(
+      `
+        UPDATE inventory_transfer_requests
+        SET status = 'ACCEPTED',
+            decided_by = $2,
+            decided_at = now(),
+            decision_note = $3,
+            transfer_in_movement_id = $4
+        WHERE id = $1::uuid
+      `,
+      [transferRequest.id, actorUserId, decisionNote || null, transferInResult.rows[0]?.id || null]
+    );
+
+    return {
+      id: transferRequest.id,
+      status: "ACCEPTED",
+      transferInMovementId: transferInResult.rows[0]?.id || null,
+    };
+  });
+
+  return res.json({
+    ok: true,
+    ...result,
+  });
+}
+
+export async function rejectTransferRequest(req, res) {
+  const requestId = normalizeText(req.params?.id);
+  const reason = requireNonEmptyText(
+    req.body?.reason ?? req.body?.decisionNote ?? req.body?.decision_note,
+    "reason"
+  );
+  const userRole = normalizeRole(req.user?.role);
+  const userLocationId = normalizeText(req.user?.location_id);
+  const decidedByUserId = req.user?.id || req.body?.decidedByUserId || null;
+
+  if (!isUuid(requestId)) {
+    throw httpError(400, "transfer request id must be a valid UUID");
+  }
+
+  const result = await withTransaction(async (client) => {
+    const actorUserId = await resolveActorUserId(client, decidedByUserId);
+    const transferRequest = await getTransferRequestById(client, requestId, { forUpdate: true });
+
+    if (!transferRequest) {
+      throw httpError(404, "Transfer request not found");
+    }
+    if (userRole !== "ADMIN") {
+      if (!userLocationId) {
+        throw httpError(403, "Branch-scoped access requires location_id");
+      }
+      if (transferRequest.toLocationId !== userLocationId) {
+        throw httpError(403, "Forbidden: transfer request does not belong to this branch");
+      }
+    }
+    if (transferRequest.status !== "PENDING") {
+      throw httpError(409, `Transfer request is already ${transferRequest.status.toLowerCase()}`);
+    }
+
+    await applyStockDelta(client, {
+      branchId: transferRequest.fromLocationId,
+      productId: transferRequest.productId,
+      lotId: transferRequest.lotId,
+      baseUnitLevelId: transferRequest.baseUnitLevelId,
+      deltaQtyBase: Number(transferRequest.quantityBase),
+    });
+
+    const returnMovementResult = await client.query(
+      `
+        INSERT INTO stock_movements (
+          movement_type,
+          from_location_id,
+          to_location_id,
+          product_id,
+          lot_id,
+          quantity,
+          quantity_base,
+          unit_level_id,
+          source_ref_type,
+          source_ref_id,
+          occurred_at,
+          created_by,
+          note_text
+        )
+        VALUES (
+          'TRANSFER_IN',
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          $7,
+          $8,
+          $9::uuid,
+          now(),
+          $10,
+          $11
+        )
+        RETURNING id
+      `,
+      [
+        transferRequest.toLocationId,
+        transferRequest.fromLocationId,
+        transferRequest.productId,
+        transferRequest.lotId,
+        transferRequest.quantity,
+        Number(transferRequest.quantityBase),
+        transferRequest.unitLevelId,
+        TRANSFER_REQUEST_SOURCE_REF,
+        transferRequest.id,
+        actorUserId,
+        composeTransferDecisionNote(
+          transferRequest.noteText,
+          `Transfer rejected by ${transferRequest.toLocationCode || transferRequest.toLocationId}`,
+          reason
+        ),
+      ]
+    );
+
+    await client.query(
+      `
+        UPDATE inventory_transfer_requests
+        SET status = 'REJECTED',
+            decided_by = $2,
+            decided_at = now(),
+            decision_note = $3,
+            return_movement_id = $4
+        WHERE id = $1::uuid
+      `,
+      [transferRequest.id, actorUserId, reason, returnMovementResult.rows[0]?.id || null]
+    );
+
+    return {
+      id: transferRequest.id,
+      status: "REJECTED",
+      returnMovementId: returnMovementResult.rows[0]?.id || null,
+    };
+  });
+
+  return res.json({
     ok: true,
     ...result,
   });

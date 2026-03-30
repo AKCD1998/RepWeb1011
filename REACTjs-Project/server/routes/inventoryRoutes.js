@@ -1,6 +1,9 @@
 import { Router } from "express";
 import {
+  acceptTransferRequest,
   createMovement,
+  listTransferRequests,
+  rejectTransferRequest,
   receiveInventory,
   transferInventory,
   updateMovementOccurredAtCorrection,
@@ -35,6 +38,24 @@ router.post(
   verifyToken,
   requireRole("ADMIN", "PHARMACIST"),
   asyncHandler(createMovement)
+);
+router.get(
+  "/transfer-requests",
+  verifyToken,
+  requireRole("ADMIN", "PHARMACIST"),
+  asyncHandler(listTransferRequests)
+);
+router.post(
+  "/transfer-requests/:id/accept",
+  verifyToken,
+  requireRole("ADMIN", "PHARMACIST"),
+  asyncHandler(acceptTransferRequest)
+);
+router.post(
+  "/transfer-requests/:id/reject",
+  verifyToken,
+  requireRole("ADMIN", "PHARMACIST"),
+  asyncHandler(rejectTransferRequest)
 );
 router.patch(
   "/movements/:id/occurred-at-correction",

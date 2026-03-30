@@ -1,0 +1,288 @@
+.transfer-notifications {
+  position: relative;
+}
+
+.transfer-bell-button {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: transform 140ms ease, border-color 140ms ease, background-color 140ms ease;
+}
+
+.transfer-bell-button:hover,
+.transfer-bell-button.is-open {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+}
+
+.transfer-bell-button:focus-visible,
+.transfer-refresh-button:focus-visible,
+.transfer-modal-close:focus-visible,
+.transfer-action-button:focus-visible,
+.transfer-dropdown-item:focus-visible,
+.transfer-reject-textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.transfer-bell-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--negative);
+  color: var(--text-invert);
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.transfer-dropdown {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  width: min(360px, calc(100vw - 120px));
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
+  box-shadow: 0 22px 48px rgba(15, 23, 42, 0.18);
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+  z-index: 50;
+}
+
+.transfer-dropdown-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.transfer-dropdown-subtitle,
+.transfer-modal-subtitle {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.transfer-refresh-button,
+.transfer-modal-close {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel-soft) 88%, transparent);
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.transfer-dropdown-list {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.transfer-dropdown-item {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel-soft) 82%, transparent);
+  color: var(--ink);
+  text-align: left;
+  padding: 12px;
+  display: grid;
+  gap: 5px;
+  cursor: pointer;
+  transition: border-color 140ms ease, transform 140ms ease, background-color 140ms ease;
+}
+
+.transfer-dropdown-item:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel-soft));
+}
+
+.transfer-dropdown-item-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.transfer-dropdown-item-meta,
+.transfer-dropdown-empty,
+.transfer-dropdown-error,
+.transfer-detail-label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.transfer-dropdown-error {
+  color: var(--negative);
+}
+
+.transfer-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.48);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 80;
+}
+
+.transfer-modal-backdrop--stacked {
+  z-index: 90;
+}
+
+.transfer-modal-card {
+  width: min(680px, calc(100vw - 40px));
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--panel) 98%, transparent);
+  box-shadow: 0 26px 60px rgba(15, 23, 42, 0.28);
+  padding: 22px;
+  display: grid;
+  gap: 16px;
+}
+
+.transfer-modal-card--compact {
+  width: min(540px, calc(100vw - 40px));
+}
+
+.transfer-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.transfer-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.transfer-detail-item {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--panel-soft) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.transfer-detail-item--wide {
+  grid-column: 1 / -1;
+}
+
+.transfer-detail-value {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.transfer-detail-note {
+  color: var(--ink);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.transfer-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.transfer-action-button {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.transfer-action-button--primary {
+  background: var(--accent);
+  color: var(--text-invert);
+}
+
+.transfer-action-button--ghost {
+  background: color-mix(in srgb, var(--panel-soft) 88%, transparent);
+  color: var(--ink);
+}
+
+.transfer-action-button--danger {
+  background: var(--negative);
+  color: var(--text-invert);
+}
+
+.transfer-action-button:disabled,
+.transfer-refresh-button:disabled,
+.transfer-modal-close:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.transfer-reject-form {
+  display: grid;
+  gap: 10px;
+}
+
+.transfer-reject-textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 120px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: var(--input-bg);
+  color: var(--input-text);
+  padding: 12px 14px;
+  font: inherit;
+}
+
+@media (max-width: 900px) {
+  .transfer-dropdown {
+    width: min(340px, calc(100vw - 92px));
+  }
+
+  .transfer-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .transfer-modal-actions {
+    flex-direction: column-reverse;
+  }
+
+  .transfer-action-button {
+    width: 100%;
+    justify-content: center;
+  }
+}

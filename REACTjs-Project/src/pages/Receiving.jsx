@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { inventoryApi, productsApi } from "../lib/api";
+import { INVENTORY_CHANGED_EVENT, inventoryApi, productsApi } from "../lib/api";
 import "./Receiving.css";
 
 const MOVEMENT_TYPE_OPTIONS = [
@@ -541,6 +541,15 @@ export default function Receiving() {
 
   useEffect(() => {
     void loadMovements();
+  }, [loadMovements]);
+
+  useEffect(() => {
+    function handleInventoryChanged() {
+      void loadMovements();
+    }
+
+    window.addEventListener(INVENTORY_CHANGED_EVENT, handleInventoryChanged);
+    return () => window.removeEventListener(INVENTORY_CHANGED_EVENT, handleInventoryChanged);
   }, [loadMovements]);
 
   useEffect(() => {
