@@ -1146,3 +1146,27 @@ Start with Deliver line-model refactor to support multiple rows for the same pro
   - Verified each target now has 2 unit levels (`แผง` + `กล่อง`) and 1 conversion row
   - `npm run check:server` -> pass
   - `npm run build` -> pass
+
+## 2026-03-29 20:55:35 +07:00 - Documented lot-specific packaging problem and additive model proposal
+- Added planning document:
+  - `LOT_SPECIFIC_PACKAGING_PROPOSAL.md`
+- Problem captured:
+  - some products can have different outer packaging variants across different lots
+  - current schema models unit levels at product scope, not lot scope
+  - overwriting an existing packaging row would risk reinterpreting historical stock and movement records
+- Example noted:
+  - `IC-001674` currently has:
+    - `1 แผง x 10 เม็ด`
+    - `1 กล่อง x 3 แผง x 10 เม็ด`
+  - future lots may also require:
+    - `1 กล่อง x 10 แผง x 10 เม็ด`
+- Proposed direction:
+  - keep a product-level universe of valid unit levels
+  - add a lot-level whitelist/default mapping table such as `product_lot_allowed_unit_levels`
+  - make Receiving filter unit choices by lot after product + lot selection
+  - keep fallback to current product-level behavior when no lot mapping exists yet
+- Explicit regression concerns documented:
+  - product list/API paths still assume a single `packageSize`
+  - legacy lots have no mapping yet
+  - transfer/dispense flows may also need lot-aware unit filtering later
+  - historical packaging rows must not be overwritten in place

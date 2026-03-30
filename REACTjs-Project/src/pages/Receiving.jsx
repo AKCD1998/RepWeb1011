@@ -87,6 +87,72 @@ function toCleanText(value) {
   return String(value || "").trim();
 }
 
+function normalizeDateOnly(value) {
+  const text = toCleanText(value);
+  if (!text) return "";
+
+  const matchedDate = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (matchedDate?.[1]) {
+    return matchedDate[1];
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return text;
+  }
+  return date.toISOString().slice(0, 10);
+}
+
+function getLotOptionValue(lotNo, expDate) {
+  const safeLotNo = toCleanText(lotNo);
+  const safeExpDate = normalizeDateOnly(expDate);
+  if (!safeLotNo || !safeExpDate) return "";
+  return `${safeLotNo}||${safeExpDate}`;
+}
+
+function mapTransferLotOptions(rows) {
+  const seen = new Set();
+  const list = (Array.isArray(rows) ? rows : [])
+    .map((row) => {
+      const lotId = toCleanText(row?.lotId || row?.lot_id);
+      const lotNo = toCleanText(row?.lotNo || row?.lot_no);
+      const expDate = normalizeDateOnly(row?.expDate || row?.exp_date);
+      const quantity = Number(row?.quantityBase ?? row?.quantity ?? 0);
+
+      return {
+        lotId,
+        lotNo,
+        expDate,
+        quantity: Number.isFinite(quantity) ? quantity : 0,
+      };
+    })
+    .filter((option) => option.lotNo && option.expDate)
+    .filter((option) => {
+      const key = option.lotId || getLotOptionValue(option.lotNo, option.expDate);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+  list.sort((left, right) => {
+    if (left.expDate !== right.expDate) {
+      return left.expDate.localeCompare(right.expDate);
+    }
+    return left.lotNo.localeCompare(right.lotNo);
+  });
+
+  return list;
+}
+
+function buildTransferLotOptionLabel(option) {
+  const lotNo = toCleanText(option?.lotNo) || "-";
+  const expDate = normalizeDateOnly(option?.expDate) || "-";
+  const qtyText = Number.isFinite(Number(option?.quantity))
+    ? ` • คงเหลือ ${formatQty(option.quantity)}`
+    : "";
+  return `${lotNo} (exp ${expDate}${qtyText})`;
+}
+
 function normalizeRole(value) {
   return toCleanText(value).toUpperCase();
 }
@@ -337,6 +403,7 @@ export default function Receiving() {
   const userRole = normalizeRole(user?.role);
   const isAdmin = userRole === "ADMIN";
   const branchLocationId = toCleanText(user?.location_id);
+  const userBranchCode = toCleanText(user?.branchCode || user?.branch_code);
 
   const [movements, setMovements] = useState([]);
   const [locations, setLocations] = useState([]);
@@ -364,7 +431,11 @@ export default function Receiving() {
   const [productUnitOptions, setProductUnitOptions] = useState([]);
   const [isLoadingProductUnits, setIsLoadingProductUnits] = useState(false);
   const [productUnitLoadError, setProductUnitLoadError] = useState("");
+  const [transferLotOptions, setTransferLotOptions] = useState([]);
+  const [isLoadingTransferLots, setIsLoadingTransferLots] = useState(false);
+  const [transferLotLoadError, setTransferLotLoadError] = useState("");
   const productUnitRequestSeqRef = useRef(0);
+  const transferLotRequestSeqRef = useRef(0);
 
   const tableColumns = ["เวลา", "สินค้า", "รหัสสินค้า", "Lot", "ประเภท", "การเปลี่ยนแปลงสต๊อก"];
   const totalText = useMemo(() => `รวม ${movements.length} รายการ`, [movements.length]);
@@ -399,6 +470,16 @@ export default function Receiving() {
       ? lockedLocations.toLocationId
       : toCleanText(movementForm.toLocationId)
     : "";
+  const isTransferOutMovement = movementForm.movementType === "TRANSFER_OUT";
+  const fromLocation = locationMap.get(effectiveFromLocationId) || null;
+  const fromLocationType = normalizeRole(fromLocation?.type);
+  const effectiveFromBranchCode =
+    fromLocationType === "BRANCH"
+      ? toCleanText(fromLocation?.code)
+      : effectiveFromLocationId && effectiveFromLocationId === branchLocationId
+      ? userBranchCode
+      : "";
+  const selectedTransferLotValue = getLotOptionValue(movementForm.lotNo, movementForm.expDate);
 
   const getLocationLabel = useCallback(
     (locationId) => {
@@ -483,6 +564,13 @@ export default function Receiving() {
     return () => window.removeEventListener("keydown", handleEscape);
   }, [isMovementModalOpen, isOccurredAtCorrectionModalOpen]);
 
+  function resetTransferLotLookup() {
+    transferLotRequestSeqRef.current += 1;
+    setTransferLotOptions([]);
+    setTransferLotLoadError("");
+    setIsLoadingTransferLots(false);
+  }
+
   function openMovementModal() {
     if (!isAdmin && !branchLocationId) {
       setPageError("ไม่พบ location_id ของผู้ใช้ กรุณาเข้าสู่ระบบใหม่");
@@ -502,6 +590,7 @@ export default function Receiving() {
     setProductUnitOptions([]);
     setProductUnitLoadError("");
     setIsLoadingProductUnits(false);
+    resetTransferLotLookup();
     setIsMovementModalOpen(true);
   }
 
@@ -510,6 +599,7 @@ export default function Receiving() {
     setProductUnitOptions([]);
     setProductUnitLoadError("");
     setIsLoadingProductUnits(false);
+    resetTransferLotLookup();
     setIsMovementModalOpen(false);
   }
 
@@ -532,6 +622,144 @@ export default function Receiving() {
     setIsOccurredAtCorrectionModalOpen(false);
   }
 
+  useEffect(() => {
+    function clearTransferLotSelection() {
+      setMovementForm((prev) => {
+        if (!toCleanText(prev.lotNo) && !normalizeDateOnly(prev.expDate)) {
+          return prev;
+        }
+        return {
+          ...prev,
+          lotNo: "",
+          expDate: "",
+        };
+      });
+    }
+
+    const productId = toCleanText(movementForm.productId);
+    if (!isMovementModalOpen || !isTransferOutMovement) {
+      resetTransferLotLookup();
+      return;
+    }
+
+    if (!productId) {
+      resetTransferLotLookup();
+      clearTransferLotSelection();
+      return;
+    }
+
+    if (!effectiveFromLocationId) {
+      resetTransferLotLookup();
+      clearTransferLotSelection();
+      return;
+    }
+
+    if (!effectiveFromBranchCode) {
+      resetTransferLotLookup();
+      setTransferLotLoadError("สถานที่ต้นทางต้องเป็นสาขาเพื่อดึง lot อัตโนมัติ");
+      clearTransferLotSelection();
+      return;
+    }
+
+    transferLotRequestSeqRef.current += 1;
+    const requestSeq = transferLotRequestSeqRef.current;
+    const currentLotValue = getLotOptionValue(movementForm.lotNo, movementForm.expDate);
+
+    setIsLoadingTransferLots(true);
+    setTransferLotLoadError("");
+    setTransferLotOptions([]);
+
+    void inventoryApi
+      .listStockOnHand({
+        branchCode: effectiveFromBranchCode,
+        productId,
+      })
+      .then((rows) => {
+        if (requestSeq !== transferLotRequestSeqRef.current) return;
+
+        const nextOptions = mapTransferLotOptions(rows);
+        setTransferLotOptions(nextOptions);
+
+        if (!nextOptions.length) {
+          setTransferLotLoadError("ไม่พบ lot คงเหลือของสินค้านี้ที่สาขาต้นทาง");
+          setMovementForm((prev) => {
+            if (prev.movementType !== "TRANSFER_OUT" || toCleanText(prev.productId) !== productId) {
+              return prev;
+            }
+            if (!toCleanText(prev.lotNo) && !normalizeDateOnly(prev.expDate)) {
+              return prev;
+            }
+            return {
+              ...prev,
+              lotNo: "",
+              expDate: "",
+            };
+          });
+          return;
+        }
+
+        const matchedOption =
+          nextOptions.find(
+            (option) => getLotOptionValue(option.lotNo, option.expDate) === currentLotValue
+          ) || nextOptions[0];
+
+        setMovementForm((prev) => {
+          if (prev.movementType !== "TRANSFER_OUT" || toCleanText(prev.productId) !== productId) {
+            return prev;
+          }
+
+          const nextLotNo = toCleanText(matchedOption?.lotNo);
+          const nextExpDate = normalizeDateOnly(matchedOption?.expDate);
+          if (
+            toCleanText(prev.lotNo) === nextLotNo &&
+            normalizeDateOnly(prev.expDate) === nextExpDate
+          ) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            lotNo: nextLotNo,
+            expDate: nextExpDate,
+          };
+        });
+        setFormErrors((prev) => ({
+          ...prev,
+          lotNo: "",
+          expDate: "",
+        }));
+      })
+      .catch((error) => {
+        if (requestSeq !== transferLotRequestSeqRef.current) return;
+        setTransferLotOptions([]);
+        setTransferLotLoadError(error?.message || "โหลดรายการ lot จากฐานข้อมูลไม่สำเร็จ");
+        setMovementForm((prev) => {
+          if (prev.movementType !== "TRANSFER_OUT" || toCleanText(prev.productId) !== productId) {
+            return prev;
+          }
+          if (!toCleanText(prev.lotNo) && !normalizeDateOnly(prev.expDate)) {
+            return prev;
+          }
+          return {
+            ...prev,
+            lotNo: "",
+            expDate: "",
+          };
+        });
+      })
+      .finally(() => {
+        if (requestSeq === transferLotRequestSeqRef.current) {
+          setIsLoadingTransferLots(false);
+        }
+      });
+  }, [
+    effectiveFromBranchCode,
+    effectiveFromLocationId,
+    isMovementModalOpen,
+    isTransferOutMovement,
+    movementForm.productId,
+  ]);
+
   function setField(field, value) {
     setMovementForm((prev) => ({
       ...prev,
@@ -540,6 +768,28 @@ export default function Receiving() {
     setFormErrors((prev) => ({
       ...prev,
       [field]: "",
+    }));
+  }
+
+  function handleFromLocationChange(event) {
+    const nextFromLocationId = event.target.value;
+    if (!isTransferOutMovement) {
+      setField("fromLocationId", nextFromLocationId);
+      return;
+    }
+
+    resetTransferLotLookup();
+    setMovementForm((prev) => ({
+      ...prev,
+      fromLocationId: nextFromLocationId,
+      lotNo: "",
+      expDate: "",
+    }));
+    setFormErrors((prev) => ({
+      ...prev,
+      fromLocationId: "",
+      lotNo: "",
+      expDate: "",
     }));
   }
 
@@ -644,6 +894,7 @@ export default function Receiving() {
   function handleProductSearchInputChange(event) {
     const keyword = event.target.value;
     productUnitRequestSeqRef.current += 1;
+    resetTransferLotLookup();
     setMovementForm((prev) => ({
       ...prev,
       productSearch: keyword,
@@ -652,6 +903,8 @@ export default function Receiving() {
       productCode: "",
       unitLevelId: "",
       unit: "",
+      lotNo: "",
+      expDate: "",
     }));
     setProductSearchResults([]);
     setProductSearchError("");
@@ -663,10 +916,13 @@ export default function Receiving() {
       ...prev,
       productId: "",
       unit: "",
+      lotNo: "",
+      expDate: "",
     }));
   }
 
   function handleSelectProduct(product) {
+    resetTransferLotLookup();
     setMovementForm((prev) => ({
       ...prev,
       productId: product.id,
@@ -674,6 +930,8 @@ export default function Receiving() {
       productCode: product.productCode,
       unitLevelId: "",
       unit: "",
+      lotNo: "",
+      expDate: "",
     }));
     setProductSearchError("");
     setProductSearchStatus(`เลือกสินค้าแล้ว: ${product.tradeName}`);
@@ -682,12 +940,15 @@ export default function Receiving() {
       ...prev,
       productId: "",
       unit: "",
+      lotNo: "",
+      expDate: "",
     }));
     void loadProductUnitOptions(product.id, product.packageSize || product.unitSymbol);
   }
 
   function handleMovementTypeChange(event) {
     const nextType = event.target.value;
+    resetTransferLotLookup();
     setMovementForm((prev) => {
       const previousLocked = getLockedLocations(prev.movementType, branchLocationId, isAdmin);
       const nextLocked = getLockedLocations(nextType, branchLocationId, isAdmin);
@@ -711,6 +972,8 @@ export default function Receiving() {
         movementType: nextType,
         fromLocationId: nextFromLocationId,
         toLocationId: nextToLocationId,
+        lotNo: "",
+        expDate: "",
       };
     });
     setFormErrors((prev) => ({
@@ -718,6 +981,8 @@ export default function Receiving() {
       movementType: "",
       fromLocationId: "",
       toLocationId: "",
+      lotNo: "",
+      expDate: "",
     }));
   }
 
@@ -733,6 +998,25 @@ export default function Receiving() {
     setFormErrors((prev) => ({
       ...prev,
       unit: "",
+    }));
+  }
+
+  function handleTransferLotChange(event) {
+    const nextValue = toCleanText(event.target.value);
+    const selectedOption =
+      transferLotOptions.find(
+        (option) => getLotOptionValue(option.lotNo, option.expDate) === nextValue
+      ) || null;
+
+    setMovementForm((prev) => ({
+      ...prev,
+      lotNo: toCleanText(selectedOption?.lotNo),
+      expDate: normalizeDateOnly(selectedOption?.expDate),
+    }));
+    setFormErrors((prev) => ({
+      ...prev,
+      lotNo: "",
+      expDate: "",
     }));
   }
 
@@ -770,6 +1054,7 @@ export default function Receiving() {
 
       if (!list.length) {
         productUnitRequestSeqRef.current += 1;
+        resetTransferLotLookup();
         setProductSearchStatus("ไม่พบสินค้าที่ตรงกับคำค้นหา");
         setMovementForm((prev) => ({
           ...prev,
@@ -778,6 +1063,8 @@ export default function Receiving() {
           productCode: "",
           unitLevelId: "",
           unit: "",
+          lotNo: "",
+          expDate: "",
         }));
         setProductUnitOptions([]);
         setProductUnitLoadError("");
@@ -786,11 +1073,14 @@ export default function Receiving() {
           ...prev,
           productId: "กรุณาค้นหาและเลือกสินค้า",
           unit: "",
+          lotNo: "",
+          expDate: "",
         }));
         return;
       }
 
       productUnitRequestSeqRef.current += 1;
+      resetTransferLotLookup();
       setMovementForm((prev) => ({
         ...prev,
         productId: "",
@@ -798,6 +1088,8 @@ export default function Receiving() {
         productCode: "",
         unitLevelId: "",
         unit: "",
+        lotNo: "",
+        expDate: "",
       }));
       setProductUnitOptions([]);
       setProductUnitLoadError("");
@@ -808,9 +1100,12 @@ export default function Receiving() {
         ...prev,
         productId: "กรุณาเลือกสินค้า 1 รายการจากผลค้นหา",
         unit: "",
+        lotNo: "",
+        expDate: "",
       }));
     } catch (error) {
       productUnitRequestSeqRef.current += 1;
+      resetTransferLotLookup();
       setMovementForm((prev) => ({
         ...prev,
         productId: "",
@@ -818,6 +1113,8 @@ export default function Receiving() {
         productCode: "",
         unitLevelId: "",
         unit: "",
+        lotNo: "",
+        expDate: "",
       }));
       setProductUnitOptions([]);
       setProductUnitLoadError("");
@@ -894,11 +1191,30 @@ export default function Receiving() {
     } else if (movementForm.productId && !productUnitOptions.length) {
       errors.unit = "ไม่พบหน่วยของสินค้านี้ใน product_unit_levels";
     }
-    if (!String(movementForm.lotNo || "").trim()) {
-      errors.lotNo = "กรุณาระบุ lot number";
-    }
-    if (!String(movementForm.expDate || "").trim()) {
-      errors.expDate = "กรุณาระบุวันหมดอายุ (Exp)";
+    if (isTransferOutMovement) {
+      if (isLoadingTransferLots) {
+        errors.lotNo = "กำลังโหลด lot คงเหลือจากฐานข้อมูล";
+      } else if (!effectiveFromLocationId) {
+        errors.lotNo = "กรุณาเลือกสถานที่ต้นทางก่อน";
+      } else if (!effectiveFromBranchCode) {
+        errors.lotNo = "สถานที่ต้นทางต้องเป็นสาขาเพื่อดึง lot อัตโนมัติ";
+      } else if (!transferLotOptions.length) {
+        errors.lotNo =
+          transferLotLoadError || "ไม่พบ lot คงเหลือของสินค้านี้ที่สาขาต้นทาง";
+      } else if (!String(movementForm.lotNo || "").trim()) {
+        errors.lotNo = "กรุณาเลือก lot จากฐานข้อมูล";
+      }
+
+      if (!String(movementForm.expDate || "").trim()) {
+        errors.expDate = "ไม่พบวันหมดอายุของ lot ที่เลือก";
+      }
+    } else {
+      if (!String(movementForm.lotNo || "").trim()) {
+        errors.lotNo = "กรุณาระบุ lot number";
+      }
+      if (!String(movementForm.expDate || "").trim()) {
+        errors.expDate = "กรุณาระบุวันหมดอายุ (Exp)";
+      }
     }
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -923,7 +1239,7 @@ export default function Receiving() {
         unitLevelId: movementForm.unitLevelId,
         unitLabel: movementForm.unit,
         lotNo: String(movementForm.lotNo || "").trim(),
-        expDate: String(movementForm.expDate || "").trim(),
+        expDate: normalizeDateOnly(movementForm.expDate),
       };
 
       if (isAdmin) {
@@ -1187,7 +1503,7 @@ export default function Receiving() {
                     id="movementFromLocation"
                     className="qinput"
                     value={movementForm.fromLocationId ?? ""}
-                    onChange={(event) => setField("fromLocationId", event.target.value)}
+                    onChange={handleFromLocationChange}
                     disabled={isLoadingLocations || !locationOptions.length}
                     required={isFromRequired}
                   >
@@ -1351,29 +1667,90 @@ export default function Receiving() {
 
               <div className="movement-grid">
                 <div className="field-block">
-                  <label htmlFor="movementLotNo">Lot Number</label>
-                  <input
-                    id="movementLotNo"
-                    type="text"
-                    className="qinput"
-                    value={movementForm.lotNo ?? ""}
-                    onChange={(event) => setField("lotNo", event.target.value)}
-                    placeholder="เช่น LOT2402A"
-                    required
-                  />
+                  <label htmlFor={isTransferOutMovement ? "movementLotSelect" : "movementLotNo"}>
+                    Lot Number
+                  </label>
+                  {isTransferOutMovement ? (
+                    <>
+                      <select
+                        id="movementLotSelect"
+                        className="qinput"
+                        value={selectedTransferLotValue}
+                        onChange={handleTransferLotChange}
+                        disabled={
+                          !movementForm.productId ||
+                          !effectiveFromLocationId ||
+                          !effectiveFromBranchCode ||
+                          isLoadingTransferLots ||
+                          transferLotOptions.length === 0
+                        }
+                        required
+                      >
+                        <option value="">
+                          {!movementForm.productId
+                            ? "เลือกสินค้าก่อน"
+                            : !effectiveFromLocationId
+                            ? "เลือกสถานที่ต้นทางก่อน"
+                            : !effectiveFromBranchCode
+                            ? "สถานที่ต้นทางต้องเป็นสาขา"
+                            : isLoadingTransferLots
+                            ? "กำลังโหลด lot จากฐานข้อมูล..."
+                            : "ไม่พบ lot คงเหลือ"}
+                        </option>
+                        {transferLotOptions.map((option) => (
+                          <option
+                            key={option.lotId || getLotOptionValue(option.lotNo, option.expDate)}
+                            value={getLotOptionValue(option.lotNo, option.expDate)}
+                          >
+                            {buildTransferLotOptionLabel(option)}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="movement-search-status">
+                        ระบบดึง lot คงเหลือจากฐานข้อมูลของสาขาต้นทางให้อัตโนมัติ
+                      </div>
+                      {transferLotLoadError ? (
+                        <div className="field-error">{transferLotLoadError}</div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <input
+                      id="movementLotNo"
+                      type="text"
+                      className="qinput"
+                      value={movementForm.lotNo ?? ""}
+                      onChange={(event) => setField("lotNo", event.target.value)}
+                      placeholder="เช่น LOT2402A"
+                      required
+                    />
+                  )}
                   {formErrors.lotNo ? <div className="field-error">{formErrors.lotNo}</div> : null}
                 </div>
 
                 <div className="field-block">
                   <label htmlFor="movementExpDate">วันหมดอายุ (Exp)</label>
-                  <input
-                    id="movementExpDate"
-                    type="date"
-                    className="qinput"
-                    value={movementForm.expDate ?? ""}
-                    onChange={(event) => setField("expDate", event.target.value)}
-                    required
-                  />
+                  {isTransferOutMovement ? (
+                    <>
+                      <input
+                        id="movementExpDate"
+                        type="date"
+                        className="qinput"
+                        value={movementForm.expDate ?? ""}
+                        readOnly
+                        disabled
+                      />
+                      <div className="movement-search-status">เติมอัตโนมัติตาม lot ที่เลือก</div>
+                    </>
+                  ) : (
+                    <input
+                      id="movementExpDate"
+                      type="date"
+                      className="qinput"
+                      value={movementForm.expDate ?? ""}
+                      onChange={(event) => setField("expDate", event.target.value)}
+                      required
+                    />
+                  )}
                   {formErrors.expDate ? <div className="field-error">{formErrors.expDate}</div> : null}
                 </div>
               </div>

@@ -18,6 +18,21 @@ function normalizeBangkokDateTimeInput(value) {
   return text;
 }
 
+function buildStockOnHandParams(filters = {}) {
+  const params = {};
+  const branchCode = String(filters?.branchCode || "").trim();
+  const productId = String(filters?.productId || "").trim();
+
+  if (branchCode) {
+    params.branchCode = branchCode;
+  }
+  if (productId) {
+    params.productId = productId;
+  }
+
+  return Object.keys(params).length ? params : undefined;
+}
+
 export const productsApi = {
   list(search = "") {
     const value = String(search || "").trim();
@@ -199,12 +214,18 @@ export const inventoryApi = {
       data: payload,
     });
   },
-  stockOnHand(branchCode = "") {
-    const value = String(branchCode || "").trim();
+  listStockOnHand(filters = {}) {
     return requestJson({
       method: "GET",
       url: "/api/stock/on-hand",
-      params: value ? { branchCode: value } : undefined,
+      params: buildStockOnHandParams(filters),
+    });
+  },
+  stockOnHand(branchCode = "") {
+    return requestJson({
+      method: "GET",
+      url: "/api/stock/on-hand",
+      params: buildStockOnHandParams({ branchCode }),
     });
   },
   movements(filters = {}) {
