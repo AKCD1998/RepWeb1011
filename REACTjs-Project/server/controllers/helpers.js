@@ -720,12 +720,48 @@ export async function ensureUnitType(client, unitLabel) {
 }
 
 export async function ensureProductUnitLevel(client, productId, unitLabel, unitStructure = {}) {
+  const explicitUnitLevelId = normalizeText(
+    unitStructure?.unitLevelId ?? unitStructure?.unit_level_id
+  );
+  const activePredicate = productUnitLevelsActiveCompatPredicate("pul");
+  const activePredicateWithoutAlias = productUnitLevelsActiveCompatPredicate("product_unit_levels");
+
+  if (explicitUnitLevelId) {
+    if (!isUuid(explicitUnitLevelId)) {
+      throw httpError(400, "unitLevelId must be a valid UUID");
+    }
+
+    const byId = await client.query(
+      `
+        SELECT
+          pul.id,
+          pul.code,
+          pul.unit_type_id,
+          pul.unit_key,
+          pul.display_name,
+          pul.sort_order,
+          ut.code AS unit_type_code
+        FROM product_unit_levels pul
+        LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
+        WHERE pul.product_id = $1
+          AND ${activePredicate}
+          AND pul.id = $2::uuid
+        LIMIT 1
+      `,
+      [productId, explicitUnitLevelId]
+    );
+
+    if (!byId.rows[0]) {
+      throw httpError(404, `unitLevelId not found for product ${productId}`);
+    }
+
+    return byId.rows[0];
+  }
+
   const normalizedUnitLabel = normalizeWhitespace(unitLabel);
   if (!normalizedUnitLabel) throw httpError(400, "unitLabel is required");
   const numericHints = extractNumericHintsFromLabel(normalizedUnitLabel);
   const supportsUnitKey = await hasUnitKeyColumn(client);
-  const activePredicate = productUnitLevelsActiveCompatPredicate("pul");
-  const activePredicateWithoutAlias = productUnitLevelsActiveCompatPredicate("product_unit_levels");
 
   if (!supportsUnitKey && !unitKeyLegacyWarningPrinted) {
     console.warn(

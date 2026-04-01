@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { dispenseApi, inventoryApi } from "../lib/api";
+import { dispenseApi, inventoryApi, productsApi } from "../lib/api";
 import { parseDeliverNotes } from "../utils/deliverPatientParser";
 import {
   SMARTCARD_DEFAULTS,
@@ -37,6 +37,10 @@ function toItemKey(value) {
   return toCleanText(value).toLowerCase();
 }
 
+function toDisplayKey(value) {
+  return toCleanText(value).replace(/\s+/g, " ").toLowerCase();
+}
+
 function toDateLabel(value) {
   const text = toCleanText(value);
   if (!text) return "";
@@ -61,6 +65,69 @@ function buildLineNote(item, fallbackReportType = "") {
 
   if (!metadata.length) return null;
   return `[${metadata.join(" ")}]`;
+}
+
+function normalizeUnitLevelOption(row) {
+  return {
+    id: toCleanText(row?.id),
+    code: toCleanText(row?.code),
+    displayName: toCleanText(row?.displayName || row?.display_name || row?.code),
+    isSellable: Boolean(row?.isSellable ?? row?.is_sellable),
+    isBase: Boolean(row?.isBase ?? row?.is_base),
+    sortOrder: Number(row?.sortOrder ?? row?.sort_order ?? 0),
+    barcode: toCleanText(row?.barcode),
+    unitTypeCode: toCleanText(row?.unitTypeCode || row?.unit_type_code).toUpperCase(),
+    unitTypeLabel: toCleanText(row?.unitTypeLabel || row?.unit_type_label),
+  };
+}
+
+function compareUnitLevelOptions(a, b, defaultUnitLevelId = "") {
+  const aDefault = a.id === defaultUnitLevelId ? 1 : 0;
+  const bDefault = b.id === defaultUnitLevelId ? 1 : 0;
+  if (aDefault !== bDefault) return bDefault - aDefault;
+  if (a.isSellable !== b.isSellable) return Number(b.isSellable) - Number(a.isSellable);
+  if (a.isBase !== b.isBase) return Number(b.isBase) - Number(a.isBase);
+  if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+  return a.displayName.localeCompare(b.displayName);
+}
+
+function pickMatchingUnitLevelOption(options, line, defaultUnitLevelId = "") {
+  const explicitUnitLevelId = toCleanText(line?.unitLevelId || line?.unit_level_id);
+  if (explicitUnitLevelId) {
+    const explicitMatch = options.find((option) => option.id === explicitUnitLevelId);
+    if (explicitMatch) return explicitMatch;
+  }
+
+  const barcode = toCleanText(line?.barcode);
+  if (barcode) {
+    const barcodeMatches = options.filter((option) => toCleanText(option.barcode) === barcode);
+    if (barcodeMatches.length) {
+      return [...barcodeMatches].sort((a, b) => compareUnitLevelOptions(a, b, defaultUnitLevelId))[0] || null;
+    }
+  }
+
+  const candidateKeys = [
+    line?.unitLabel,
+    line?.unit,
+    line?.unitTypeLabel,
+    line?.unitTypeCode,
+  ]
+    .map(toDisplayKey)
+    .filter(Boolean);
+
+  if (!candidateKeys.length) return null;
+
+  const matching = options.filter((option) => {
+    const optionKeys = new Set(
+      [option.displayName, option.unitTypeLabel, option.unitTypeCode, option.code]
+        .map(toDisplayKey)
+        .filter(Boolean)
+    );
+    return candidateKeys.some((candidateKey) => optionKeys.has(candidateKey));
+  });
+  if (!matching.length) return null;
+
+  return [...matching].sort((a, b) => compareUnitLevelOptions(a, b, defaultUnitLevelId))[0] || null;
 }
 
 export default function Deliver() {
@@ -574,8 +641,10 @@ export default function Deliver() {
         productId,
         qty,
         unitLabel,
+        barcode: toCleanText(item?.barcode) || undefined,
         lotId: toCleanText(item?.lotId) || undefined,
         lotNo: toCleanText(item?.lotNo) || undefined,
+        lotExpDate: toCleanText(item?.lotExpDate) || undefined,
         reportType: SUPPORTED_REPORT_TYPES.has(reportType) ? reportType : undefined,
         note: buildLineNote(item, reportType),
       });
@@ -640,6 +709,57 @@ export default function Deliver() {
     userBranchCode,
   ]);
 
+  const resolveDispenseLinesForSubmit = useCallback(async (rawLines = []) => {
+    const unitLookupCache = new Map();
+    const resolvedLines = [];
+
+    for (const [index, line] of rawLines.entries()) {
+      const rowLabel = `รายการที่ ${index + 1}`;
+      const productId = toCleanText(line?.productId);
+      const lotId = toCleanText(line?.lotId);
+      const lotNo = toCleanText(line?.lotNo);
+      const lotExpDate = toCleanText(line?.lotExpDate || line?.expDate || line?.exp_date);
+      const unitLabel = toCleanText(line?.unitLabel);
+      const cacheKey = [productId, lotId || lotNo || "-", lotExpDate || "-"].join("|");
+
+      let unitResponse = unitLookupCache.get(cacheKey);
+      if (!unitResponse) {
+        unitResponse = await productsApi.unitLevels(productId, {
+          lotId: lotId || undefined,
+          lotNo: lotId ? undefined : lotNo || undefined,
+          expDate: lotId ? undefined : lotExpDate || undefined,
+        });
+        unitLookupCache.set(cacheKey, unitResponse || {});
+      }
+
+      const unitOptions = (Array.isArray(unitResponse?.items) ? unitResponse.items : [])
+        .map(normalizeUnitLevelOption)
+        .filter((option) => option.id && option.displayName);
+
+      if (!unitOptions.length) {
+        throw new Error(`${rowLabel} ไม่พบหน่วยสินค้าที่ใช้งานได้สำหรับ lot ที่เลือก`);
+      }
+
+      const matchedUnitOption = pickMatchingUnitLevelOption(
+        unitOptions,
+        line,
+        toCleanText(unitResponse?.defaultUnitLevelId)
+      );
+
+      if (!matchedUnitOption) {
+        throw new Error(`${rowLabel} หน่วย "${unitLabel || "-"}" ไม่สามารถใช้กับ lot นี้ได้`);
+      }
+
+      resolvedLines.push({
+        ...line,
+        unitLevelId: matchedUnitOption.id,
+        unitLabel: matchedUnitOption.displayName,
+      });
+    }
+
+    return resolvedLines;
+  }, []);
+
   const handleOpenConfirmModal = useCallback(() => {
     setSubmitSuccess("");
     const { error } = buildDispensePayload();
@@ -664,8 +784,12 @@ export default function Deliver() {
     setSubmitError("");
 
     try {
-      const response = await dispenseApi.create(payload);
-      const lineCount = Number(response?.lineCount || payload.lines.length);
+      const resolvedLines = await resolveDispenseLinesForSubmit(payload.lines);
+      const response = await dispenseApi.create({
+        ...payload,
+        lines: resolvedLines,
+      });
+      const lineCount = Number(response?.lineCount || resolvedLines.length);
       const referenceId = toCleanText(response?.headerId);
       const successMessage = referenceId
         ? `บันทึกการส่งมอบสำเร็จ (${lineCount} รายการ) เลขอ้างอิง ${referenceId}`
@@ -695,7 +819,7 @@ export default function Deliver() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [buildDispensePayload, isSubmitting, userBranchCode]);
+  }, [buildDispensePayload, isSubmitting, resolveDispenseLinesForSubmit, userBranchCode]);
 
   const grandTotal = useMemo(() => {
     return items.reduce((sum, item) => sum + item.qty * item.price, 0);
