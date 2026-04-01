@@ -7,6 +7,7 @@ import {
   FiHome,
   FiLogOut,
   FiMenu,
+  FiMapPin,
   FiTruck,
 } from "react-icons/fi";
 import { useOptionalAuth } from "../context/AuthContext";
@@ -21,9 +22,58 @@ const navItems = [
   { to: "/receiving", label: "รับยาเข้า", icon: FiDownload },
 ];
 
+const BRANCH_LABELS = {
+  "000": "admin",
+  "001": "สาขาตลาดแม่กลอง",
+  "003": "สาขาวัดช่องลม",
+  "004": "สาขาตลาดบางน้อย",
+  "005": "สาขาถนนเอกชัยสมทุรสาคร",
+};
+
+function toCleanText(value) {
+  return String(value || "").trim();
+}
+
+function resolveSidebarBranch(user) {
+  const role = toCleanText(user?.role).toUpperCase();
+  const branchCode = toCleanText(user?.branchCode || user?.branch_code);
+
+  if (role === "ADMIN") {
+    return {
+      code: "000",
+      label: BRANCH_LABELS["000"],
+      fullLabel: "000 : admin",
+    };
+  }
+
+  const label = BRANCH_LABELS[branchCode];
+  if (branchCode && label) {
+    return {
+      code: branchCode,
+      label,
+      fullLabel: `${branchCode} : ${label}`,
+    };
+  }
+
+  if (branchCode) {
+    return {
+      code: branchCode,
+      label: "สาขาไม่อยู่ในรายการ",
+      fullLabel: `${branchCode} : สาขาไม่อยู่ในรายการ`,
+    };
+  }
+
+  return {
+    code: "",
+    label: "ไม่พบข้อมูลสาขา",
+    fullLabel: "ไม่พบข้อมูลสาขา",
+  };
+}
+
 export default function Sidebar({ collapsed, onToggle }) {
   const navigate = useNavigate();
   const auth = useOptionalAuth();
+  const activeBranch = resolveSidebarBranch(auth?.user);
 
   async function fallbackLogout() {
     try {
@@ -86,6 +136,19 @@ export default function Sidebar({ collapsed, onToggle }) {
           );
         })}
       </nav>
+      <div
+        className="sidebar-branch-card"
+        title={activeBranch.fullLabel}
+        aria-label={`สาขาที่ใช้งาน ${activeBranch.fullLabel}`}
+      >
+        <span className="sidebar-icon">
+          <FiMapPin />
+        </span>
+        <div className="sidebar-branch-copy">
+          <strong>สาขาที่ใช้งาน</strong>
+          <span>{activeBranch.fullLabel}</span>
+        </div>
+      </div>
       <div className="sidebar-footer">
         <button
           type="button"
