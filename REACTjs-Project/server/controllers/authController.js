@@ -23,13 +23,16 @@ export async function login(req, res) {
   const result = await query(
     `
       SELECT
-        id,
-        username,
-        password_hash,
-        role::text AS role,
-        location_id,
-        is_active
-      FROM users
+        u.id,
+        u.username,
+        u.password_hash,
+        u.role::text AS role,
+        u.location_id,
+        u.is_active,
+        l.code AS "branchCode",
+        l.name AS "branchName"
+      FROM users u
+      LEFT JOIN locations l ON l.id = u.location_id
       WHERE lower(username) = lower($1)
       LIMIT 1
     `,
@@ -71,6 +74,8 @@ export async function login(req, res) {
       username: user.username,
       role: user.role,
       location_id: user.location_id,
+      branchCode: user.branchCode || null,
+      branchName: user.branchName || null,
     },
   });
 }
