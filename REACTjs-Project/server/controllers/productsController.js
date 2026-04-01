@@ -1,10 +1,43 @@
 import { query, withTransaction } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
-import { buildUnitLevelKey } from "./helpers.js";
+import {
+  buildUnitLevelKey,
+  hasProductLotAllowedUnitLevelsTable,
+  hasProductUnitLevelsIsActiveColumn,
+  productUnitLevelsActiveCompatPredicate,
+  productUnitLevelsInactiveCompatPredicate,
+  productUnitLevelsIsActiveCompatExpression,
+} from "./helpers.js";
 
 const INGREDIENT_CODE_MAX_LENGTH = 80;
 const LOCATION_CODE_MAX_LENGTH = 30;
+const PRODUCT_UNIT_LEVEL_CODE_MAX_LENGTH = 50;
 const UNIT_LEVEL_DEFAULT_CODE = "SELLABLE";
+
+function buildProductUnitLevelsIsActiveSelect(alias, outputAlias = "isActive") {
+  return `${productUnitLevelsIsActiveCompatExpression(alias)} AS "${outputAlias}"`;
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    toCleanText(value)
+  );
+}
+
+function normalizeDateOnlyQueryValue(value, fieldName) {
+  const text = toCleanText(value);
+  if (!text) return "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    throw httpError(400, `${fieldName} must be a date in YYYY-MM-DD format`);
+  }
+
+  const parsed = new Date(`${text}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== text) {
+    throw httpError(400, `${fieldName} must be a valid date`);
+  }
+
+  return text;
+}
 
 function hasOwnField(objectValue, key) {
   return Object.prototype.hasOwnProperty.call(objectValue || {}, key);
@@ -215,6 +248,368 @@ function normalizeReportGroupCodesInput(body) {
   };
 }
 
+function normalizePackagingDisplayName(value) {
+  return toCleanText(value).replace(/\s+/g, " ");
+}
+
+function formatPackagingQuantity(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return "";
+  return Number.isInteger(numeric) ? String(numeric) : String(numeric).replace(/\.?0+$/, "");
+}
+
+function extractQuantityPerBaseFromUnitKey(unitKey) {
+  const match = String(unitKey || "").match(/qpb=([0-9]+(?:\.[0-9]+)?)/i);
+  if (!match?.[1]) return null;
+  const numeric = Number(match[1]);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function inferLegacyQuantityPerBase(displayName, isBase) {
+  if (isBase) return 1;
+  const matches = [...String(displayName || "").matchAll(/[0-9]+(?:\.[0-9]+)?/g)].map((entry) =>
+    Number(entry[0])
+  );
+  if (matches.length >= 2) return matches[1];
+  if (matches.length === 1) return matches[0];
+  return 1;
+}
+
+function toPackagingStructuralKey(level) {
+  return [
+    toCleanText(level?.unitTypeCode || level?.unit_type_code).toUpperCase(),
+    formatPackagingQuantity(level?.quantityPerBase ?? level?.quantity_per_base),
+    parseBoolean(level?.isBase ?? level?.is_base, false) ? "BASE" : "NON_BASE",
+  ].join("|");
+}
+
+function normalizePackagingLevelInput(rawLevel, index) {
+  const source = rawLevel && typeof rawLevel === "object" ? rawLevel : {};
+  const displayName = normalizePackagingDisplayName(
+    source.displayName ?? source.display_name ?? source.packageSize ?? source.packageLabel
+  );
+  const unitTypeCode = toCleanText(source.unitTypeCode ?? source.unit_type_code ?? source.unit_code).toUpperCase();
+  const quantityPerBaseRaw =
+    source.quantityPerBase ?? source.quantity_per_base ?? source.qtyPerBase;
+  const isBlankRow =
+    !toCleanText(source.id) &&
+    !displayName &&
+    !unitTypeCode &&
+    !toCleanText(source.barcode) &&
+    !String(quantityPerBaseRaw ?? "").trim();
+
+  if (isBlankRow) {
+    return null;
+  }
+
+  const quantityPerBase = parsePositiveNumber(
+    quantityPerBaseRaw,
+    `packagingLevels[${index + 1}].quantityPerBase`
+  );
+  const row = {
+    id: toCleanText(source.id) || null,
+    displayName,
+    unitTypeCode,
+    barcode: toCleanText(source.barcode) || null,
+    quantityPerBase,
+    isBase: parseBoolean(source.isBase ?? source.is_base, false),
+    isSellable: parseBoolean(source.isSellable ?? source.is_sellable, false),
+    sortOrder: index + 1,
+  };
+
+  if (!row.displayName) {
+    throw httpError(400, `packagingLevels[${index + 1}].displayName is required`);
+  }
+  if (!row.unitTypeCode) {
+    throw httpError(400, `packagingLevels[${index + 1}].unitTypeCode is required`);
+  }
+
+  return row;
+}
+
+function normalizePackagingLevelsInput(body) {
+  const source = body && typeof body === "object" ? body : {};
+  const hasPackagingLevelsField =
+    hasOwnField(source, "packagingLevels") || hasOwnField(source, "packaging_levels");
+
+  if (!hasPackagingLevelsField) {
+    return {
+      hasPackagingLevelsField: false,
+      packagingLevels: [],
+    };
+  }
+
+  const rawLevels = hasOwnField(source, "packagingLevels")
+    ? source.packagingLevels
+    : source.packaging_levels;
+
+  if (!Array.isArray(rawLevels)) {
+    throw httpError(400, "packagingLevels must be an array");
+  }
+
+  const packagingLevels = rawLevels
+    .map((level, index) => normalizePackagingLevelInput(level, index))
+    .filter(Boolean);
+
+  if (!packagingLevels.length) {
+    throw httpError(400, "packagingLevels must contain at least one level");
+  }
+
+  const baseLevels = packagingLevels.filter((level) => level.isBase);
+  if (baseLevels.length !== 1) {
+    throw httpError(400, "packagingLevels must contain exactly one base level");
+  }
+  if (baseLevels[0].quantityPerBase !== 1) {
+    throw httpError(400, "Base packaging level must have quantityPerBase = 1");
+  }
+
+  const sellableLevels = packagingLevels.filter((level) => level.isSellable);
+  if (sellableLevels.length !== 1) {
+    throw httpError(400, "packagingLevels must contain exactly one sellable level");
+  }
+
+  const seenIds = new Set();
+  const seenStructuralKeys = new Set();
+  const seenBarcodes = new Set();
+
+  for (const [index, level] of packagingLevels.entries()) {
+    if (level.id) {
+      if (seenIds.has(level.id)) {
+        throw httpError(400, `packagingLevels[${index + 1}] has a duplicated id`);
+      }
+      seenIds.add(level.id);
+    }
+
+    const structuralKey = toPackagingStructuralKey(level);
+    if (seenStructuralKeys.has(structuralKey)) {
+      throw httpError(400, `packagingLevels[${index + 1}] duplicates another packaging structure`);
+    }
+    seenStructuralKeys.add(structuralKey);
+
+    if (level.barcode) {
+      if (seenBarcodes.has(level.barcode)) {
+        throw httpError(400, `packagingLevels[${index + 1}] has a duplicated barcode`);
+      }
+      seenBarcodes.add(level.barcode);
+    }
+  }
+
+  return {
+    hasPackagingLevelsField: true,
+    packagingLevels,
+  };
+}
+
+function normalizePackagingLevelRow(row) {
+  const quantityPerBase =
+    row.quantityPerBase === null || row.quantityPerBase === undefined
+      ? inferLegacyQuantityPerBase(row.displayName, row.isBase)
+      : Number(row.quantityPerBase);
+
+  return {
+    id: toCleanText(row.id),
+    code: toCleanText(row.code),
+    displayName: normalizePackagingDisplayName(row.displayName || row.display_name) || "-",
+    sortOrder: Number(row.sortOrder ?? row.sort_order ?? 0),
+    isBase: Boolean(row.isBase ?? row.is_base),
+    isSellable: Boolean(row.isSellable ?? row.is_sellable),
+    isActive: Boolean(row.isActive ?? row.is_active ?? true),
+    barcode: toCleanText(row.barcode),
+    quantityPerBase: Number.isFinite(quantityPerBase) && quantityPerBase > 0 ? quantityPerBase : 1,
+    unitTypeCode: toCleanText(row.unitTypeCode ?? row.unit_type_code).toUpperCase(),
+    unitTypeLabel: toCleanText(
+      row.unitTypeLabel ?? row.unit_type_label ?? row.unitTypeCode ?? row.unit_type_code
+    ),
+    unitKey: toCleanText(row.unitKey ?? row.unit_key),
+    price:
+      row.price === null || row.price === undefined || row.price === ""
+        ? null
+        : Number(row.price),
+    createdAt: row.createdAt ?? row.created_at ?? null,
+  };
+}
+
+function normalizeUnitLevelApiRow(row) {
+  return {
+    id: toCleanText(row.id),
+    code: toCleanText(row.code),
+    displayName: toCleanText(row.displayName || row.display_name || row.code) || "-",
+    sortOrder: Number(row.sortOrder ?? row.sort_order ?? 0),
+    isBase: Boolean(row.isBase ?? row.is_base),
+    isSellable: Boolean(row.isSellable ?? row.is_sellable),
+    isDefault: Boolean(row.isDefault ?? row.is_default),
+    isActive: Boolean(row.isActive ?? row.is_active ?? true),
+    barcode: toCleanText(row.barcode),
+    quantityPerBase:
+      row.quantityPerBase === null || row.quantityPerBase === undefined
+        ? null
+        : Number(row.quantityPerBase),
+    unitTypeCode: toCleanText(row.unitTypeCode ?? row.unit_type_code).toUpperCase(),
+    unitTypeLabel: toCleanText(
+      row.unitTypeLabel ?? row.unit_type_label ?? row.unitTypeCode ?? row.unit_type_code
+    ),
+  };
+}
+
+async function listActiveProductUnitLevelRows(db, productId) {
+  const activePredicate = productUnitLevelsActiveCompatPredicate("pul");
+  const result = await db.query(
+    `
+      SELECT
+        pul.id,
+        pul.code,
+        pul.display_name AS "displayName",
+        pul.sort_order AS "sortOrder",
+        pul.is_base AS "isBase",
+        pul.is_sellable AS "isSellable",
+        ${buildProductUnitLevelsIsActiveSelect("pul")},
+        pul.barcode,
+        NULLIF((regexp_match(COALESCE(pul.unit_key, ''), 'qpb=([0-9]+(?:\\.[0-9]+)?)'))[1], '')::numeric AS "quantityPerBase",
+        ut.code AS "unitTypeCode",
+        COALESCE(NULLIF(ut.name_th, ''), NULLIF(ut.name_en, ''), NULLIF(ut.symbol, ''), ut.code, pul.code) AS "unitTypeLabel"
+      FROM product_unit_levels pul
+      LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
+      WHERE pul.product_id = $1
+        AND ${activePredicate}
+      ORDER BY pul.is_sellable DESC, pul.is_base DESC, pul.sort_order ASC, pul.created_at ASC
+    `,
+    [productId]
+  );
+
+  return result.rows;
+}
+
+async function findProductLotForUnitLevelLookup(db, productId, { lotId, lotNo, expDate }) {
+  const normalizedLotId = toCleanText(lotId);
+  if (normalizedLotId) {
+    const result = await db.query(
+      `
+        SELECT id, lot_no AS "lotNo", exp_date::text AS "expDate"
+        FROM product_lots
+        WHERE product_id = $1
+          AND id = $2::uuid
+        LIMIT 1
+      `,
+      [productId, normalizedLotId]
+    );
+    return result.rows[0] || null;
+  }
+
+  const normalizedLotNo = toCleanText(lotNo);
+  const normalizedExpDate = toCleanText(expDate);
+  if (!normalizedLotNo || !normalizedExpDate) {
+    return null;
+  }
+
+  const result = await db.query(
+    `
+      SELECT id, lot_no AS "lotNo", exp_date::text AS "expDate"
+      FROM product_lots
+      WHERE product_id = $1
+        AND lot_no = $2
+        AND exp_date = $3::date
+      LIMIT 1
+    `,
+    [productId, normalizedLotNo, normalizedExpDate]
+  );
+  return result.rows[0] || null;
+}
+
+async function listLotAllowedUnitLevelRows(db, productId, productLotId) {
+  const activePredicate = productUnitLevelsActiveCompatPredicate("pul");
+  const result = await db.query(
+    `
+      SELECT
+        plaul.id AS "mappingId",
+        plaul.is_default AS "isDefault",
+        pul.id,
+        pul.code,
+        pul.display_name AS "displayName",
+        pul.sort_order AS "sortOrder",
+        pul.is_base AS "isBase",
+        pul.is_sellable AS "isSellable",
+        ${buildProductUnitLevelsIsActiveSelect("pul")},
+        pul.barcode,
+        NULLIF((regexp_match(COALESCE(pul.unit_key, ''), 'qpb=([0-9]+(?:\\.[0-9]+)?)'))[1], '')::numeric AS "quantityPerBase",
+        ut.code AS "unitTypeCode",
+        COALESCE(NULLIF(ut.name_th, ''), NULLIF(ut.name_en, ''), NULLIF(ut.symbol, ''), ut.code, pul.code) AS "unitTypeLabel"
+      FROM product_lot_allowed_unit_levels plaul
+      LEFT JOIN product_unit_levels pul
+        ON pul.id = plaul.unit_level_id
+       AND pul.product_id = plaul.product_id
+       AND ${activePredicate}
+      LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
+      WHERE plaul.product_id = $1
+        AND plaul.product_lot_id = $2
+        AND plaul.is_active = true
+      ORDER BY
+        plaul.is_default DESC,
+        pul.is_sellable DESC NULLS LAST,
+        pul.is_base DESC NULLS LAST,
+        pul.sort_order ASC NULLS LAST,
+        pul.created_at ASC NULLS LAST
+    `,
+    [productId, productLotId]
+  );
+
+  return result.rows;
+}
+
+async function listProductLotWhitelistMappings(db, productId) {
+  const activePredicate = productUnitLevelsActiveCompatPredicate("pul");
+  const result = await db.query(
+    `
+      SELECT
+        plaul.id AS "mappingId",
+        plaul.product_lot_id AS "productLotId",
+        plaul.unit_level_id AS "unitLevelId",
+        plaul.is_default AS "isDefault",
+        plaul.is_active AS "isActive",
+        pul.id AS "resolvedUnitLevelId"
+      FROM product_lot_allowed_unit_levels plaul
+      LEFT JOIN product_unit_levels pul
+        ON pul.id = plaul.unit_level_id
+       AND pul.product_id = plaul.product_id
+       AND ${activePredicate}
+      WHERE plaul.product_id = $1
+        AND plaul.is_active = true
+      ORDER BY plaul.created_at ASC, plaul.id ASC
+    `,
+    [productId]
+  );
+
+  return result.rows;
+}
+
+async function listProductLots(db, productId) {
+  const result = await db.query(
+    `
+      SELECT
+        id,
+        lot_no AS "lotNo",
+        exp_date::text AS "expDate"
+      FROM product_lots
+      WHERE product_id = $1
+      ORDER BY exp_date DESC, lot_no ASC
+    `,
+    [productId]
+  );
+
+  return result.rows;
+}
+
+function buildPackagingSummary(packagingLevels) {
+  const activeLevels = Array.isArray(packagingLevels)
+    ? packagingLevels.filter((level) => level?.isActive !== false)
+    : [];
+  if (!activeLevels.length) return "";
+  if (activeLevels.length === 1) {
+    const only = activeLevels[0];
+    return only.unitTypeCode ? `${only.displayName} (${only.unitTypeCode})` : only.displayName;
+  }
+  return `หลายรูปแบบบรรจุ (${activeLevels.length} แบบ)`;
+}
+
 async function resolveDosageFormId(db, dosageFormCode, dosageFormNameTh) {
   const code = String(dosageFormCode || "TABLET").trim().toUpperCase();
   if (!code) throw httpError(400, "dosageFormCode is required");
@@ -374,6 +769,7 @@ async function resolveDefaultPriceTierId(db) {
 }
 
 async function resolvePrimaryUnitLevel(db, productId) {
+  const activePredicate = productUnitLevelsActiveCompatPredicate("pul");
   const result = await db.query(
     `
       SELECT
@@ -385,6 +781,7 @@ async function resolvePrimaryUnitLevel(db, productId) {
       FROM product_unit_levels pul
       LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
       WHERE pul.product_id = $1
+        AND ${activePredicate}
       ORDER BY pul.is_sellable DESC, pul.is_base DESC, pul.sort_order ASC, pul.created_at ASC
       LIMIT 1
     `,
@@ -407,10 +804,516 @@ async function resolveProductCodeForUnitKey(db, productId) {
   return String(result.rows[0]?.product_code || productId).trim();
 }
 
+async function generateUniquePackagingLevelCode(db, productId, displayName, unitTypeCode, quantityPerBase) {
+  const baseToken =
+    toCleanText(`${unitTypeCode}_${formatPackagingQuantity(quantityPerBase)}_${displayName}`)
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "UNIT";
+  const trimmedBase = baseToken.slice(0, PRODUCT_UNIT_LEVEL_CODE_MAX_LENGTH);
+  let candidateCode = trimmedBase;
+  let suffix = 2;
+
+  while (true) {
+    const exists = await db.query(
+      `
+        SELECT 1
+        FROM product_unit_levels
+        WHERE product_id = $1
+          AND code = $2
+        LIMIT 1
+      `,
+      [productId, candidateCode]
+    );
+
+    if (!exists.rows[0]) return candidateCode;
+
+    const suffixText = `_${suffix}`;
+    const prefixLength = PRODUCT_UNIT_LEVEL_CODE_MAX_LENGTH - suffixText.length;
+    candidateCode = `${trimmedBase.slice(0, prefixLength)}${suffixText}`;
+    suffix += 1;
+  }
+}
+
+async function listProductPackagingLevels(db, productId, { includeInactive = false } = {}) {
+  const params = [productId];
+  const where = ["pul.product_id = $1"];
+  if (!includeInactive) {
+    where.push(productUnitLevelsActiveCompatPredicate("pul"));
+  }
+
+  const result = await db.query(
+    `
+      SELECT
+        pul.id::text AS id,
+        pul.code,
+        pul.display_name AS "displayName",
+        pul.sort_order AS "sortOrder",
+        pul.is_base AS "isBase",
+        pul.is_sellable AS "isSellable",
+        ${buildProductUnitLevelsIsActiveSelect("pul")},
+        pul.barcode,
+        pul.unit_key AS "unitKey",
+        pul.created_at AS "createdAt",
+        NULLIF((regexp_match(COALESCE(pul.unit_key, ''), 'qpb=([0-9]+(?:\\.[0-9]+)?)'))[1], '')::numeric AS "quantityPerBase",
+        ut.code AS "unitTypeCode",
+        COALESCE(NULLIF(ut.name_th, ''), NULLIF(ut.name_en, ''), NULLIF(ut.symbol, ''), ut.code, pul.code) AS "unitTypeLabel",
+        (
+          SELECT pp.price
+          FROM product_prices pp
+          LEFT JOIN price_tiers pt ON pt.id = pp.price_tier_id
+          WHERE pp.product_id = pul.product_id
+            AND pp.unit_level_id = pul.id
+            AND (pp.effective_to IS NULL OR pp.effective_to >= CURRENT_DATE)
+          ORDER BY
+            COALESCE(pt.is_default, false) DESC,
+            pp.effective_from DESC
+          LIMIT 1
+        ) AS price
+      FROM product_unit_levels pul
+      LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
+      WHERE ${where.join(" AND ")}
+      ORDER BY ${productUnitLevelsIsActiveCompatExpression("pul")} DESC, pul.sort_order ASC, pul.created_at ASC
+    `,
+    params
+  );
+
+  return result.rows.map((row) => normalizePackagingLevelRow(row));
+}
+
+async function productHasOperationalHistory(db, productId) {
+  const result = await db.query(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM stock_movements
+        WHERE product_id = $1
+        LIMIT 1
+      ) OR EXISTS (
+        SELECT 1
+        FROM stock_on_hand
+        WHERE product_id = $1
+        LIMIT 1
+      ) AS has_history
+    `,
+    [productId]
+  );
+
+  return Boolean(result.rows[0]?.has_history);
+}
+
+async function resolveNextProductUnitSortOrder(db, productId) {
+  const result = await db.query(
+    `
+      SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_sort_order
+      FROM product_unit_levels
+      WHERE product_id = $1
+    `,
+    [productId]
+  );
+  return Number(result.rows[0]?.next_sort_order || 1);
+}
+
+async function releaseConflictingInactivePackagingBarcodes(
+  db,
+  productId,
+  keepLevelIds,
+  barcodes,
+  hasIsActiveColumn
+) {
+  if (!hasIsActiveColumn) return;
+  const normalizedBarcodes = [...new Set(barcodes.map((barcode) => toCleanText(barcode)).filter(Boolean))];
+  if (!normalizedBarcodes.length) return;
+  const inactivePredicate = productUnitLevelsInactiveCompatPredicate("product_unit_levels");
+
+  if (keepLevelIds.length) {
+    await db.query(
+      `
+        UPDATE product_unit_levels
+        SET barcode = NULL
+        WHERE product_id = $1
+          AND ${inactivePredicate}
+          AND barcode = ANY($2::text[])
+          AND id::text <> ALL($3::text[])
+      `,
+      [productId, normalizedBarcodes, keepLevelIds]
+    );
+    return;
+  }
+
+  await db.query(
+    `
+      UPDATE product_unit_levels
+      SET barcode = NULL
+      WHERE product_id = $1
+        AND ${inactivePredicate}
+        AND barcode = ANY($2::text[])
+    `,
+    [productId, normalizedBarcodes]
+  );
+}
+
+async function parkPackagingLevels(db, assignments) {
+  for (const assignment of assignments) {
+    await db.query(
+      `
+        UPDATE product_unit_levels
+        SET sort_order = $2
+        WHERE id = $1
+      `,
+      [assignment.id, assignment.sortOrder]
+    );
+  }
+}
+
+async function deactivatePackagingLevels(db, levelAssignments, hasIsActiveColumn) {
+  if (!hasIsActiveColumn) return;
+  for (const assignment of levelAssignments) {
+    await db.query(
+      `
+        UPDATE product_unit_levels
+        SET
+          is_active = false,
+          is_base = false,
+          is_sellable = false,
+          barcode = NULL,
+          sort_order = $2
+        WHERE id = $1
+      `,
+      [assignment.id, assignment.sortOrder]
+    );
+  }
+}
+
+async function syncProductUnitConversions(db, productId, packagingLevels) {
+  await db.query(
+    `
+      DELETE FROM product_unit_conversions
+      WHERE product_id = $1
+    `,
+    [productId]
+  );
+
+  const baseLevel = packagingLevels.find((level) => level.isBase && level.isActive !== false);
+  if (!baseLevel) return;
+
+  for (const level of packagingLevels) {
+    if (!level.id || level.isBase || level.isActive === false) continue;
+    await db.query(
+      `
+        INSERT INTO product_unit_conversions (
+          product_id,
+          parent_unit_level_id,
+          child_unit_level_id,
+          multiplier
+        )
+        VALUES ($1, $2, $3, $4)
+      `,
+      [productId, level.id, baseLevel.id, level.quantityPerBase]
+    );
+  }
+}
+
+async function upsertDefaultPrice(db, productId, unitLevelId, price) {
+  const priceTierId = await resolveDefaultPriceTierId(db);
+  await db.query(
+    `
+      INSERT INTO product_prices (
+        product_id,
+        unit_level_id,
+        price_tier_id,
+        price,
+        currency_code,
+        effective_from,
+        effective_to
+      )
+      VALUES ($1, $2, $3, $4, 'THB', CURRENT_DATE, NULL)
+      ON CONFLICT (product_id, unit_level_id, price_tier_id, effective_from)
+      DO UPDATE
+      SET
+        price = EXCLUDED.price,
+        effective_to = NULL
+    `,
+    [productId, unitLevelId, priceTierId, price]
+  );
+}
+
+async function syncPackagingLevelsAndPrice(db, productId, packagingLevels, price) {
+  const hasIsActiveColumn = await hasProductUnitLevelsIsActiveColumn(db);
+  const existingLevels = await listProductPackagingLevels(db, productId, {
+    includeInactive: true,
+  });
+  const existingById = new Map(existingLevels.map((level) => [level.id, level]));
+  const existingByStructuralKey = new Map();
+
+  for (const level of existingLevels) {
+    const structuralKey = toPackagingStructuralKey(level);
+    if (!existingByStructuralKey.has(structuralKey)) {
+      existingByStructuralKey.set(structuralKey, []);
+    }
+    existingByStructuralKey.get(structuralKey).push(level);
+  }
+
+  const currentBaseLevel = existingLevels.find((level) => level.isActive && level.isBase);
+  const nextBaseLevel = packagingLevels.find((level) => level.isBase);
+  if (
+    currentBaseLevel &&
+    nextBaseLevel &&
+    toPackagingStructuralKey(currentBaseLevel) !== toPackagingStructuralKey(nextBaseLevel) &&
+    (await productHasOperationalHistory(db, productId))
+  ) {
+    throw httpError(
+      400,
+      "Cannot change the base packaging level for a product that already has stock or movement history"
+    );
+  }
+
+  const usedExistingIds = new Set();
+  const idsToDeactivate = new Set();
+  const selectedLevels = [];
+  let nextParkingSortOrder =
+    Math.max(
+      packagingLevels.length,
+      ...existingLevels.map((level) => Number(level.sortOrder || 0))
+    ) + 100;
+
+  for (const incomingLevel of packagingLevels) {
+    const structuralKey = toPackagingStructuralKey(incomingLevel);
+    const exactMatch = incomingLevel.id ? existingById.get(incomingLevel.id) || null : null;
+    let targetLevel =
+      exactMatch && toPackagingStructuralKey(exactMatch) === structuralKey ? exactMatch : null;
+
+    if (!targetLevel) {
+      const candidates = existingByStructuralKey.get(structuralKey) || [];
+      targetLevel = candidates.find((candidate) => !usedExistingIds.has(candidate.id)) || null;
+    }
+
+    if (exactMatch && targetLevel && exactMatch.id !== targetLevel.id) {
+      idsToDeactivate.add(exactMatch.id);
+    }
+
+    if (targetLevel) {
+      usedExistingIds.add(targetLevel.id);
+      selectedLevels.push({
+        mode: "update",
+        input: incomingLevel,
+        target: targetLevel,
+      });
+      continue;
+    }
+
+    selectedLevels.push({
+      mode: "insert",
+      input: incomingLevel,
+      target: null,
+    });
+  }
+
+  for (const existingLevel of existingLevels) {
+    if (existingLevel.isActive && !usedExistingIds.has(existingLevel.id)) {
+      idsToDeactivate.add(existingLevel.id);
+    }
+  }
+
+  if (!hasIsActiveColumn && idsToDeactivate.size) {
+    throw httpError(
+      409,
+      "Retiring or replacing packaging levels requires migration 0016_product_unit_levels_is_active.sql"
+    );
+  }
+
+  const parkingAssignments = [
+    ...existingLevels
+      .filter((level) => !level.isActive && !usedExistingIds.has(level.id))
+      .map((level) => ({
+        id: level.id,
+        sortOrder: nextParkingSortOrder++,
+      })),
+    ...selectedLevels
+      .filter(
+        (selectedLevel) =>
+          selectedLevel.mode === "update" &&
+          selectedLevel.target &&
+          Number(selectedLevel.target.sortOrder || 0) !== Number(selectedLevel.input.sortOrder || 0)
+      )
+      .map((selectedLevel) => ({
+        id: selectedLevel.target.id,
+        sortOrder: nextParkingSortOrder++,
+      })),
+  ];
+
+  await parkPackagingLevels(db, parkingAssignments);
+  const barcodeParkingIds = selectedLevels
+    .filter(
+      (selectedLevel) =>
+        selectedLevel.mode === "update" &&
+        selectedLevel.target &&
+        toCleanText(selectedLevel.target.barcode) &&
+        toCleanText(selectedLevel.target.barcode) !== toCleanText(selectedLevel.input.barcode)
+    )
+    .map((selectedLevel) => selectedLevel.target.id);
+  if (barcodeParkingIds.length) {
+    await db.query(
+      `
+        UPDATE product_unit_levels
+        SET barcode = NULL
+        WHERE id::text = ANY($1::text[])
+      `,
+      [barcodeParkingIds]
+    );
+  }
+  await deactivatePackagingLevels(
+    db,
+    [...idsToDeactivate].map((id) => ({
+      id,
+      sortOrder: nextParkingSortOrder++,
+    })),
+    hasIsActiveColumn
+  );
+  await releaseConflictingInactivePackagingBarcodes(
+    db,
+    productId,
+    [...usedExistingIds],
+    packagingLevels.map((level) => level.barcode),
+    hasIsActiveColumn
+  );
+
+  const productCodeForKey = await resolveProductCodeForUnitKey(db, productId);
+  const baseSortOrder = nextBaseLevel?.sortOrder || 1;
+  const baseUnitCode = nextBaseLevel?.unitTypeCode || "UNIT";
+  const persistedLevels = [];
+
+  for (const selectedLevel of selectedLevels) {
+    const { input } = selectedLevel;
+    const unitTypeId = await resolveUnitTypeId(db, input.unitTypeCode);
+    const nextUnitKey = buildUnitLevelKey({
+      productCode: productCodeForKey,
+      level: input.sortOrder,
+      parentLevel: input.isBase ? 0 : baseSortOrder,
+      quantityPerParentUnit: input.isBase ? 1 : input.quantityPerBase,
+      quantityPerBaseUnit: input.quantityPerBase,
+      baseUnitCode,
+      unitTypeCode: input.unitTypeCode,
+    });
+
+    if (selectedLevel.mode === "update" && selectedLevel.target) {
+      const updated = await db.query(
+        `
+          UPDATE product_unit_levels
+          SET
+            display_name = $2,
+            unit_type_id = $3,
+            is_base = $4,
+            is_sellable = $5,
+            sort_order = $6,
+            barcode = $7,
+            unit_key = $8${hasIsActiveColumn ? `,
+            is_active = true` : ""}
+          WHERE id = $1
+          RETURNING
+            id::text AS id,
+            code,
+            display_name AS "displayName",
+            sort_order AS "sortOrder",
+            is_base AS "isBase",
+            is_sellable AS "isSellable",
+            barcode,
+            unit_key AS "unitKey"
+        `,
+        [
+          selectedLevel.target.id,
+          input.displayName,
+          unitTypeId,
+          input.isBase,
+          input.isSellable,
+          input.sortOrder,
+          input.barcode,
+          nextUnitKey,
+        ]
+      );
+
+      persistedLevels.push(
+        normalizePackagingLevelRow({
+          ...updated.rows[0],
+          isActive: true,
+          quantityPerBase: input.quantityPerBase,
+          unitTypeCode: input.unitTypeCode,
+        })
+      );
+      continue;
+    }
+
+    const code = await generateUniquePackagingLevelCode(
+      db,
+      productId,
+      input.displayName,
+      input.unitTypeCode,
+      input.quantityPerBase
+    );
+    const inserted = await db.query(
+      `
+        INSERT INTO product_unit_levels (
+          product_id,
+          code,
+          display_name,
+          unit_type_id,
+          unit_key,
+          is_base,
+          is_sellable,
+          sort_order,
+          barcode${hasIsActiveColumn ? `,
+          is_active` : ""}
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9${hasIsActiveColumn ? ", true" : ""})
+        RETURNING
+          id::text AS id,
+          code,
+          display_name AS "displayName",
+          sort_order AS "sortOrder",
+          is_base AS "isBase",
+          is_sellable AS "isSellable",
+          barcode,
+          unit_key AS "unitKey"
+      `,
+      [
+        productId,
+        code,
+        input.displayName,
+        unitTypeId,
+        nextUnitKey,
+        input.isBase,
+        input.isSellable,
+        input.sortOrder,
+        input.barcode,
+      ]
+    );
+
+    persistedLevels.push(
+      normalizePackagingLevelRow({
+        ...inserted.rows[0],
+        isActive: true,
+        quantityPerBase: input.quantityPerBase,
+        unitTypeCode: input.unitTypeCode,
+      })
+    );
+  }
+
+  await syncProductUnitConversions(db, productId, persistedLevels);
+
+  if (price !== null) {
+    const sellableLevel = persistedLevels.find((level) => level.isSellable);
+    if (!sellableLevel) {
+      throw httpError(400, "A sellable packaging level is required before saving price");
+    }
+    await upsertDefaultPrice(db, productId, sellableLevel.id, price);
+  }
+}
+
 async function upsertPrimaryUnitLevelAndPrice(db, productId, options) {
   const shouldUpsertUnit = options.shouldUpsertUnit;
   if (!shouldUpsertUnit && options.price === null) return;
 
+  const hasIsActiveColumn = await hasProductUnitLevelsIsActiveColumn(db);
   let unitLevel = await resolvePrimaryUnitLevel(db, productId);
 
   if (shouldUpsertUnit) {
@@ -442,7 +1345,8 @@ async function upsertPrimaryUnitLevelAndPrice(db, productId, options) {
             unit_type_id = $3,
             barcode = $4,
             unit_key = COALESCE(unit_key, $5),
-            is_sellable = true
+            is_sellable = true${hasIsActiveColumn ? `,
+            is_active = true` : ""}
           WHERE id = $1
           RETURNING
             id,
@@ -462,6 +1366,7 @@ async function upsertPrimaryUnitLevelAndPrice(db, productId, options) {
         unit_type_code: unitTypeCode,
       };
     } else {
+      const nextSortOrder = await resolveNextProductUnitSortOrder(db, productId);
       const inserted = await db.query(
         `
           INSERT INTO product_unit_levels (
@@ -473,12 +1378,21 @@ async function upsertPrimaryUnitLevelAndPrice(db, productId, options) {
             is_base,
             is_sellable,
             sort_order,
-            barcode
+            barcode${hasIsActiveColumn ? `,
+            is_active` : ""}
           )
-          VALUES ($1, $2, $3, $4, $5, true, true, 1, $6)
+          VALUES ($1, $2, $3, $4, $5, true, true, $6, $7${hasIsActiveColumn ? ", true" : ""})
           RETURNING id
         `,
-        [productId, UNIT_LEVEL_DEFAULT_CODE, nextDisplayName, unitTypeId, fallbackUnitKey, nextBarcode]
+        [
+          productId,
+          UNIT_LEVEL_DEFAULT_CODE,
+          nextDisplayName,
+          unitTypeId,
+          fallbackUnitKey,
+          nextSortOrder,
+          nextBarcode,
+        ]
       );
       unitLevel = {
         id: inserted.rows[0].id,
@@ -494,28 +1408,7 @@ async function upsertPrimaryUnitLevelAndPrice(db, productId, options) {
     if (!unitLevel) {
       throw httpError(400, "unit level is required before saving price");
     }
-
-    const priceTierId = await resolveDefaultPriceTierId(db);
-    await db.query(
-      `
-        INSERT INTO product_prices (
-          product_id,
-          unit_level_id,
-          price_tier_id,
-          price,
-          currency_code,
-          effective_from,
-          effective_to
-        )
-        VALUES ($1, $2, $3, $4, 'THB', CURRENT_DATE, NULL)
-        ON CONFLICT (product_id, unit_level_id, price_tier_id, effective_from)
-        DO UPDATE
-        SET
-          price = EXCLUDED.price,
-          effective_to = NULL
-      `,
-      [productId, unitLevel.id, priceTierId, options.price]
-    );
+    await upsertDefaultPrice(db, productId, unitLevel.id, options.price);
   }
 }
 
@@ -729,16 +1622,34 @@ async function syncProductReportGroups(db, productId, reportGroupCodes) {
 }
 
 function mapProductRow(row) {
+  const packagingLevels = Array.isArray(row.packagingLevels)
+    ? row.packagingLevels.map((level) => normalizePackagingLevelRow(level))
+    : [];
+  const packagingSummary = buildPackagingSummary(packagingLevels);
+  const primaryPackagingLevel =
+    packagingLevels.find((level) => level.isSellable && level.isActive !== false) ||
+    packagingLevels.find((level) => level.isBase && level.isActive !== false) ||
+    packagingLevels[0] ||
+    null;
+
   return {
     ...row,
     ingredients: Array.isArray(row.ingredients) ? row.ingredients : [],
     reportGroupCodes: Array.isArray(row.reportGroupCodes) ? row.reportGroupCodes : [],
     reportGroupNames: Array.isArray(row.reportGroupNames) ? row.reportGroupNames : [],
     price: row.price === null || row.price === undefined ? null : Number(row.price),
+    packagingLevels,
+    packagingSummary,
+    packageVariantCount: packagingLevels.filter((level) => level.isActive !== false).length,
+    packageSize: row.packageSize || primaryPackagingLevel?.displayName || null,
+    unitTypeCode: row.unitTypeCode || primaryPackagingLevel?.unitTypeCode || null,
+    barcode: row.barcode || primaryPackagingLevel?.barcode || null,
   };
 }
 
 async function getProductById(productId) {
+  const activeExpression = productUnitLevelsIsActiveCompatExpression("pul");
+  const activePredicate = productUnitLevelsActiveCompatPredicate("pul");
   const result = await query(
     `
       SELECT
@@ -752,6 +1663,7 @@ async function getProductById(productId) {
         pu.unit_type_code AS "unitTypeCode",
         pu.unit_symbol AS "unitSymbol",
         pu.price AS price,
+        COALESCE(pkg.packaging_levels, '[]'::json) AS "packagingLevels",
         COALESCE(pr.report_group_codes, ARRAY[]::text[]) AS "reportGroupCodes",
         COALESCE(pr.report_group_names, ARRAY[]::text[]) AS "reportGroupNames",
         mloc.name AS "manufacturerName",
@@ -791,6 +1703,29 @@ async function getProductById(productId) {
       ) ing ON true
       LEFT JOIN LATERAL (
         SELECT
+          json_agg(
+            json_build_object(
+              'id', pul.id,
+              'code', pul.code,
+              'displayName', pul.display_name,
+              'sortOrder', pul.sort_order,
+              'isBase', pul.is_base,
+              'isSellable', pul.is_sellable,
+              'isActive', ${activeExpression},
+              'barcode', pul.barcode,
+              'quantityPerBase', NULLIF((regexp_match(COALESCE(pul.unit_key, ''), 'qpb=([0-9]+(?:\\.[0-9]+)?)'))[1], '')::numeric,
+              'unitTypeCode', ut.code,
+              'unitTypeLabel', COALESCE(NULLIF(ut.name_th, ''), NULLIF(ut.name_en, ''), NULLIF(ut.symbol, ''), ut.code, pul.code)
+            )
+            ORDER BY pul.is_sellable DESC, pul.is_base DESC, pul.sort_order ASC, pul.created_at ASC
+          ) AS packaging_levels
+        FROM product_unit_levels pul
+        LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
+        WHERE pul.product_id = p.id
+          AND ${activePredicate}
+      ) pkg ON true
+      LEFT JOIN LATERAL (
+        SELECT
           pul.barcode,
           pul.display_name AS package_size,
           ut.code AS unit_type_code,
@@ -810,6 +1745,7 @@ async function getProductById(productId) {
         FROM product_unit_levels pul
         LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
         WHERE pul.product_id = p.id
+          AND ${activePredicate}
         ORDER BY pul.is_sellable DESC, pul.is_base DESC, pul.sort_order ASC, pul.created_at ASC
         LIMIT 1
       ) pu ON true
@@ -837,6 +1773,8 @@ export async function listProducts(req, res) {
   const search = String(req.query.search || "").trim();
   const includeInactive = parseBoolean(req.query.includeInactive, false);
   const barcode = String(req.query.barcode || "").trim();
+  const activeExpression = productUnitLevelsIsActiveCompatExpression("pul");
+  const activePredicate = productUnitLevelsActiveCompatPredicate("pul");
 
   if (barcode) {
     const result = await query(
@@ -873,6 +1811,7 @@ export async function listProducts(req, res) {
           LIMIT 1
         ) pp ON true
         WHERE pul.barcode = $1
+          AND ${activePredicate}
           AND p.is_active = true
         LIMIT 1
       `,
@@ -911,6 +1850,7 @@ export async function listProducts(req, res) {
         pu.unit_type_code AS "unitTypeCode",
         pu.unit_symbol AS "unitSymbol",
         pu.price AS price,
+        COALESCE(pkg.packaging_levels, '[]'::json) AS "packagingLevels",
         COALESCE(pr.report_group_codes, ARRAY[]::text[]) AS "reportGroupCodes",
         COALESCE(pr.report_group_names, ARRAY[]::text[]) AS "reportGroupNames",
         mloc.name AS "manufacturerName",
@@ -950,6 +1890,29 @@ export async function listProducts(req, res) {
       ) ing ON true
       LEFT JOIN LATERAL (
         SELECT
+          json_agg(
+            json_build_object(
+              'id', pul.id,
+              'code', pul.code,
+              'displayName', pul.display_name,
+              'sortOrder', pul.sort_order,
+              'isBase', pul.is_base,
+              'isSellable', pul.is_sellable,
+              'isActive', ${activeExpression},
+              'barcode', pul.barcode,
+              'quantityPerBase', NULLIF((regexp_match(COALESCE(pul.unit_key, ''), 'qpb=([0-9]+(?:\\.[0-9]+)?)'))[1], '')::numeric,
+              'unitTypeCode', ut.code,
+              'unitTypeLabel', COALESCE(NULLIF(ut.name_th, ''), NULLIF(ut.name_en, ''), NULLIF(ut.symbol, ''), ut.code, pul.code)
+            )
+            ORDER BY pul.is_sellable DESC, pul.is_base DESC, pul.sort_order ASC, pul.created_at ASC
+          ) AS packaging_levels
+        FROM product_unit_levels pul
+        LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
+        WHERE pul.product_id = p.id
+          AND ${activePredicate}
+      ) pkg ON true
+      LEFT JOIN LATERAL (
+        SELECT
           pul.barcode,
           pul.display_name AS package_size,
           ut.code AS unit_type_code,
@@ -969,6 +1932,7 @@ export async function listProducts(req, res) {
         FROM product_unit_levels pul
         LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
         WHERE pul.product_id = p.id
+          AND ${activePredicate}
         ORDER BY pul.is_sellable DESC, pul.is_base DESC, pul.sort_order ASC, pul.created_at ASC
         LIMIT 1
       ) pu ON true
@@ -1023,6 +1987,17 @@ export async function getProductUnitLevels(req, res) {
     throw httpError(400, "product id is required");
   }
 
+  const lotId = toCleanText(req.query.lotId || req.query.lot_id);
+  const lotNo = toCleanText(req.query.lotNo || req.query.lot_no);
+  const expDate = normalizeDateOnlyQueryValue(req.query.expDate || req.query.exp_date, "expDate");
+
+  if (lotId && !isUuid(lotId)) {
+    throw httpError(400, "lotId must be a valid UUID");
+  }
+  if ((lotNo && !expDate) || (!lotNo && expDate)) {
+    throw httpError(400, "lotNo and expDate must be provided together");
+  }
+
   const productResult = await query(
     `
       SELECT id
@@ -1037,43 +2012,301 @@ export async function getProductUnitLevels(req, res) {
     throw httpError(404, "Product not found");
   }
 
-  const result = await query(
+  const productLevelItems = (await listActiveProductUnitLevelRows({ query }, productId)).map(
+    normalizeUnitLevelApiRow
+  );
+  const defaultProductUnitLevelId = toCleanText(
+    productLevelItems.find((item) => item.isSellable)?.id || productLevelItems[0]?.id
+  );
+  const wantsLotContext = Boolean(lotId || (lotNo && expDate));
+
+  function sendProductFallback(fallbackReason, lot = null) {
+    return res.json({
+      items: productLevelItems,
+      scope: "product",
+      hasLotWhitelist: false,
+      fallbackReason: fallbackReason || null,
+      defaultUnitLevelId: defaultProductUnitLevelId,
+      lot: lot
+        ? {
+            id: toCleanText(lot.id),
+            lotNo: toCleanText(lot.lotNo),
+            expDate: toCleanText(lot.expDate),
+          }
+        : null,
+    });
+  }
+
+  if (!wantsLotContext) {
+    return sendProductFallback(null);
+  }
+
+  if (!(await hasProductLotAllowedUnitLevelsTable({ query }))) {
+    return sendProductFallback("lot_whitelist_table_missing");
+  }
+
+  const lot = await findProductLotForUnitLevelLookup({ query }, productId, {
+    lotId,
+    lotNo,
+    expDate,
+  });
+  if (!lot) {
+    return sendProductFallback("lot_not_found");
+  }
+
+  const whitelistRows = await listLotAllowedUnitLevelRows({ query }, productId, lot.id);
+  if (!whitelistRows.length) {
+    return sendProductFallback("lot_whitelist_missing", lot);
+  }
+
+  const whitelistedItems = whitelistRows
+    .filter((row) => toCleanText(row.id))
+    .map(normalizeUnitLevelApiRow);
+  const defaultWhitelistedUnitLevelId = toCleanText(
+    whitelistedItems.find((item) => item.isDefault)?.id || whitelistedItems[0]?.id
+  );
+
+  return res.json({
+    items: whitelistedItems,
+    scope: "lot-whitelist",
+    hasLotWhitelist: true,
+    fallbackReason: whitelistedItems.length ? null : "lot_whitelist_has_no_active_unit_levels",
+    defaultUnitLevelId: defaultWhitelistedUnitLevelId,
+    lot: {
+      id: toCleanText(lot.id),
+      lotNo: toCleanText(lot.lotNo),
+      expDate: toCleanText(lot.expDate),
+    },
+  });
+}
+
+export async function getProductLotWhitelists(req, res) {
+  const productId = toCleanText(req.params.id || req.params.productId);
+  if (!productId) {
+    throw httpError(400, "product id is required");
+  }
+
+  const productResult = await query(
     `
-      SELECT
-        pul.id,
-        pul.code,
-        pul.display_name AS "displayName",
-        pul.sort_order AS "sortOrder",
-        pul.is_base AS "isBase",
-        pul.is_sellable AS "isSellable",
-        pul.barcode,
-        NULLIF((regexp_match(COALESCE(pul.unit_key, ''), 'qpb=([0-9]+(?:\\.[0-9]+)?)'))[1], '')::numeric AS "quantityPerBase",
-        ut.code AS "unitTypeCode",
-        COALESCE(NULLIF(ut.name_th, ''), NULLIF(ut.name_en, ''), NULLIF(ut.symbol, ''), ut.code, pul.code) AS "unitTypeLabel"
-      FROM product_unit_levels pul
-      LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
-      WHERE pul.product_id = $1
-      ORDER BY pul.is_sellable DESC, pul.is_base DESC, pul.sort_order ASC, pul.created_at ASC
+      SELECT id
+      FROM products
+      WHERE id = $1
+      LIMIT 1
     `,
     [productId]
   );
 
+  if (!productResult.rows[0]) {
+    throw httpError(404, "Product not found");
+  }
+
+  if (!(await hasProductLotAllowedUnitLevelsTable({ query }))) {
+    throw httpError(
+      409,
+      "Lot whitelist management requires migration 0017_product_lot_allowed_unit_levels.sql"
+    );
+  }
+
+  const [unitLevelRows, lotRows, mappingRows] = await Promise.all([
+    listActiveProductUnitLevelRows({ query }, productId),
+    listProductLots({ query }, productId),
+    listProductLotWhitelistMappings({ query }, productId),
+  ]);
+
+  const lotsById = new Map(
+    lotRows.map((row) => [
+      toCleanText(row.id),
+      {
+        id: toCleanText(row.id),
+        lotNo: toCleanText(row.lotNo),
+        expDate: toCleanText(row.expDate),
+        hasWhitelist: false,
+        allowedUnitLevelIds: [],
+        defaultUnitLevelId: "",
+        invalidUnitLevelIds: [],
+      },
+    ])
+  );
+
+  for (const row of mappingRows) {
+    const lotId = toCleanText(row.productLotId);
+    const unitLevelId = toCleanText(row.unitLevelId);
+    if (!lotId || !unitLevelId) continue;
+
+    const lot = lotsById.get(lotId);
+    if (!lot) continue;
+
+    lot.hasWhitelist = true;
+    if (toCleanText(row.resolvedUnitLevelId)) {
+      lot.allowedUnitLevelIds.push(unitLevelId);
+      if (row.isDefault) {
+        lot.defaultUnitLevelId = unitLevelId;
+      }
+    } else {
+      lot.invalidUnitLevelIds.push(unitLevelId);
+    }
+  }
+
   return res.json({
-    items: result.rows.map((row) => ({
-      id: row.id,
-      code: row.code,
-      displayName: toCleanText(row.displayName) || toCleanText(row.code) || "-",
-      sortOrder: Number(row.sortOrder || 0),
-      isBase: Boolean(row.isBase),
-      isSellable: Boolean(row.isSellable),
-      barcode: toCleanText(row.barcode),
-      quantityPerBase:
-        row.quantityPerBase === null || row.quantityPerBase === undefined
-          ? null
-          : Number(row.quantityPerBase),
-      unitTypeCode: toCleanText(row.unitTypeCode),
-      unitTypeLabel: toCleanText(row.unitTypeLabel || row.unitTypeCode),
-    })),
+    productId,
+    unitLevels: unitLevelRows.map(normalizeUnitLevelApiRow),
+    lots: [...lotsById.values()],
+  });
+}
+
+export async function updateProductLotWhitelist(req, res) {
+  const productId = toCleanText(req.params.id || req.params.productId);
+  const lotId = toCleanText(req.params.lotId || req.params.productLotId);
+  if (!productId) {
+    throw httpError(400, "product id is required");
+  }
+  if (!lotId || !isUuid(lotId)) {
+    throw httpError(400, "lotId must be a valid UUID");
+  }
+
+  if (!(await hasProductLotAllowedUnitLevelsTable({ query }))) {
+    throw httpError(
+      409,
+      "Lot whitelist management requires migration 0017_product_lot_allowed_unit_levels.sql"
+    );
+  }
+
+  const sourceAllowedUnitLevelIds = Array.isArray(req.body?.allowedUnitLevelIds)
+    ? req.body.allowedUnitLevelIds
+    : Array.isArray(req.body?.allowed_unit_level_ids)
+    ? req.body.allowed_unit_level_ids
+    : [];
+  const allowedUnitLevelIds = [
+    ...new Set(sourceAllowedUnitLevelIds.map((value) => toCleanText(value)).filter(Boolean)),
+  ];
+  const defaultUnitLevelId = toCleanText(
+    req.body?.defaultUnitLevelId ?? req.body?.default_unit_level_id
+  );
+
+  if (allowedUnitLevelIds.some((value) => !isUuid(value))) {
+    throw httpError(400, "allowedUnitLevelIds must contain valid UUIDs only");
+  }
+  if (defaultUnitLevelId && !isUuid(defaultUnitLevelId)) {
+    throw httpError(400, "defaultUnitLevelId must be a valid UUID");
+  }
+  if (defaultUnitLevelId && !allowedUnitLevelIds.includes(defaultUnitLevelId)) {
+    throw httpError(400, "defaultUnitLevelId must be included in allowedUnitLevelIds");
+  }
+
+  const productResult = await query(
+    `
+      SELECT id
+      FROM products
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [productId]
+  );
+  if (!productResult.rows[0]) {
+    throw httpError(404, "Product not found");
+  }
+
+  const lotResult = await query(
+    `
+      SELECT id
+      FROM product_lots
+      WHERE id = $1::uuid
+        AND product_id = $2
+      LIMIT 1
+    `,
+    [lotId, productId]
+  );
+  if (!lotResult.rows[0]) {
+    throw httpError(404, "Product lot not found");
+  }
+
+  const activeUnitLevelRows = await listActiveProductUnitLevelRows({ query }, productId);
+  const activeUnitLevelIds = new Set(activeUnitLevelRows.map((row) => toCleanText(row.id)).filter(Boolean));
+  for (const unitLevelId of allowedUnitLevelIds) {
+    if (!activeUnitLevelIds.has(unitLevelId)) {
+      throw httpError(
+        400,
+        "allowedUnitLevelIds must reference active product-level packaging only"
+      );
+    }
+  }
+
+  await withTransaction(async (client) => {
+    if (!allowedUnitLevelIds.length) {
+      await client.query(
+        `
+          UPDATE product_lot_allowed_unit_levels
+          SET is_active = false,
+              is_default = false,
+              updated_at = now()
+          WHERE product_id = $1
+            AND product_lot_id = $2::uuid
+            AND is_active = true
+        `,
+        [productId, lotId]
+      );
+      return;
+    }
+
+    await client.query(
+      `
+        UPDATE product_lot_allowed_unit_levels
+        SET is_default = false,
+            updated_at = now()
+        WHERE product_id = $1
+          AND product_lot_id = $2::uuid
+          AND is_active = true
+      `,
+      [productId, lotId]
+    );
+
+    await client.query(
+      `
+        UPDATE product_lot_allowed_unit_levels
+        SET is_active = false,
+            is_default = false,
+            updated_at = now()
+        WHERE product_id = $1
+          AND product_lot_id = $2::uuid
+          AND is_active = true
+          AND NOT (unit_level_id = ANY($3::uuid[]))
+      `,
+      [productId, lotId, allowedUnitLevelIds]
+    );
+
+    for (const unitLevelId of allowedUnitLevelIds) {
+      await client.query(
+        `
+          INSERT INTO product_lot_allowed_unit_levels (
+            product_id,
+            product_lot_id,
+            unit_level_id,
+            is_default,
+            is_active,
+            source_type,
+            note_text,
+            updated_at
+          )
+          VALUES ($1, $2::uuid, $3::uuid, $4, true, 'MANUAL', 'Updated via admin lot whitelist UI', now())
+          ON CONFLICT (product_lot_id, unit_level_id)
+          DO UPDATE
+          SET is_default = EXCLUDED.is_default,
+              is_active = true,
+              source_type = EXCLUDED.source_type,
+              note_text = EXCLUDED.note_text,
+              updated_at = now()
+        `,
+        [productId, lotId, unitLevelId, defaultUnitLevelId === unitLevelId]
+      );
+    }
+  });
+
+  return res.json({
+    ok: true,
+    productId,
+    lotId,
+    allowedUnitLevelIds,
+    defaultUnitLevelId: defaultUnitLevelId || null,
   });
 }
 
@@ -1177,6 +2410,7 @@ export async function getGenericNames(_req, res) {
 }
 
 export async function getProductsSnapshot(_req, res) {
+  const activePredicate = productUnitLevelsActiveCompatPredicate("pul");
   const result = await query(
     `
       SELECT
@@ -1212,6 +2446,7 @@ export async function getProductsSnapshot(_req, res) {
       ) pp ON true
       WHERE p.is_active = true
         AND pul.barcode IS NOT NULL
+        AND ${activePredicate}
       ORDER BY p.trade_name ASC
       LIMIT 5000
     `
@@ -1259,6 +2494,7 @@ export async function createProduct(req, res) {
   const hasIngredientsField = hasOwnField(body, "ingredients");
   const ingredients = hasIngredientsField ? normalizeIngredientsInput(body.ingredients) : [];
   const { reportGroupCodes } = normalizeReportGroupCodesInput(body);
+  const { hasPackagingLevelsField, packagingLevels } = normalizePackagingLevelsInput(body);
   const genericNameInput = toCleanText(body.genericName || body.generic_name);
   const barcode = toCleanText(body.barcode);
   const manufacturerName = toCleanText(body.manufacturerName || body.importerName);
@@ -1272,6 +2508,7 @@ export async function createProduct(req, res) {
     hasOwnField(body, "package_notes") ||
     hasOwnField(body, "unitTypeCode") ||
     hasOwnField(body, "unit_code") ||
+    hasPackagingLevelsField ||
     price !== null;
 
   const productId = await withTransaction(async (client) => {
@@ -1321,13 +2558,17 @@ export async function createProduct(req, res) {
     if (reportGroupCodes.length) {
       await syncProductReportGroups(client, createdProductId, reportGroupCodes);
     }
-    await upsertPrimaryUnitLevelAndPrice(client, createdProductId, {
-      shouldUpsertUnit,
-      barcode,
-      packageSize,
-      unitTypeCode,
-      price,
-    });
+    if (hasPackagingLevelsField) {
+      await syncPackagingLevelsAndPrice(client, createdProductId, packagingLevels, price);
+    } else {
+      await upsertPrimaryUnitLevelAndPrice(client, createdProductId, {
+        shouldUpsertUnit,
+        barcode,
+        packageSize,
+        unitTypeCode,
+        price,
+      });
+    }
 
     return createdProductId;
   });
@@ -1372,6 +2613,7 @@ export async function updateProduct(req, res) {
   const hasIngredientsField = hasOwnField(body, "ingredients");
   const ingredients = hasIngredientsField ? normalizeIngredientsInput(body.ingredients) : [];
   const { hasReportGroupField, reportGroupCodes } = normalizeReportGroupCodesInput(body);
+  const { hasPackagingLevelsField, packagingLevels } = normalizePackagingLevelsInput(body);
   const hasGenericNameField = hasOwnField(body, "genericName") || hasOwnField(body, "generic_name");
   const genericNameInput = toCleanText(body.genericName || body.generic_name);
   const hasIsActiveField = hasOwnField(body, "isActive") || hasOwnField(body, "is_active");
@@ -1394,7 +2636,7 @@ export async function updateProduct(req, res) {
   const manufacturerName = toCleanText(body.manufacturerName || body.importerName);
   const price = hasPriceField ? parseOptionalNonNegativeNumber(body.price, "price") : null;
   const shouldUpsertUnit =
-    hasBarcodeField || hasPackageSizeField || hasUnitTypeCodeField || hasPriceField;
+    hasBarcodeField || hasPackageSizeField || hasUnitTypeCodeField || hasPriceField || hasPackagingLevelsField;
 
   const current = existing.rows[0];
   const nextIsActive = hasIsActiveField
@@ -1468,7 +2710,9 @@ export async function updateProduct(req, res) {
     if (hasReportGroupField) {
       await syncProductReportGroups(client, id, reportGroupCodes);
     }
-    if (shouldUpsertUnit) {
+    if (hasPackagingLevelsField) {
+      await syncPackagingLevelsAndPrice(client, id, packagingLevels, price);
+    } else if (shouldUpsertUnit) {
       await upsertPrimaryUnitLevelAndPrice(client, id, {
         shouldUpsertUnit,
         barcode: hasBarcodeField ? barcode : undefined,

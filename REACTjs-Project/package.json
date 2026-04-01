@@ -8,6 +8,7 @@
     "dev:full": "concurrently -k \"npm run server\" \"npm run dev\"",
     "server": "node server/index.js",
     "start": "node server/index.js",
+    "audit:lot-whitelists": "node scripts/audit-lot-whitelists.mjs",
     "audit:unit-levels": "node scripts/audit-unit-levels.mjs",
     "verify:unit-level": "node scripts/verify-unit-level-stability.mjs",
     "check:server": "node scripts/check-server-syntax.mjs",

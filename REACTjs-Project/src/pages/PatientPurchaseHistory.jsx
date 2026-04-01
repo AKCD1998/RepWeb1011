@@ -9,6 +9,7 @@ import {
 } from "react-icons/fi";
 import { useAuth } from "../context/AuthContext";
 import { dispenseApi, inventoryApi } from "../lib/api";
+import { formatStructuredUnitLabel } from "../lib/productUnits";
 import "./PatientPurchaseHistory.css";
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100];
@@ -504,7 +505,7 @@ export default function PatientPurchaseHistory() {
                         </td>
                         <td>{item?.lotNo || "-"}</td>
                         <td className="patient-history-number-cell">{formatNumber(item?.quantity)}</td>
-                        <td>{item?.unitLabel || "-"}</td>
+                        <td>{formatStructuredUnitLabel(item?.unitLabel) || "-"}</td>
                         <td>{item?.pharmacistName || item?.pharmacistUsername || "-"}</td>
                         <td className="patient-history-note-cell" title={notePreview}>
                           {notePreview}
@@ -585,7 +586,7 @@ export default function PatientPurchaseHistory() {
                                   </div>
                                   <div>
                                     <dt>หน่วย</dt>
-                                    <dd>{item?.unitLabel || "-"}</dd>
+                                    <dd>{formatStructuredUnitLabel(item?.unitLabel) || "-"}</dd>
                                   </div>
                                   <div>
                                     <dt>ผู้จ่าย</dt>

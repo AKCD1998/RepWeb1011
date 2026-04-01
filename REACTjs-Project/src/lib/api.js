@@ -42,14 +42,63 @@ export const productsApi = {
       params: value ? { search: value } : undefined,
     });
   },
-  unitLevels(productId) {
+  unitLevels(productId, options = {}) {
     const id = String(productId || "").trim();
     if (!id) {
       return Promise.resolve({ items: [] });
     }
+
+    const params = {};
+    const lotId = String(options?.lotId || options?.lot_id || "").trim();
+    const lotNo = String(options?.lotNo || options?.lot_no || "").trim();
+    const expDate = String(options?.expDate || options?.exp_date || "").trim();
+
+    if (lotId) {
+      params.lotId = lotId;
+    }
+    if (lotNo) {
+      params.lotNo = lotNo;
+    }
+    if (expDate) {
+      params.expDate = expDate;
+    }
+
     return requestJson({
       method: "GET",
       url: `/api/products/${encodeURIComponent(id)}/unit-levels`,
+      params: Object.keys(params).length ? params : undefined,
+    });
+  },
+  lotWhitelists(productId) {
+    const id = String(productId || "").trim();
+    if (!id) {
+      return Promise.resolve({ productId: "", unitLevels: [], lots: [] });
+    }
+
+    return requestJson({
+      method: "GET",
+      url: `/api/products/${encodeURIComponent(id)}/lot-whitelists`,
+    });
+  },
+  updateLotWhitelist(productId, lotId, payload = {}) {
+    const id = String(productId || "").trim();
+    const normalizedLotId = String(lotId || "").trim();
+    if (!id) {
+      throw new Error("productId is required");
+    }
+    if (!normalizedLotId) {
+      throw new Error("lotId is required");
+    }
+
+    return requestJson({
+      method: "PUT",
+      url: `/api/products/${encodeURIComponent(id)}/lots/${encodeURIComponent(normalizedLotId)}/whitelist`,
+      data: {
+        allowedUnitLevelIds: Array.isArray(payload?.allowedUnitLevelIds)
+          ? payload.allowedUnitLevelIds
+          : [],
+        defaultUnitLevelId: String(payload?.defaultUnitLevelId || "").trim() || null,
+      },
     });
   },
   reportGroups() {

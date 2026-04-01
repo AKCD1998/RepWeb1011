@@ -3,11 +3,13 @@ import { query, withTransaction } from "../db/pool.js";
 import {
   applyStockDelta,
   assertLotBelongsToProduct,
+  assertUnitLevelAllowedForLot,
   convertMovementToSignedBase,
   convertToBase,
   ensureLot,
   ensureProductExists,
   ensureProductUnitLevel,
+  productUnitLevelsActiveCompatPredicate,
   resolveProductBaseUnitLevel,
   resolveActorUserId,
   resolveBranchByCode,
@@ -189,6 +191,7 @@ async function resolveRequestedUnitLevel(
   client,
   { productId, unitLevelId, unitLabel, unitStructure = {} }
 ) {
+  const activePredicateWithoutAlias = productUnitLevelsActiveCompatPredicate("product_unit_levels");
   const normalizedUnitLevelId = normalizeText(unitLevelId);
   if (normalizedUnitLevelId) {
     if (!isUuid(normalizedUnitLevelId)) {
@@ -201,6 +204,7 @@ async function resolveRequestedUnitLevel(
         FROM product_unit_levels
         WHERE product_id = $1
           AND id = $2
+          AND ${activePredicateWithoutAlias}
         LIMIT 1
       `,
       [productId, normalizedUnitLevelId]
@@ -317,6 +321,11 @@ export async function receiveInventory(req, res) {
       if (item?.lotId) {
         await assertLotBelongsToProduct(client, productId, item.lotId);
       }
+      await assertUnitLevelAllowedForLot(client, {
+        productId,
+        lotId,
+        unitLevelId: unitLevel.id,
+      });
 
       await client.query(
         `
@@ -424,6 +433,11 @@ export async function transferInventory(req, res) {
       if (lotId) {
         await assertLotBelongsToProduct(client, productId, lotId);
       }
+      await assertUnitLevelAllowedForLot(client, {
+        productId,
+        lotId,
+        unitLevelId: unitLevel.id,
+      });
 
       await applyStockDelta(client, {
         branchId: fromBranch.id,
@@ -592,6 +606,11 @@ export async function createMovement(req, res) {
       expDate,
       mfgDate,
       manufacturer,
+    });
+    await assertUnitLevelAllowedForLot(client, {
+      productId,
+      lotId,
+      unitLevelId: unitLevel.id,
     });
     const fromLocation = await resolveActiveLocationById(
       client,
@@ -1251,6 +1270,7 @@ export async function listLocations(req, res) {
 }
 
 export async function getStockOnHand(req, res) {
+  const activePredicate = productUnitLevelsActiveCompatPredicate("pul");
   const branchCode = String(req.query.branchCode || "").trim();
   const productId = String(req.query.productId || "").trim();
 
@@ -1305,6 +1325,7 @@ export async function getStockOnHand(req, res) {
           COALESCE(NULLIF(ut.name_th, ''), NULLIF(ut.name_en, ''), NULLIF(ut.symbol, ''), ut.code, 'base') AS base_unit_symbol
         FROM product_unit_levels pul
         LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
+        WHERE ${activePredicate}
         ORDER BY pul.product_id, pul.is_base DESC, pul.sort_order ASC, pul.created_at ASC
       )
       SELECT
@@ -1462,6 +1483,8 @@ export async function updateMovementOccurredAtCorrection(req, res) {
 }
 
 export async function getMovements(req, res) {
+  const sellableUnitActivePredicate = productUnitLevelsActiveCompatPredicate("puls");
+  const baseUnitActivePredicate = productUnitLevelsActiveCompatPredicate("pulb");
   const productId = req.query.productId ? String(req.query.productId).trim() : "";
   const branchCode = req.query.branchCode ? String(req.query.branchCode).trim() : "";
   const requestedLocationId =
@@ -1572,6 +1595,7 @@ export async function getMovements(req, res) {
           puls.code
         FROM product_unit_levels puls
         WHERE puls.product_id = sm.product_id
+          AND ${sellableUnitActivePredicate}
         ORDER BY puls.is_sellable DESC, puls.is_base DESC, puls.sort_order ASC, puls.created_at ASC
         LIMIT 1
       ) sellable_pul ON true
@@ -1581,6 +1605,7 @@ export async function getMovements(req, res) {
         FROM product_unit_levels pulb
         LEFT JOIN unit_types utb ON utb.id = pulb.unit_type_id
         WHERE pulb.product_id = sm.product_id
+          AND ${baseUnitActivePredicate}
         ORDER BY pulb.is_base DESC, pulb.sort_order ASC, pulb.created_at ASC
         LIMIT 1
       ) base_pul ON true

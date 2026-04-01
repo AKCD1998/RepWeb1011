@@ -2,6 +2,7 @@ import { query, withTransaction } from "../db/pool.js";
 import {
   applyStockDelta,
   assertLotBelongsToProduct,
+  assertUnitLevelAllowedForLot,
   convertToBase,
   ensureProductExists,
   ensureProductUnitLevel,
@@ -193,6 +194,11 @@ export async function createDispense(req, res) {
       if (lotId) {
         await assertLotBelongsToProduct(client, productId, lotId);
       }
+      await assertUnitLevelAllowedForLot(client, {
+        productId,
+        lotId,
+        unitLevelId: unitLevel.id,
+      });
       const lineNote = composeLineNote(line, reportType);
 
       const lineResult = await client.query(

@@ -2,19 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FiBell, FiCheck, FiClock, FiPackage, FiRefreshCw, FiX } from "react-icons/fi";
 import { useAuth } from "../context/AuthContext";
 import { inventoryApi, INVENTORY_CHANGED_EVENT } from "../lib/api";
+import { formatQuantityAsUnits } from "../lib/productUnits";
 import "./TransferNotifications.css";
 
 const REFRESH_INTERVAL_MS = 15000;
 
 function toCleanText(value) {
   return String(value || "").trim();
-}
-
-function formatQty(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return String(value || "-");
-  if (Number.isInteger(numeric)) return String(numeric);
-  return numeric.toFixed(3).replace(/\.?0+$/, "");
 }
 
 function formatDateTime(value) {
@@ -46,9 +40,8 @@ function formatDateOnly(value) {
 
 function buildRequestPreview(request) {
   const name = toCleanText(request?.tradeName) || toCleanText(request?.productCode) || "สินค้า";
-  const qtyText = formatQty(request?.quantity);
-  const unitLabel = toCleanText(request?.unitLabel);
-  return `${name}${qtyText !== "-" ? ` • ${qtyText}${unitLabel ? ` ${unitLabel}` : ""}` : ""}`;
+  const qtyText = formatQuantityAsUnits(request?.quantity, request?.unitLabel);
+  return `${name}${qtyText !== "-" ? ` • ${qtyText}` : ""}`;
 }
 
 export default function TransferNotifications() {
@@ -335,9 +328,7 @@ export default function TransferNotifications() {
               </div>
               <div className="transfer-detail-item transfer-detail-item--wide">
                 <span className="transfer-detail-label">จำนวน</span>
-                <span className="transfer-detail-value">
-                  {formatQty(selectedRequest?.quantity)} {toCleanText(selectedRequest?.unitLabel)}
-                </span>
+                <span className="transfer-detail-value">{formatQuantityAsUnits(selectedRequest?.quantity, selectedRequest?.unitLabel)}</span>
               </div>
               {toCleanText(selectedRequest?.note) ? (
                 <div className="transfer-detail-item transfer-detail-item--wide">

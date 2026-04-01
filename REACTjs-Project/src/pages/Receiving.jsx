@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { INVENTORY_CHANGED_EVENT, inventoryApi, productsApi } from "../lib/api";
+import {
+  formatDisplayNumber as formatQty,
+  formatQuantityAsUnits,
+  formatStructuredUnitLabel,
+  normalizeInlineText,
+  unitTypeRequiresWholeQuantity,
+} from "../lib/productUnits";
 import "./Receiving.css";
 
 const MOVEMENT_TYPE_OPTIONS = [
@@ -74,13 +81,6 @@ function formatOccurredAtDisplay(value) {
     return String(value).replace("T", " ");
   }
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
-}
-
-function formatQty(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return String(value || "-");
-  if (Number.isInteger(numeric)) return String(numeric);
-  return numeric.toFixed(3).replace(/\.?0+$/, "");
 }
 
 function toCleanText(value) {
@@ -275,42 +275,30 @@ function getDeltaClass(movementType) {
   return isPositiveMovement(movementType) ? "delta-positive" : "delta-negative";
 }
 
-function normalizeInlineText(value) {
-  return String(value || "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function parsePackDetail(unitLabel) {
-  const normalized = normalizeInlineText(unitLabel);
-  if (!normalized) return null;
-
-  const match = normalized.match(/^1\s+(.+?)\s*[xX×]\s*(.+)$/u);
-  if (!match) return null;
-
-  const containerUnit = normalizeInlineText(match[1]);
-  const detail = normalizeInlineText(match[2]);
-  if (!containerUnit || !detail) return null;
-
-  return {
-    containerUnit,
-    packDetail: `${detail}/${containerUnit}`,
-  };
+function getPrimaryMovementUnitLabel(movement) {
+  const movementUnit = normalizeInlineText(movement?.movementUnit);
+  if (movementUnit) return movementUnit;
+  return normalizeInlineText(movement?.unit);
 }
 
 function getDeltaText(movement) {
-  const qtyText = formatQty(movement?.qtyValue);
-  const unit = String(movement?.unit || "").trim();
   const sign = isPositiveMovement(movement?.movementType) ? "+" : "-";
-  const primaryText = `${sign}${qtyText}${unit ? ` ${unit}` : ""}`;
+  const qtyValue = Number(movement?.qtyValue);
+  const qtyMagnitude = Number.isFinite(qtyValue) ? Math.abs(qtyValue) : movement?.qtyValue;
+  const qtyText = formatQty(qtyMagnitude);
+  const primaryUnitLabel = getPrimaryMovementUnitLabel(movement);
+  const primaryTextValue = formatQuantityAsUnits(qtyMagnitude, primaryUnitLabel);
+  const primaryText = primaryTextValue === "-" ? "-" : `${sign}${primaryTextValue}`;
 
   const quantityBaseValue = Number(movement?.qtyBaseValue);
   if (!Number.isFinite(quantityBaseValue)) return primaryText;
 
   const baseQtyText = formatQty(Math.abs(quantityBaseValue));
-  const baseUnitLabel = String(movement?.baseUnitLabel || "").trim();
+  const baseUnitLabel = normalizeInlineText(movement?.baseUnitLabel);
+  const primaryUnitText = formatStructuredUnitLabel(primaryUnitLabel);
   const shouldShowBase =
-    baseQtyText !== qtyText || (baseUnitLabel && baseUnitLabel.toLowerCase() !== unit.toLowerCase());
+    baseQtyText !== qtyText ||
+    (baseUnitLabel && !primaryUnitText.toLowerCase().includes(baseUnitLabel.toLowerCase()));
 
   if (!shouldShowBase) return primaryText;
   return `${primaryText} (${sign}${baseQtyText}${baseUnitLabel ? ` ${baseUnitLabel}` : ""} ฐาน)`;
@@ -319,23 +307,12 @@ function getDeltaText(movement) {
 function formatDeltaCompact(movement) {
   const sign = isPositiveMovement(movement?.movementType) ? "+" : "-";
   const qtyValue = Number(movement?.qtyValue);
-  const qtyText = formatQty(Number.isFinite(qtyValue) ? Math.abs(qtyValue) : movement?.qtyValue);
-  const signedQty = qtyText === "-" ? "-" : `${sign}${qtyText}`;
-
-  const movementUnitRaw = normalizeInlineText(movement?.movementUnit);
-  const unitLabelRaw = normalizeInlineText(movement?.unit);
-  const movementPackMeta = parsePackDetail(movementUnitRaw);
-  const unitPackMeta = parsePackDetail(unitLabelRaw);
-
-  const movementUnit = movementPackMeta?.containerUnit || movementUnitRaw;
-  const unitLabel = unitPackMeta?.containerUnit || unitLabelRaw;
-  const packDetail = unitPackMeta?.packDetail || movementPackMeta?.packDetail;
-  const displayUnit = movementUnit || unitLabel;
-
-  let compactText = `${signedQty}${displayUnit ? ` ${displayUnit}` : ""}`.trim();
-  if (packDetail) {
-    compactText = `${compactText} (${packDetail})`;
-  }
+  const qtyMagnitude = Number.isFinite(qtyValue) ? Math.abs(qtyValue) : movement?.qtyValue;
+  const qtyText = formatQty(qtyMagnitude);
+  const primaryUnitLabel = getPrimaryMovementUnitLabel(movement);
+  const primaryUnitText = formatStructuredUnitLabel(primaryUnitLabel);
+  const quantityText = formatQuantityAsUnits(qtyMagnitude, primaryUnitLabel);
+  let compactText = quantityText === "-" ? "-" : `${sign}${quantityText}`;
 
   const quantityBaseValue = Number(movement?.qtyBaseValue);
   if (!Number.isFinite(quantityBaseValue)) return compactText;
@@ -343,12 +320,14 @@ function formatDeltaCompact(movement) {
   const baseQtyText = formatQty(Math.abs(quantityBaseValue));
   const baseUnitLabel = normalizeInlineText(movement?.baseUnitLabel);
   const shouldShowBase =
-    baseQtyText !== qtyText || (baseUnitLabel && baseUnitLabel.toLowerCase() !== displayUnit.toLowerCase());
+    baseQtyText !== qtyText ||
+    (baseUnitLabel && !primaryUnitText.toLowerCase().includes(baseUnitLabel.toLowerCase()));
 
   if (!shouldShowBase) return compactText;
 
   const signedBaseQty = `${sign}${baseQtyText}`;
-  const shouldShowBaseUnit = baseUnitLabel && baseUnitLabel.toLowerCase() !== displayUnit.toLowerCase();
+  const shouldShowBaseUnit =
+    baseUnitLabel && !primaryUnitText.toLowerCase().includes(baseUnitLabel.toLowerCase());
   return `${compactText} • ฐาน ${signedBaseQty}${shouldShowBaseUnit ? ` ${baseUnitLabel}` : ""}`;
 }
 
@@ -361,7 +340,7 @@ function getDeltaTitle(movement) {
     return fullDeltaText;
   }
 
-  return `${fullDeltaText}\nหน่วยที่บันทึกในรายการเดิม: ${movementUnit}`;
+  return `${fullDeltaText}\nหน่วยขายหลัก: ${formatStructuredUnitLabel(unit)}`;
 }
 
 function getOccurredAtCorrectionActorLabel(movement) {
@@ -481,6 +460,9 @@ export default function Receiving() {
       ? userBranchCode
       : "";
   const selectedTransferLotValue = getLotOptionValue(movementForm.lotNo, movementForm.expDate);
+  const selectedUnitOption =
+    productUnitOptions.find((option) => option.id === toCleanText(movementForm.unitLevelId)) || null;
+  const qtyStep = selectedUnitOption?.requiresWholeQuantity ? "1" : "0.001";
 
   const getLocationLabel = useCallback(
     (locationId) => {
@@ -814,8 +796,19 @@ export default function Receiving() {
     }));
   }
 
-  const loadProductUnitOptions = useCallback(async (productId, preferredUnitLabel = "") => {
-    const normalizedProductId = toCleanText(productId);
+  const loadProductUnitOptions = useCallback(async (optionsInput = {}) => {
+    const source =
+      optionsInput && typeof optionsInput === "object" ? optionsInput : { productId: optionsInput };
+    const normalizedProductId = toCleanText(source.productId);
+    const normalizedPreferredUnitLevelId = toCleanText(
+      source.preferredUnitLevelId ?? source.unitLevelId
+    );
+    const normalizedPreferredUnitLabel = toCleanText(
+      source.preferredUnitLabel ?? source.unitLabel ?? source.unit
+    );
+    const normalizedLotId = toCleanText(source.lotId);
+    const normalizedLotNo = toCleanText(source.lotNo);
+    const normalizedExpDate = normalizeDateOnly(source.expDate);
     productUnitRequestSeqRef.current += 1;
     const requestSeq = productUnitRequestSeqRef.current;
 
@@ -834,7 +827,11 @@ export default function Receiving() {
     setIsLoadingProductUnits(true);
     setProductUnitLoadError("");
     try {
-      const response = await productsApi.unitLevels(normalizedProductId);
+      const response = await productsApi.unitLevels(normalizedProductId, {
+        lotId: normalizedLotId,
+        lotNo: normalizedLotNo,
+        expDate: normalizedExpDate,
+      });
       if (requestSeq !== productUnitRequestSeqRef.current) return;
 
       const rows = Array.isArray(response?.items)
@@ -849,6 +846,8 @@ export default function Receiving() {
           isSellable: Boolean(row?.isSellable ?? row?.is_sellable),
           sortOrder: Number(row?.sortOrder ?? row?.sort_order ?? 0),
           quantityPerBase: Number(row?.quantityPerBase ?? row?.quantity_per_base),
+          unitTypeCode: toCleanText(row?.unitTypeCode || row?.unit_type_code),
+          requiresWholeQuantity: unitTypeRequiresWholeQuantity(row?.unitTypeCode || row?.unit_type_code),
         }))
         .filter((row) => row.id && row.displayName)
         .sort((a, b) => {
@@ -857,10 +856,21 @@ export default function Receiving() {
           if (aQpb !== bQpb) return aQpb - bQpb;
           return a.sortOrder - b.sortOrder;
         });
+      const defaultUnitLevelId = toCleanText(
+        response?.defaultUnitLevelId || response?.default_unit_level_id
+      );
+      const preferLotDefault = String(response?.scope || "").trim() === "lot-whitelist";
 
       setProductUnitOptions(options);
 
       if (!options.length) {
+        const loadErrorMessage =
+          String(response?.scope || "").trim() === "lot-whitelist" &&
+          String(response?.fallbackReason || "").trim() ===
+            "lot_whitelist_has_no_active_unit_levels"
+            ? "lot นี้มี packaging whitelist แต่ไม่พบหน่วยที่ยังใช้งานได้ กรุณาตรวจสอบข้อมูล lot"
+            : "ไม่พบหน่วยของสินค้านี้ใน product_unit_levels";
+
         setMovementForm((prev) => ({
           ...prev,
           unitLevelId: "",
@@ -868,13 +878,21 @@ export default function Receiving() {
         }));
         setFormErrors((prev) => ({
           ...prev,
-          unit: "ไม่พบหน่วยของสินค้านี้ใน product_unit_levels",
+          unit: loadErrorMessage,
         }));
-        setProductUnitLoadError("ไม่พบหน่วยของสินค้านี้ใน product_unit_levels");
+        setProductUnitLoadError(loadErrorMessage);
         return;
       }
 
-      const nextUnitOption = options[0];
+      const nextUnitOption = preferLotDefault
+        ? options.find((option) => option.id === defaultUnitLevelId) ||
+          options.find((option) => option.id === normalizedPreferredUnitLevelId) ||
+          options.find((option) => option.displayName === normalizedPreferredUnitLabel) ||
+          options[0]
+        : options.find((option) => option.id === normalizedPreferredUnitLevelId) ||
+          options.find((option) => option.displayName === normalizedPreferredUnitLabel) ||
+          options.find((option) => option.id === defaultUnitLevelId) ||
+          options[0];
 
       setMovementForm((prev) => ({
         ...prev,
@@ -887,19 +905,49 @@ export default function Receiving() {
       }));
     } catch (error) {
       if (requestSeq !== productUnitRequestSeqRef.current) return;
+      const loadErrorMessage = error?.message || "โหลดรายการหน่วยไม่สำเร็จ";
       setProductUnitOptions([]);
       setMovementForm((prev) => ({
         ...prev,
         unitLevelId: "",
         unit: "",
       }));
-      setProductUnitLoadError(error?.message || "โหลดรายการหน่วยไม่สำเร็จ");
+      setFormErrors((prev) => ({
+        ...prev,
+        unit: loadErrorMessage,
+      }));
+      setProductUnitLoadError(loadErrorMessage);
     } finally {
       if (requestSeq === productUnitRequestSeqRef.current) {
         setIsLoadingProductUnits(false);
       }
     }
   }, []);
+
+  useEffect(() => {
+    const productId = toCleanText(movementForm.productId);
+    if (!isMovementModalOpen || !productId) {
+      return;
+    }
+
+    const lotNo = toCleanText(movementForm.lotNo);
+    const expDate = normalizeDateOnly(movementForm.expDate);
+    const hasLotContext = Boolean(lotNo && expDate);
+
+    void loadProductUnitOptions({
+      productId,
+      preferredUnitLevelId: movementForm.unitLevelId,
+      preferredUnitLabel: movementForm.unit,
+      lotNo: hasLotContext ? lotNo : "",
+      expDate: hasLotContext ? expDate : "",
+    });
+  }, [
+    isMovementModalOpen,
+    loadProductUnitOptions,
+    movementForm.expDate,
+    movementForm.lotNo,
+    movementForm.productId,
+  ]);
 
   function handleProductSearchInputChange(event) {
     const keyword = event.target.value;
@@ -953,7 +1001,6 @@ export default function Receiving() {
       lotNo: "",
       expDate: "",
     }));
-    void loadProductUnitOptions(product.id, product.packageSize || product.unitSymbol);
   }
 
   function handleMovementTypeChange(event) {
@@ -1140,9 +1187,6 @@ export default function Receiving() {
   function validateForm() {
     const errors = {};
     const qtyNumber = Number(movementForm.qty);
-    const selectedUnitOption = productUnitOptions.find(
-      (option) => option.id === toCleanText(movementForm.unitLevelId)
-    );
 
     if (!movementForm.movementType) {
       errors.movementType = "กรุณาเลือกประเภทการเคลื่อนไหว";
@@ -1187,6 +1231,8 @@ export default function Receiving() {
     }
     if (!Number.isFinite(qtyNumber) || qtyNumber <= 0) {
       errors.qty = "กรุณาระบุจำนวนที่มากกว่า 0";
+    } else if (selectedUnitOption?.requiresWholeQuantity && !Number.isInteger(qtyNumber)) {
+      errors.qty = "หน่วยที่เลือกต้องเป็นจำนวนเต็ม";
     }
     if (isLoadingProductUnits) {
       errors.unit = "กำลังโหลดรายการหน่วย กรุณารอสักครู่";
@@ -1199,7 +1245,7 @@ export default function Receiving() {
     ) {
       errors.unit = "หน่วยที่เลือกไม่ตรงกับ product_unit_levels";
     } else if (movementForm.productId && !productUnitOptions.length) {
-      errors.unit = "ไม่พบหน่วยของสินค้านี้ใน product_unit_levels";
+      errors.unit = productUnitLoadError || "ไม่พบหน่วยของสินค้านี้ใน product_unit_levels";
     }
     if (isTransferOutMovement) {
       if (isLoadingTransferLots) {
@@ -1637,7 +1683,7 @@ export default function Receiving() {
                     id="movementQty"
                     type="number"
                     min="0"
-                    step="0.001"
+                    step={qtyStep}
                     className="qinput"
                     value={movementForm.qty ?? ""}
                     onChange={(event) => setField("qty", event.target.value)}

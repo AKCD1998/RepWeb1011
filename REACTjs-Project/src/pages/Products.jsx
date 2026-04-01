@@ -16,6 +16,16 @@ const EMPTY_INGREDIENT = {
   useCustomDenominatorUnit: false,
 };
 
+const EMPTY_PACKAGING_LEVEL = {
+  id: "",
+  displayName: "",
+  unitTypeCode: "",
+  quantityPerBase: "",
+  barcode: "",
+  isBase: false,
+  isSellable: false,
+};
+
 const PACKAGE_SIZE_OPTIONS = [
   "1 กระปุก x 60 เม็ด",
   "1 กล่อง x 100 แผง x 10 เม็ด",
@@ -60,6 +70,10 @@ const CUSTOM_DENOMINATOR_UNIT_VALUE = "__CUSTOM_DENOMINATOR_UNIT__";
 
 function createEmptyIngredient() {
   return { ...EMPTY_INGREDIENT };
+}
+
+function createEmptyPackagingLevel(overrides = {}) {
+  return { ...EMPTY_PACKAGING_LEVEL, ...overrides };
 }
 
 function getIngredientNameKey(value) {
@@ -109,16 +123,20 @@ function normalizeUnitTypeOptions(payload) {
 function createEmptyForm() {
   return {
     productCode: "",
-    barcode: "",
     tradeName: "",
     genericName: "",
     dosageFormCode: "TABLET",
     manufacturerName: "",
-    packageSize: "",
-    unitTypeCode: "",
     price: "",
     reportGroupCode: "",
     noteText: "",
+    packagingLevels: [
+      createEmptyPackagingLevel({
+        quantityPerBase: "1",
+        isBase: true,
+        isSellable: true,
+      }),
+    ],
     ingredients: [createEmptyIngredient()],
   };
 }
@@ -134,6 +152,50 @@ function isIngredientRowBlank(ingredient) {
     !String(ingredient?.strengthDenominator || "").trim() &&
     !String(ingredient?.denominatorUnitCode || "").trim()
   );
+}
+
+function isPackagingLevelRowBlank(level) {
+  return (
+    !String(level?.id || "").trim() &&
+    !String(level?.displayName || "").trim() &&
+    !String(level?.unitTypeCode || "").trim() &&
+    !String(level?.quantityPerBase || "").trim() &&
+    !String(level?.barcode || "").trim()
+  );
+}
+
+function normalizePackagingLevelForForm(level) {
+  return {
+    id: String(level?.id || "").trim(),
+    displayName: String(level?.displayName ?? level?.packageSize ?? "").trim(),
+    unitTypeCode: String(level?.unitTypeCode || "").trim().toUpperCase(),
+    quantityPerBase:
+      level?.quantityPerBase === null || level?.quantityPerBase === undefined
+        ? ""
+        : String(level.quantityPerBase),
+    barcode: String(level?.barcode || "").trim(),
+    isBase: Boolean(level?.isBase),
+    isSellable: Boolean(level?.isSellable),
+  };
+}
+
+function createPackagingLevelsForForm(item) {
+  const rows = Array.isArray(item?.packagingLevels)
+    ? item.packagingLevels.map(normalizePackagingLevelForForm)
+    : [];
+
+  if (rows.length) return rows;
+
+  return [
+    createEmptyPackagingLevel({
+      displayName: String(item?.packageSize || "").trim(),
+      unitTypeCode: String(item?.unitTypeCode || "").trim().toUpperCase(),
+      quantityPerBase: "1",
+      barcode: String(item?.barcode || "").trim(),
+      isBase: true,
+      isSellable: true,
+    }),
+  ];
 }
 
 function normalizeIngredientForForm(
@@ -187,6 +249,54 @@ function normalizeApiError(error) {
   return error.message || "Request failed";
 }
 
+function normalizeLotWhitelistPayload(payload) {
+  const unitLevelRows = Array.isArray(payload?.unitLevels) ? payload.unitLevels : [];
+  const lotRows = Array.isArray(payload?.lots) ? payload.lots : [];
+
+  return {
+    productId: String(payload?.productId || "").trim(),
+    unitLevels: unitLevelRows
+      .map((row) => ({
+        id: String(row?.id || "").trim(),
+        displayName: String(row?.displayName || row?.display_name || row?.code || "-").trim(),
+        unitTypeCode: String(row?.unitTypeCode || row?.unit_type_code || "").trim().toUpperCase(),
+        isBase: Boolean(row?.isBase ?? row?.is_base),
+        isSellable: Boolean(row?.isSellable ?? row?.is_sellable),
+      }))
+      .filter((row) => row.id),
+    lots: lotRows
+      .map((row) => ({
+        id: String(row?.id || "").trim(),
+        lotNo: String(row?.lotNo || row?.lot_no || "").trim(),
+        expDate: String(row?.expDate || row?.exp_date || "").trim(),
+        hasWhitelist: Boolean(row?.hasWhitelist ?? row?.has_whitelist),
+        allowedUnitLevelIds: Array.isArray(row?.allowedUnitLevelIds)
+          ? [...new Set(row.allowedUnitLevelIds.map((value) => String(value || "").trim()).filter(Boolean))]
+          : [],
+        defaultUnitLevelId: String(row?.defaultUnitLevelId || row?.default_unit_level_id || "").trim(),
+        invalidUnitLevelIds: Array.isArray(row?.invalidUnitLevelIds)
+          ? [...new Set(row.invalidUnitLevelIds.map((value) => String(value || "").trim()).filter(Boolean))]
+          : [],
+      }))
+      .filter((row) => row.id),
+  };
+}
+
+function createLotWhitelistDraft(lot) {
+  const allowedUnitLevelIds = Array.isArray(lot?.allowedUnitLevelIds)
+    ? [...new Set(lot.allowedUnitLevelIds.map((value) => String(value || "").trim()).filter(Boolean))]
+    : [];
+  const defaultUnitLevelId = String(lot?.defaultUnitLevelId || "").trim();
+
+  return {
+    allowedUnitLevelIds,
+    defaultUnitLevelId:
+      defaultUnitLevelId && allowedUnitLevelIds.includes(defaultUnitLevelId)
+        ? defaultUnitLevelId
+        : "",
+  };
+}
+
 export default function Products() {
   const [items, setItems] = useState([]);
   const [reportGroups, setReportGroups] = useState([]);
@@ -210,6 +320,20 @@ export default function Products() {
   const [saving, setSaving] = useState(false);
   const [errorText, setErrorText] = useState("");
   const [statusText, setStatusText] = useState("");
+  const [lotWhitelistData, setLotWhitelistData] = useState(() => ({
+    productId: "",
+    unitLevels: [],
+    lots: [],
+  }));
+  const [selectedLotWhitelistLotId, setSelectedLotWhitelistLotId] = useState("");
+  const [lotWhitelistDraft, setLotWhitelistDraft] = useState(() => ({
+    allowedUnitLevelIds: [],
+    defaultUnitLevelId: "",
+  }));
+  const [isLoadingLotWhitelists, setIsLoadingLotWhitelists] = useState(false);
+  const [isSavingLotWhitelist, setIsSavingLotWhitelist] = useState(false);
+  const [lotWhitelistError, setLotWhitelistError] = useState("");
+  const [lotWhitelistStatus, setLotWhitelistStatus] = useState("");
   const customGenericInputRef = useRef(null);
   const activeIngredientsCacheRef = useRef(new Map());
   const ingredientUnitsCacheRef = useRef(new Map());
@@ -227,6 +351,64 @@ export default function Products() {
       setLoading(false);
     }
   }, []);
+
+  const resetLotWhitelistState = useCallback(() => {
+    setLotWhitelistData({
+      productId: "",
+      unitLevels: [],
+      lots: [],
+    });
+    setSelectedLotWhitelistLotId("");
+    setLotWhitelistDraft({
+      allowedUnitLevelIds: [],
+      defaultUnitLevelId: "",
+    });
+    setLotWhitelistError("");
+    setLotWhitelistStatus("");
+    setIsLoadingLotWhitelists(false);
+    setIsSavingLotWhitelist(false);
+  }, []);
+
+  const loadLotWhitelists = useCallback(
+    async (productId) => {
+      const normalizedProductId = String(productId || "").trim();
+      if (!normalizedProductId) {
+        resetLotWhitelistState();
+        return;
+      }
+
+      setIsLoadingLotWhitelists(true);
+      setLotWhitelistError("");
+      setLotWhitelistStatus("");
+      try {
+        const payload = await productsApi.lotWhitelists(normalizedProductId);
+        const normalized = normalizeLotWhitelistPayload(payload);
+        setLotWhitelistData(normalized);
+        setSelectedLotWhitelistLotId((prev) => {
+          const currentId = String(prev || "").trim();
+          if (currentId && normalized.lots.some((lot) => lot.id === currentId)) {
+            return currentId;
+          }
+          return normalized.lots[0]?.id || "";
+        });
+      } catch (error) {
+        setLotWhitelistData({
+          productId: normalizedProductId,
+          unitLevels: [],
+          lots: [],
+        });
+        setSelectedLotWhitelistLotId("");
+        setLotWhitelistDraft({
+          allowedUnitLevelIds: [],
+          defaultUnitLevelId: "",
+        });
+        setLotWhitelistError(normalizeApiError(error));
+      } finally {
+        setIsLoadingLotWhitelists(false);
+      }
+    },
+    [resetLotWhitelistState]
+  );
 
   const loadActiveIngredients = useCallback(async (searchValue) => {
     const normalizedSearch = String(searchValue || "").trim();
@@ -378,6 +560,15 @@ export default function Products() {
     customGenericInputRef.current?.focus();
   }, [genericSelection]);
 
+  useEffect(() => {
+    if (!editingId) {
+      resetLotWhitelistState();
+      return;
+    }
+
+    void loadLotWhitelists(editingId);
+  }, [editingId, loadLotWhitelists, resetLotWhitelistState]);
+
   const isEditMode = Boolean(editingId);
   const activeIngredientOptionsById = useMemo(
     () => new Map(activeIngredientOptions.map((option) => [option.id, option])),
@@ -403,16 +594,8 @@ export default function Products() {
       { code: "KY11", thaiName: "บัญชีการขายยาอันตราย (ข.ย.11)" },
     ];
   }, [reportGroups]);
-  const packageSizeOptions = useMemo(() => PACKAGE_SIZE_OPTIONS, []);
-  const isLegacyPackageSizeValue = useMemo(() => {
-    if (!form.packageSize) return false;
-    return !packageSizeOptions.includes(form.packageSize);
-  }, [form.packageSize, packageSizeOptions]);
   const unitTypeCodeOptions = useMemo(() => UNIT_TYPE_CODE_OPTIONS, []);
-  const isLegacyUnitTypeCodeValue = useMemo(() => {
-    if (!form.unitTypeCode) return false;
-    return !unitTypeCodeOptions.includes(form.unitTypeCode);
-  }, [form.unitTypeCode, unitTypeCodeOptions]);
+  const packageSizeOptions = useMemo(() => PACKAGE_SIZE_OPTIONS, []);
   const dosageFormCodeOptions = useMemo(() => DOSAGE_FORM_CODE_OPTIONS, []);
   const isLegacyDosageFormCodeValue = useMemo(() => {
     if (!form.dosageFormCode) return false;
@@ -424,6 +607,12 @@ export default function Products() {
     }
     return String(genericSelection || "").trim();
   }, [customGenericName, genericSelection]);
+  const selectedLotWhitelistLot = useMemo(
+    () =>
+      lotWhitelistData.lots.find((lot) => lot.id === String(selectedLotWhitelistLotId || "").trim()) ||
+      null,
+    [lotWhitelistData.lots, selectedLotWhitelistLotId]
+  );
 
   useEffect(() => {
     if (!isEditMode || !activeIngredientOptionsByName.size) return;
@@ -492,6 +681,12 @@ export default function Products() {
       return { ...prev, ingredients: nextIngredients };
     });
   }, [ingredientUnitOptionsByCode, isEditMode]);
+
+  useEffect(() => {
+    setLotWhitelistDraft(createLotWhitelistDraft(selectedLotWhitelistLot));
+    setLotWhitelistStatus("");
+    setLotWhitelistError("");
+  }, [selectedLotWhitelistLot]);
 
   const handleGenericSelectionChange = (event) => {
     const nextValue = String(event.target.value || "").trim();
@@ -720,6 +915,132 @@ export default function Products() {
     });
   };
 
+  const updatePackagingLevelField = (index, field, value) => {
+    setForm((prev) => ({
+      ...prev,
+      packagingLevels: prev.packagingLevels.map((level, currentIndex) =>
+        currentIndex === index ? { ...level, [field]: value } : level
+      ),
+    }));
+  };
+
+  const setPackagingLevelExclusiveFlag = (index, field) => {
+    setForm((prev) => ({
+      ...prev,
+      packagingLevels: prev.packagingLevels.map((level, currentIndex) => ({
+        ...level,
+        [field]: currentIndex === index,
+      })),
+    }));
+  };
+
+  const addPackagingLevelRow = () => {
+    setForm((prev) => ({
+      ...prev,
+      packagingLevels: [...prev.packagingLevels, createEmptyPackagingLevel()],
+    }));
+  };
+
+  const removePackagingLevelRow = (index) => {
+    setForm((prev) => {
+      if (prev.packagingLevels.length <= 1) {
+        return {
+          ...prev,
+          packagingLevels: [
+            createEmptyPackagingLevel({
+              quantityPerBase: "1",
+              isBase: true,
+              isSellable: true,
+            }),
+          ],
+        };
+      }
+
+      const nextPackagingLevels = prev.packagingLevels.filter((_, currentIndex) => currentIndex !== index);
+      if (!nextPackagingLevels.some((level) => level.isBase)) {
+        nextPackagingLevels[0] = {
+          ...nextPackagingLevels[0],
+          isBase: true,
+          quantityPerBase: "1",
+        };
+      }
+      if (!nextPackagingLevels.some((level) => level.isSellable)) {
+        nextPackagingLevels[0] = { ...nextPackagingLevels[0], isSellable: true };
+      }
+
+      return {
+        ...prev,
+        packagingLevels: nextPackagingLevels,
+      };
+    });
+  };
+
+  const handleLotWhitelistUnitToggle = (unitLevelId, checked) => {
+    const normalizedUnitLevelId = String(unitLevelId || "").trim();
+    if (!normalizedUnitLevelId) return;
+
+    setLotWhitelistDraft((prev) => {
+      const nextAllowedUnitLevelIds = checked
+        ? [...new Set([...prev.allowedUnitLevelIds, normalizedUnitLevelId])]
+        : prev.allowedUnitLevelIds.filter((value) => value !== normalizedUnitLevelId);
+      const nextDefaultUnitLevelId = nextAllowedUnitLevelIds.includes(prev.defaultUnitLevelId)
+        ? prev.defaultUnitLevelId
+        : "";
+
+      return {
+        allowedUnitLevelIds: nextAllowedUnitLevelIds,
+        defaultUnitLevelId: nextDefaultUnitLevelId,
+      };
+    });
+    setLotWhitelistStatus("");
+    setLotWhitelistError("");
+  };
+
+  const handleLotWhitelistDefaultChange = (unitLevelId) => {
+    const normalizedUnitLevelId = String(unitLevelId || "").trim();
+    setLotWhitelistDraft((prev) => ({
+      allowedUnitLevelIds: prev.allowedUnitLevelIds.includes(normalizedUnitLevelId)
+        ? prev.allowedUnitLevelIds
+        : [...prev.allowedUnitLevelIds, normalizedUnitLevelId],
+      defaultUnitLevelId: normalizedUnitLevelId,
+    }));
+    setLotWhitelistStatus("");
+    setLotWhitelistError("");
+  };
+
+  const handleLotWhitelistReset = () => {
+    setLotWhitelistDraft(createLotWhitelistDraft(selectedLotWhitelistLot));
+    setLotWhitelistStatus("");
+    setLotWhitelistError("");
+  };
+
+  const handleLotWhitelistSave = async () => {
+    if (!editingId) {
+      setLotWhitelistError("กรุณาเลือกสินค้าแบบแก้ไขก่อนจัดการ lot whitelist");
+      return;
+    }
+    if (!selectedLotWhitelistLot?.id) {
+      setLotWhitelistError("กรุณาเลือก lot ที่ต้องการจัดการ");
+      return;
+    }
+
+    setIsSavingLotWhitelist(true);
+    setLotWhitelistError("");
+    setLotWhitelistStatus("");
+    try {
+      await productsApi.updateLotWhitelist(editingId, selectedLotWhitelistLot.id, {
+        allowedUnitLevelIds: lotWhitelistDraft.allowedUnitLevelIds,
+        defaultUnitLevelId: lotWhitelistDraft.defaultUnitLevelId,
+      });
+      await loadLotWhitelists(editingId);
+      setLotWhitelistStatus("บันทึก lot whitelist แล้ว");
+    } catch (error) {
+      setLotWhitelistError(normalizeApiError(error));
+    } finally {
+      setIsSavingLotWhitelist(false);
+    }
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setSaving(true);
@@ -739,19 +1060,45 @@ export default function Products() {
           denominatorUnitCode: ingredient.denominatorUnitCode.trim() || null,
         }))
         .filter((ingredient) => !isIngredientRowBlank(ingredient));
+      const packagingLevelsPayload = form.packagingLevels
+        .filter((level) => !isPackagingLevelRowBlank(level))
+        .map((level) => ({
+          id: level.id || undefined,
+          displayName: level.displayName.trim(),
+          unitTypeCode: level.unitTypeCode.trim().toUpperCase(),
+          quantityPerBase: level.quantityPerBase === "" ? null : level.quantityPerBase,
+          barcode: level.barcode.trim() || null,
+          isBase: Boolean(level.isBase),
+          isSellable: Boolean(level.isSellable),
+        }));
+      const basePackagingCount = packagingLevelsPayload.filter((level) => level.isBase).length;
+      const sellablePackagingCount = packagingLevelsPayload.filter((level) => level.isSellable).length;
+
+      if (!packagingLevelsPayload.length) {
+        throw new Error("ต้องมี packaging level อย่างน้อย 1 รายการ");
+      }
+      if (basePackagingCount !== 1) {
+        throw new Error("ต้องเลือกหน่วยฐานให้สินค้า 1 รายการ");
+      }
+      if (sellablePackagingCount !== 1) {
+        throw new Error("ต้องเลือกหน่วยขายหลักให้สินค้า 1 รายการ");
+      }
+      const primaryPackagingLevel =
+        packagingLevelsPayload.find((level) => level.isSellable) || packagingLevelsPayload[0] || null;
 
       const payload = {
         productCode: form.productCode || null,
-        barcode: form.barcode || null,
+        barcode: primaryPackagingLevel?.barcode || null,
         tradeName: form.tradeName,
         genericName: genericNameValueForSubmit || null,
         dosageFormCode: form.dosageFormCode || "TABLET",
         manufacturerName: form.manufacturerName || null,
-        packageSize: form.packageSize || null,
-        unitTypeCode: form.unitTypeCode || null,
+        packageSize: primaryPackagingLevel?.displayName || null,
+        unitTypeCode: primaryPackagingLevel?.unitTypeCode || null,
         price: form.price === "" ? null : form.price,
         reportGroupCodes: form.reportGroupCode ? [form.reportGroupCode] : [],
         noteText: form.noteText || null,
+        packagingLevels: packagingLevelsPayload,
         ingredients: ingredientsPayload,
       };
 
@@ -783,20 +1130,19 @@ export default function Products() {
             )
           )
         : [createEmptyIngredient()];
+    const packagingLevels = createPackagingLevelsForForm(item);
 
     setEditingId(item.id);
     setForm({
       productCode: item.productCode || "",
-      barcode: item.barcode || "",
       tradeName: item.tradeName || "",
       genericName: item.genericName || "",
       dosageFormCode: item.dosageFormCode || "TABLET",
       manufacturerName: item.manufacturerName || "",
-      packageSize: item.packageSize || "",
-      unitTypeCode: item.unitTypeCode || "",
       price: item.price === null || item.price === undefined ? "" : String(item.price),
       reportGroupCode: Array.isArray(item.reportGroupCodes) ? item.reportGroupCodes[0] || "" : "",
       noteText: item.noteText || "",
+      packagingLevels,
       ingredients: ingredientRows,
     });
     syncGenericControls(item.genericName || "");
@@ -851,14 +1197,6 @@ export default function Products() {
               onChange={(event) =>
                 setForm((prev) => ({ ...prev, productCode: event.target.value }))
               }
-            />
-          </label>
-          <label>
-            บาร์โค้ด
-            <input
-              type="text"
-              value={form.barcode}
-              onChange={(event) => setForm((prev) => ({ ...prev, barcode: event.target.value }))}
             />
           </label>
           <label>
@@ -917,25 +1255,6 @@ export default function Products() {
             ) : null}
           </label>
           <label>
-            ขนาดบรรจุภัณฑ์
-            <select
-              value={form.packageSize}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, packageSize: event.target.value }))
-              }
-            >
-              <option value="">เลือกขนาดบรรจุภัณฑ์</option>
-              {isLegacyPackageSizeValue ? (
-                <option value={form.packageSize}>{`${form.packageSize} (legacy)`}</option>
-              ) : null}
-              {packageSizeOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
             Dosage Form Code
             <select
               value={form.dosageFormCode}
@@ -948,25 +1267,6 @@ export default function Products() {
                 <option value={form.dosageFormCode}>{`${form.dosageFormCode} (legacy)`}</option>
               ) : null}
               {dosageFormCodeOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Unit Type Code
-            <select
-              value={form.unitTypeCode}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, unitTypeCode: event.target.value }))
-              }
-            >
-              <option value="">เลือก Unit Type Code</option>
-              {isLegacyUnitTypeCodeValue ? (
-                <option value={form.unitTypeCode}>{`${form.unitTypeCode} (legacy)`}</option>
-              ) : null}
-              {unitTypeCodeOptions.map((option) => (
                 <option key={option} value={option}>
                   {option}
                 </option>
@@ -1000,6 +1300,117 @@ export default function Products() {
               ))}
             </select>
           </label>
+          <div className="products-packaging">
+            <div className="products-packaging-header">
+              <strong>Packaging Levels</strong>
+              <button
+                type="button"
+                className="products-btn small secondary"
+                onClick={addPackagingLevelRow}
+              >
+                เพิ่ม packaging level
+              </button>
+            </div>
+            <div className="products-packaging-legend">
+              <span>ชื่อบรรจุภัณฑ์</span>
+              <span>Unit Type</span>
+              <span>จำนวนหน่วยฐาน</span>
+              <span>บาร์โค้ด</span>
+              <span>ฐาน</span>
+              <span>ขาย</span>
+              <span>จัดการ</span>
+            </div>
+            {form.packagingLevels.map((level, index) => {
+              const hasLegacyUnitTypeCode =
+                Boolean(level.unitTypeCode) && !unitTypeCodeOptions.includes(level.unitTypeCode);
+
+              return (
+                <div className="products-packaging-row" key={level.id || `packaging-${index}`}>
+                  <input
+                    type="text"
+                    list="products-package-size-options"
+                    placeholder="เช่น 1 แผง x 10 เม็ด"
+                    value={level.displayName}
+                    onChange={(event) =>
+                      updatePackagingLevelField(index, "displayName", event.target.value)
+                    }
+                  />
+                  <select
+                    value={level.unitTypeCode}
+                    onChange={(event) =>
+                      updatePackagingLevelField(index, "unitTypeCode", event.target.value)
+                    }
+                  >
+                    <option value="">เลือก Unit Type</option>
+                    {hasLegacyUnitTypeCode ? (
+                      <option value={level.unitTypeCode}>{`${level.unitTypeCode} (legacy)`}</option>
+                    ) : null}
+                    {unitTypeCodeOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    min="0.001"
+                    step="0.001"
+                    placeholder="เช่น 3"
+                    value={level.quantityPerBase}
+                    disabled={level.isBase}
+                    onChange={(event) =>
+                      updatePackagingLevelField(index, "quantityPerBase", event.target.value)
+                    }
+                  />
+                  <input
+                    type="text"
+                    placeholder="barcode (optional)"
+                    value={level.barcode}
+                    onChange={(event) =>
+                      updatePackagingLevelField(index, "barcode", event.target.value)
+                    }
+                  />
+                  <label className="products-packaging-flag">
+                    <input
+                      type="radio"
+                      name="products-base-packaging"
+                      checked={level.isBase}
+                      onChange={() => {
+                        setPackagingLevelExclusiveFlag(index, "isBase");
+                        updatePackagingLevelField(index, "quantityPerBase", "1");
+                      }}
+                    />
+                    ฐาน
+                  </label>
+                  <label className="products-packaging-flag">
+                    <input
+                      type="radio"
+                      name="products-sellable-packaging"
+                      checked={level.isSellable}
+                      onChange={() => setPackagingLevelExclusiveFlag(index, "isSellable")}
+                    />
+                    ขาย
+                  </label>
+                  <button
+                    type="button"
+                    className="products-btn small danger"
+                    onClick={() => removePackagingLevelRow(index)}
+                  >
+                    ลบ
+                  </button>
+                </div>
+              );
+            })}
+            <datalist id="products-package-size-options">
+              {packageSizeOptions.map((option) => (
+                <option key={option} value={option} />
+              ))}
+            </datalist>
+            <p className="products-ingredient-hint">
+              `จำนวนหน่วยฐาน` คือจำนวนของหน่วยเล็กสุดต่อ 1 packaging level นี้ เช่น กล่อง 3 แผง ให้ใส่
+              `3` ถ้าหน่วยฐานคือแผง
+            </p>
+          </div>
           <div className="products-ingredients">
             <div className="products-ingredients-header">
               <strong>ตัวยาสำคัญ (สูตรผสม)</strong>
@@ -1194,6 +1605,140 @@ export default function Products() {
         </div>
       </form>
 
+      {isEditMode ? (
+        <section className="products-lot-whitelist">
+          <div className="products-lot-whitelist__header">
+            <div>
+              <h2>Lot-Specific Whitelist</h2>
+              <p>ส่วนนี้แยกจาก Packaging Levels ของสินค้า และใช้กับ lot ที่บันทึกแล้วเท่านั้น</p>
+            </div>
+          </div>
+
+          {isLoadingLotWhitelists ? (
+            <div className="products-lot-whitelist__empty">กำลังโหลด lot และ whitelist...</div>
+          ) : lotWhitelistError ? (
+            <div className="products-alert error">{lotWhitelistError}</div>
+          ) : !lotWhitelistData.lots.length ? (
+            <div className="products-lot-whitelist__empty">
+              สินค้านี้ยังไม่มี lot ที่บันทึกในระบบ จึงยังไม่มี whitelist ให้จัดการ
+            </div>
+          ) : (
+            <>
+              <div className="products-lot-whitelist__toolbar">
+                <label>
+                  เลือก lot
+                  <select
+                    value={selectedLotWhitelistLotId}
+                    onChange={(event) => setSelectedLotWhitelistLotId(event.target.value)}
+                    disabled={isSavingLotWhitelist}
+                  >
+                    {lotWhitelistData.lots.map((lot) => (
+                      <option key={lot.id} value={lot.id}>
+                        {`${lot.lotNo || "-"} • exp ${lot.expDate || "-"}${
+                          lot.hasWhitelist ? " • มี whitelist" : " • fallback"
+                        }`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="products-lot-whitelist__meta">
+                  <span>ใช้ packaging levels ที่บันทึกแล้วของสินค้าเท่านั้น</span>
+                  <span>ถ้าบันทึกแบบว่าง ระบบจะกลับไป fallback ระดับสินค้า</span>
+                </div>
+              </div>
+
+              {selectedLotWhitelistLot ? (
+                <div className="products-lot-whitelist__body">
+                  <div className="products-lot-whitelist__summary">
+                    <div>
+                      <strong>Lot</strong>
+                      <div>{selectedLotWhitelistLot.lotNo || "-"}</div>
+                    </div>
+                    <div>
+                      <strong>Exp</strong>
+                      <div>{selectedLotWhitelistLot.expDate || "-"}</div>
+                    </div>
+                    <div>
+                      <strong>สถานะ</strong>
+                      <div>
+                        {selectedLotWhitelistLot.hasWhitelist
+                          ? "มี lot whitelist"
+                          : "ยังใช้ fallback ระดับสินค้า"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {selectedLotWhitelistLot.invalidUnitLevelIds.length ? (
+                    <div className="products-alert error">
+                      lot นี้มี whitelist เก่าที่อ้างถึง packaging ที่ไม่ active แล้ว กรุณาเลือกและบันทึกใหม่
+                    </div>
+                  ) : null}
+
+                  <div className="products-lot-whitelist__levels">
+                    {lotWhitelistData.unitLevels.map((unitLevel) => {
+                      const isChecked = lotWhitelistDraft.allowedUnitLevelIds.includes(unitLevel.id);
+                      return (
+                        <div className="products-lot-whitelist__level" key={unitLevel.id}>
+                          <label className="products-lot-whitelist__level-check">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              disabled={isSavingLotWhitelist}
+                              onChange={(event) =>
+                                handleLotWhitelistUnitToggle(unitLevel.id, event.target.checked)
+                              }
+                            />
+                            <span>{unitLevel.displayName}</span>
+                          </label>
+                          <div className="products-lot-whitelist__level-meta">
+                            <span>{unitLevel.unitTypeCode || "-"}</span>
+                            {unitLevel.isBase ? <span>ฐาน</span> : null}
+                            {unitLevel.isSellable ? <span>ขายหลัก</span> : null}
+                          </div>
+                          <label className="products-lot-whitelist__default">
+                            <input
+                              type="radio"
+                              name="products-lot-whitelist-default"
+                              checked={lotWhitelistDraft.defaultUnitLevelId === unitLevel.id}
+                              disabled={!isChecked || isSavingLotWhitelist}
+                              onChange={() => handleLotWhitelistDefaultChange(unitLevel.id)}
+                            />
+                            <span>default</span>
+                          </label>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="products-lot-whitelist__actions">
+                    <button
+                      type="button"
+                      className="products-btn"
+                      onClick={handleLotWhitelistSave}
+                      disabled={isSavingLotWhitelist}
+                    >
+                      {isSavingLotWhitelist ? "กำลังบันทึก..." : "บันทึก lot whitelist"}
+                    </button>
+                    <button
+                      type="button"
+                      className="products-btn secondary"
+                      onClick={handleLotWhitelistReset}
+                      disabled={isSavingLotWhitelist}
+                    >
+                      คืนค่าตามที่บันทึกไว้
+                    </button>
+                  </div>
+
+                  {lotWhitelistStatus ? (
+                    <div className="products-alert success">{lotWhitelistStatus}</div>
+                  ) : null}
+                </div>
+              ) : null}
+            </>
+          )}
+        </section>
+      ) : null}
+
       {errorText ? <div className="products-alert error">{errorText}</div> : null}
       {statusText ? <div className="products-alert success">{statusText}</div> : null}
 
@@ -1227,9 +1772,8 @@ export default function Products() {
                   <td>{item.tradeName}</td>
                   <td>{item.manufacturerName || "-"}</td>
                   <td>{item.genericName || "-"}</td>
-                  <td>
-                    {item.packageSize || "-"}
-                    {item.unitTypeCode ? ` (${item.unitTypeCode})` : ""}
+                  <td title={item.packagingSummary || item.packageSize || "-"}>
+                    {item.packagingSummary || item.packageSize || "-"}
                   </td>
                   <td>
                     {item.price === null || item.price === undefined

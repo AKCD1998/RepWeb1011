@@ -7,7 +7,19 @@ const STABLE_UNIT_CODE_PREFIX = "ULK_";
 const STABLE_UNIT_CODE_LENGTH = 48;
 
 let hasUnitKeyColumnCache = null;
+let hasProductUnitLevelsIsActiveColumnCache = null;
+let hasProductLotAllowedUnitLevelsTableCache = null;
 let unitKeyLegacyWarningPrinted = false;
+let lotWhitelistTableMissingWarningPrinted = false;
+let lotWhitelistTableIncompleteWarningPrinted = false;
+
+const PRODUCT_LOT_ALLOWED_UNIT_LEVELS_REQUIRED_COLUMNS = [
+  "product_id",
+  "product_lot_id",
+  "unit_level_id",
+  "is_active",
+  "is_default",
+];
 
 function normalizeText(value) {
   return String(value ?? "").trim();
@@ -15,6 +27,12 @@ function normalizeText(value) {
 
 function normalizeWhitespace(value) {
   return normalizeText(value).replace(/\s+/g, " ");
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    normalizeText(value)
+  );
 }
 
 function normalizeUnitCode(unitLabel) {
@@ -30,6 +48,24 @@ function unitKindFromCode(code) {
   if (["ML", "L"].includes(code)) return "VOLUME";
   if (["TABLET", "CAPSULE", "TAB", "CAP", "INHALATION"].includes(code)) return "COUNT";
   return "PACKAGE";
+}
+
+function getUnitTypeCodeFromUnitLevel(unitLevel) {
+  return toAsciiToken(
+    getUnitKeyToken(unitLevel?.unit_key, "ut") ??
+      getUnitKeyToken(unitLevel?.unitKey, "ut") ??
+      unitLevel?.unit_type_code ??
+      unitLevel?.unitTypeCode ??
+      unitLevel?.code,
+    ""
+  );
+}
+
+function requiresWholeQuantity(unitLevel) {
+  const unitTypeCode = getUnitTypeCodeFromUnitLevel(unitLevel);
+  if (!unitTypeCode) return false;
+  const kind = unitKindFromCode(unitTypeCode);
+  return kind === "COUNT" || kind === "PACKAGE";
 }
 
 function toPositiveInteger(value) {
@@ -194,7 +230,157 @@ async function hasUnitKeyColumn(client) {
   return hasUnitKeyColumnCache;
 }
 
+export async function hasProductUnitLevelsIsActiveColumn(client) {
+  if (hasProductUnitLevelsIsActiveColumnCache === true) {
+    return true;
+  }
+
+  const result = await client.query(
+    `
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'product_unit_levels'
+        AND column_name = 'is_active'
+      LIMIT 1
+    `
+  );
+  if (result.rows[0]) {
+    hasProductUnitLevelsIsActiveColumnCache = true;
+    return true;
+  }
+
+  return false;
+}
+
+export function productUnitLevelsIsActiveCompatExpression(alias = "pul") {
+  const source = normalizeText(alias);
+  if (!source) return "true";
+  return `COALESCE((to_jsonb(${source}) ->> 'is_active')::boolean, true)`;
+}
+
+export function productUnitLevelsActiveCompatPredicate(alias = "pul") {
+  return `${productUnitLevelsIsActiveCompatExpression(alias)} = true`;
+}
+
+export function productUnitLevelsInactiveCompatPredicate(alias = "pul") {
+  return `${productUnitLevelsIsActiveCompatExpression(alias)} = false`;
+}
+
+export async function hasProductLotAllowedUnitLevelsTable(client) {
+  if (hasProductLotAllowedUnitLevelsTableCache === true) {
+    return true;
+  }
+
+  const result = await client.query(
+    `
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = 'product_lot_allowed_unit_levels'
+      LIMIT 1
+    `
+  );
+
+  if (!result.rows[0]) {
+    if (!lotWhitelistTableMissingWarningPrinted) {
+      console.warn(
+        "[lot-whitelist] product_lot_allowed_unit_levels is not deployed yet. Lot-specific whitelist behavior will stay on transitional fallback until migration 0017 is applied."
+      );
+      lotWhitelistTableMissingWarningPrinted = true;
+    }
+    return false;
+  }
+
+  const columnResult = await client.query(
+    `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'product_lot_allowed_unit_levels'
+        AND column_name = ANY($1::text[])
+    `,
+    [PRODUCT_LOT_ALLOWED_UNIT_LEVELS_REQUIRED_COLUMNS]
+  );
+
+  const presentColumns = new Set(columnResult.rows.map((row) => normalizeText(row.column_name)));
+  const missingColumns = PRODUCT_LOT_ALLOWED_UNIT_LEVELS_REQUIRED_COLUMNS.filter(
+    (columnName) => !presentColumns.has(columnName)
+  );
+
+  if (missingColumns.length) {
+    if (!lotWhitelistTableIncompleteWarningPrinted) {
+      console.warn(
+        `[lot-whitelist] product_lot_allowed_unit_levels exists but is missing required columns: ${missingColumns.join(
+          ", "
+        )}. Treating the lot whitelist feature as unavailable until migration 0017 is fully applied.`
+      );
+      lotWhitelistTableIncompleteWarningPrinted = true;
+    }
+    return false;
+  }
+
+  hasProductLotAllowedUnitLevelsTableCache = true;
+  return true;
+}
+
+export async function assertUnitLevelAllowedForLot(client, { productId, lotId, unitLevelId }) {
+  const normalizedProductId = normalizeText(productId);
+  const normalizedLotId = normalizeText(lotId);
+  const normalizedUnitLevelId = normalizeText(unitLevelId);
+  if (!normalizedProductId || !normalizedLotId || !normalizedUnitLevelId) {
+    return;
+  }
+  if (!isUuid(normalizedLotId)) {
+    throw httpError(400, "lotId must be a valid UUID");
+  }
+  if (!isUuid(normalizedUnitLevelId)) {
+    throw httpError(400, "unitLevelId must be a valid UUID");
+  }
+
+  if (!(await hasProductLotAllowedUnitLevelsTable(client))) {
+    return;
+  }
+
+  const activePredicate = productUnitLevelsActiveCompatPredicate("pul");
+  const result = await client.query(
+    `
+      SELECT
+        EXISTS (
+          SELECT 1
+          FROM product_lot_allowed_unit_levels plaul
+          WHERE plaul.product_id = $1
+            AND plaul.product_lot_id = $2
+            AND plaul.is_active = true
+        ) AS "hasWhitelist",
+        EXISTS (
+          SELECT 1
+          FROM product_lot_allowed_unit_levels plaul
+          JOIN product_unit_levels pul
+            ON pul.id = plaul.unit_level_id
+           AND pul.product_id = plaul.product_id
+           AND ${activePredicate}
+          WHERE plaul.product_id = $1
+            AND plaul.product_lot_id = $2
+            AND plaul.unit_level_id = $3
+            AND plaul.is_active = true
+        ) AS "isAllowed"
+    `,
+    [normalizedProductId, normalizedLotId, normalizedUnitLevelId]
+  );
+
+  const hasWhitelist = Boolean(result.rows[0]?.hasWhitelist);
+  const isAllowed = Boolean(result.rows[0]?.isAllowed);
+
+  // Transitional enforcement layer:
+  // if the lot has no whitelist yet, keep current product-level fallback behavior.
+  if (hasWhitelist && !isAllowed) {
+    throw httpError(400, "unit not allowed for this lot");
+  }
+}
+
 async function buildProductUnitContext(client, productId) {
+  const activePredicate = productUnitLevelsActiveCompatPredicate("pul");
   const result = await client.query(
     `
       SELECT
@@ -208,6 +394,7 @@ async function buildProductUnitContext(client, productId) {
           pul.unit_type_id
         FROM product_unit_levels pul
         WHERE pul.product_id = p.id
+          AND ${activePredicate}
         ORDER BY pul.is_base DESC, pul.sort_order ASC, pul.created_at ASC
         LIMIT 1
       ) base_pul ON true
@@ -296,6 +483,12 @@ export function getQuantityPerBaseFromUnitLevel(unitLevel) {
 
 export function convertToBase(quantity, unitLevel) {
   const qty = toPositiveNumeric(quantity, "quantity");
+  if (requiresWholeQuantity(unitLevel) && !Number.isInteger(qty)) {
+    throw httpError(
+      400,
+      `quantity must be a whole number for ${normalizeWhitespace(unitLevel?.display_name || unitLevel?.code || "this unit")}`
+    );
+  }
   const qpb = getQuantityPerBaseFromUnitLevel(unitLevel);
   return qty * qpb;
 }
@@ -305,11 +498,13 @@ export function convertMovementToSignedBase(quantity, movementType, unitLevel) {
 }
 
 export async function resolveProductBaseUnitLevel(client, productId) {
+  const activePredicate = productUnitLevelsActiveCompatPredicate("product_unit_levels");
   const result = await client.query(
     `
       SELECT id, code, display_name, unit_key
       FROM product_unit_levels
       WHERE product_id = $1
+        AND ${activePredicate}
       ORDER BY is_base DESC, sort_order ASC, created_at ASC
       LIMIT 1
     `,
@@ -529,6 +724,8 @@ export async function ensureProductUnitLevel(client, productId, unitLabel, unitS
   if (!normalizedUnitLabel) throw httpError(400, "unitLabel is required");
   const numericHints = extractNumericHintsFromLabel(normalizedUnitLabel);
   const supportsUnitKey = await hasUnitKeyColumn(client);
+  const activePredicate = productUnitLevelsActiveCompatPredicate("pul");
+  const activePredicateWithoutAlias = productUnitLevelsActiveCompatPredicate("product_unit_levels");
 
   if (!supportsUnitKey && !unitKeyLegacyWarningPrinted) {
     console.warn(
@@ -550,6 +747,7 @@ export async function ensureProductUnitLevel(client, productId, unitLabel, unitS
       FROM product_unit_levels pul
       LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
       WHERE pul.product_id = $1
+        AND ${activePredicate}
         AND lower(trim(pul.display_name)) = lower(trim($2))
       ORDER BY pul.is_sellable DESC, pul.sort_order ASC, pul.created_at ASC
       LIMIT 1
@@ -616,6 +814,7 @@ export async function ensureProductUnitLevel(client, productId, unitLabel, unitS
         SELECT id, code, unit_type_id, unit_key, display_name, sort_order
         FROM product_unit_levels
         WHERE product_id = $1
+          AND ${activePredicateWithoutAlias}
           AND unit_key = $2
         LIMIT 1
       `,
@@ -629,6 +828,7 @@ export async function ensureProductUnitLevel(client, productId, unitLabel, unitS
       SELECT id, code, unit_type_id, unit_key, display_name, sort_order
       FROM product_unit_levels
       WHERE product_id = $1
+        AND ${activePredicateWithoutAlias}
         AND code = $2
       ORDER BY sort_order ASC
       LIMIT 1
@@ -712,6 +912,7 @@ export async function ensureProductUnitLevel(client, productId, unitLabel, unitS
         COUNT(*)::int AS level_count
       FROM product_unit_levels
       WHERE product_id = $1
+        AND ${activePredicateWithoutAlias}
     `,
     [productId]
   );
@@ -726,6 +927,7 @@ export async function ensureProductUnitLevel(client, productId, unitLabel, unitS
       SELECT 1
       FROM product_unit_levels
       WHERE product_id = $1
+        AND ${activePredicateWithoutAlias}
         AND sort_order = $2
       LIMIT 1
     `,
@@ -845,6 +1047,10 @@ export async function ensureLot(client, { productId, lotNo, mfgDate, expDate, ma
 
 export async function assertLotBelongsToProduct(client, productId, lotId) {
   if (!lotId) return;
+  const normalizedLotId = normalizeText(lotId);
+  if (!isUuid(normalizedLotId)) {
+    throw httpError(400, "lotId must be a valid UUID");
+  }
   const result = await client.query(
     `
       SELECT id
@@ -853,11 +1059,11 @@ export async function assertLotBelongsToProduct(client, productId, lotId) {
         AND product_id = $2
       LIMIT 1
     `,
-    [lotId, productId]
+    [normalizedLotId, productId]
   );
 
   if (!result.rows[0]) {
-    throw httpError(400, `lotId ${lotId} does not belong to product ${productId}`);
+    throw httpError(400, `lotId ${normalizedLotId} does not belong to product ${productId}`);
   }
 }
 
