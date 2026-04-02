@@ -8,6 +8,11 @@ import PatientPurchaseHistory from "./pages/PatientPurchaseHistory";
 import Products from "./pages/Products";
 import Receiving from "./pages/Receiving";
 import Reports from "./pages/Reports";
+import SqlEditor from "./pages/SqlEditor";
+
+function toCleanText(value) {
+  return String(value || "").trim();
+}
 
 function RequireAuth({ children }) {
   const location = useLocation();
@@ -36,6 +41,17 @@ function PublicOnly({ children }) {
   return children;
 }
 
+function RequireAdmin({ children }) {
+  const { user } = useAuth();
+  const role = toCleanText(user?.role).toUpperCase();
+
+  if (role !== "ADMIN") {
+    return <Navigate to="/" replace />;
+  }
+
+  return children;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -61,6 +77,14 @@ export default function App() {
         <Route path="deliver" element={<Deliver />} />
         <Route path="patient-history" element={<PatientPurchaseHistory />} />
         <Route path="receiving" element={<Receiving />} />
+        <Route
+          path="sql-editor"
+          element={
+            <RequireAdmin>
+              <SqlEditor />
+            </RequireAdmin>
+          }
+        />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

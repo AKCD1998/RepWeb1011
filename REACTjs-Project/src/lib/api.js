@@ -430,3 +430,18 @@ export const dispenseApi = {
     });
   },
 };
+
+export const adminApi = {
+  executeSql(sql) {
+    const text = String(sql ?? "").trim();
+    if (!text) {
+      throw new Error("sql is required");
+    }
+
+    return requestJson({
+      method: "POST",
+      url: "/api/admin/sql/execute",
+      data: { sql: text },
+    });
+  },
+};

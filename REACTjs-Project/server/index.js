@@ -17,6 +17,7 @@ dotenv.config({ path: envPath });
 
 const { healthCheck, hasDatabase, query } = await import("./db/pool.js");
 const authRoutes = (await import("./routes/authRoutes.js")).default;
+const adminRoutes = (await import("./routes/adminRoutes.js")).default;
 const productsRoutes = (await import("./routes/productsRoutes.js")).default;
 const activeIngredientsRoutes = (await import("./routes/activeIngredientsRoutes.js")).default;
 const inventoryRoutes = (await import("./routes/inventoryRoutes.js")).default;
@@ -96,6 +97,7 @@ app.get("/api/patients", async (_req, res, next) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminRoutes);
 app.use("/api/products", productsRoutes);
 app.use("/api", activeIngredientsRoutes);
 app.use("/api/inventory", inventoryRoutes);

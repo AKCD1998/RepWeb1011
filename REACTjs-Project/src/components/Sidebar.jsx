@@ -1,8 +1,8 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   FiBox,
+  FiCode,
   FiClock,
-  FiDownload,
   FiFileText,
   FiHome,
   FiLogOut,
@@ -13,13 +13,35 @@ import {
 import { useOptionalAuth } from "../context/AuthContext";
 import { clearAuthStorage, logoutRequest } from "../lib/authApi";
 
+function PosScannerIcon() {
+  return (
+    <svg
+      stroke="currentColor"
+      fill="none"
+      strokeWidth="2"
+      viewBox="0 0 24 24"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M6 6.5h6.5a2.5 2.5 0 0 1 2.5 2.5v1.5H9a3 3 0 0 0-3 3v1.5H5A2 2 0 0 1 3 13V9.5a3 3 0 0 1 3-3Z" />
+      <path d="M9 10.5h5.25a2.75 2.75 0 0 1 2.75 2.75v5.25a1 1 0 0 1-1.71.71l-1.04-1.04a2 2 0 0 0-1.42-.59H12a3 3 0 0 1-3-3v-4.08Z" />
+      <path d="M8 14h5" />
+      <path d="M8 17h3.5" />
+      <path d="M15.75 7.25 21 4" />
+      <path d="M16.75 9.5 21 8.25" />
+    </svg>
+  );
+}
+
 const navItems = [
   { to: "/", label: "หน้าหลัก", icon: FiHome, end: true },
   { to: "/reports", label: "หน้าเอกสารรายงาน", icon: FiFileText },
   { to: "/products", label: "จัดการสินค้า", icon: FiBox },
-  { to: "/deliver", label: "หน้าส่งมอบยา", icon: FiTruck },
+  { to: "/deliver", label: "หน้าส่งมอบยา", icon: PosScannerIcon },
   { to: "/patient-history", label: "ประวัติการจ่ายยา", icon: FiClock },
-  { to: "/receiving", label: "รับยาเข้า", icon: FiDownload },
+  { to: "/receiving", label: "รับยาเข้า", icon: FiTruck },
+  { to: "/sql-editor", label: "SQL Editor", icon: FiCode, adminOnly: true },
 ];
 
 const BRANCH_LABELS = {
@@ -74,6 +96,8 @@ export default function Sidebar({ collapsed, onToggle }) {
   const navigate = useNavigate();
   const auth = useOptionalAuth();
   const activeBranch = resolveSidebarBranch(auth?.user);
+  const userRole = toCleanText(auth?.user?.role).toUpperCase();
+  const visibleNavItems = navItems.filter((item) => !item.adminOnly || userRole === "ADMIN");
 
   async function fallbackLogout() {
     try {
@@ -117,7 +141,7 @@ export default function Sidebar({ collapsed, onToggle }) {
         </div>
       </div>
       <nav className="sidebar-nav">
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const Icon = item.icon;
           return (
             <NavLink
