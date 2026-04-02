@@ -22,6 +22,8 @@ function PosScannerIcon() {
       viewBox="0 0 24 24"
       strokeLinecap="round"
       strokeLinejoin="round"
+      width="1em"
+      height="1em"
       aria-hidden="true"
     >
       <path d="M6 6.5h6.5a2.5 2.5 0 0 1 2.5 2.5v1.5H9a3 3 0 0 0-3 3v1.5H5A2 2 0 0 1 3 13V9.5a3 3 0 0 1 3-3Z" />
