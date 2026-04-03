@@ -507,6 +507,16 @@ export default function Receiving() {
   const locationOptions = useMemo(() => {
     return locations.filter((location) => toCleanText(location?.id));
   }, [locations]);
+  const fromLocationOptions = useMemo(() => {
+    if (isAdmin) {
+      return locationOptions;
+    }
+
+    return locationOptions.filter((location) => {
+      const locationType = normalizeRole(location?.type || location?.location_type);
+      return locationType === "BRANCH" || locationType === "OFFICE";
+    });
+  }, [isAdmin, locationOptions]);
 
   const lockedLocations = useMemo(() => {
     return getLockedLocations(movementForm.movementType, branchLocationId, isAdmin);
@@ -1430,11 +1440,11 @@ export default function Receiving() {
       nextFormErrors.toLocationId = "สถานที่ต้นทางและปลายทางต้องไม่ซ้ำกัน";
     }
 
-    if (!isLoadingLocations && !locationOptions.length) {
-      if (!isFromLocked && isFromRequired) {
+    if (!isLoadingLocations) {
+      if (!isFromLocked && isFromRequired && !fromLocationOptions.length) {
         nextFormErrors.fromLocationId = "ไม่พบรายการสถานที่ กรุณาลองใหม่";
       }
-      if (!isToLocked && isToRequired) {
+      if (!isToLocked && isToRequired && !locationOptions.length) {
         nextFormErrors.toLocationId = "ไม่พบรายการสถานที่ กรุณาลองใหม่";
       }
     }
@@ -1876,13 +1886,13 @@ export default function Receiving() {
                     className="qinput"
                     value={movementForm.fromLocationId ?? ""}
                     onChange={handleFromLocationChange}
-                    disabled={isLoadingLocations || !locationOptions.length}
+                    disabled={isLoadingLocations || !fromLocationOptions.length}
                     required={isFromRequired}
                   >
                     <option value="">
                       {isFromRequired ? "เลือกสถานที่ต้นทาง" : "ไม่ระบุ (ถ้ามี)"}
                     </option>
-                    {locationOptions.map((location) => (
+                    {fromLocationOptions.map((location) => (
                       <option key={location.id} value={location.id}>
                         {buildLocationLabel(location)}
                       </option>

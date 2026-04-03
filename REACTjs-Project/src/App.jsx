@@ -73,7 +73,14 @@ export default function App() {
       >
         <Route index element={<Home />} />
         <Route path="reports" element={<Reports />} />
-        <Route path="products" element={<Products />} />
+        <Route
+          path="products"
+          element={
+            <RequireAdmin>
+              <Products />
+            </RequireAdmin>
+          }
+        />
         <Route path="deliver" element={<Deliver />} />
         <Route path="patient-history" element={<PatientPurchaseHistory />} />
         <Route path="receiving" element={<Receiving />} />
