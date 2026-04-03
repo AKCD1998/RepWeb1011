@@ -6,3 +6,7 @@ server/.env
 .env.local-simulation
 server/.env.local-simulation
 docker-data/
+tmp/pg-local-sim/
+tmp/pg-local-sim.log
+tmp/dev-mock-out.log
+tmp/dev-mock-err.log
