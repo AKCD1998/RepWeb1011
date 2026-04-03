@@ -3,3 +3,7 @@
 2026-04-03 10:01:59.552 +07 [40800] LOG:  listening on IPv4 address "127.0.0.1", port 55433
 2026-04-03 10:01:59.728 +07 [39600] LOG:  database system was shut down at 2026-04-03 10:01:47 +07
 2026-04-03 10:01:59.735 +07 [40800] LOG:  database system is ready to accept connections
+2026-04-03 10:06:59.636 +07 [17184] LOG:  checkpoint starting: time
+2026-04-03 10:09:24.685 +07 [17184] LOG:  checkpoint complete: wrote 1309 buffers (8.0%), wrote 3 SLRU buffers; 1 WAL file(s) added, 0 removed, 0 recycled; write=144.749 s, sync=0.200 s, total=145.050 s; sync files=564, longest=0.005 s, average=0.001 s; distance=6747 kB, estimate=6747 kB; lsn=0/1E881D8, redo lsn=0/1E88148
+2026-04-03 10:20:20.288 +07 [17184] LOG:  checkpoint starting: time
+2026-04-03 10:20:21.148 +07 [17184] LOG:  checkpoint complete: wrote 8 buffers (0.0%), wrote 0 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.840 s, sync=0.009 s, total=0.860 s; sync files=8, longest=0.004 s, average=0.002 s; distance=23 kB, estimate=6075 kB; lsn=0/1E8DF18, redo lsn=0/1E8DEC0
