@@ -51,6 +51,42 @@ function toDateLabel(value) {
   return date.toISOString().slice(0, 10);
 }
 
+function buildProductIdentityKey(productId, productCode) {
+  const safeProductId = toCleanText(productId);
+  if (safeProductId) return `id:${safeProductId}`;
+
+  const safeProductCode = toCleanText(productCode);
+  if (safeProductCode) return `code:${safeProductCode}`;
+
+  return "";
+}
+
+function buildLotCacheKey(productId, productCode, branchCode) {
+  const productKey = buildProductIdentityKey(productId, productCode);
+  if (!productKey) return "";
+  const safeBranchCode = toCleanText(branchCode) || "*";
+  return `${safeBranchCode}|${productKey}`;
+}
+
+function resolveLotSelection(
+  options,
+  { preferredLotId = "", preferredLotNo = "", allowFallbackToFirstLot = true } = {}
+) {
+  const list = Array.isArray(options) ? options : [];
+  const safePreferredLotId = toCleanText(preferredLotId);
+  const safePreferredLotNo = toCleanText(preferredLotNo);
+  const matchedLot =
+    list.find((option) => toCleanText(option?.lotId) === safePreferredLotId) ||
+    list.find((option) => toCleanText(option?.lotNo) === safePreferredLotNo) ||
+    (allowFallbackToFirstLot ? list[0] || null : null);
+
+  return {
+    lotId: toCleanText(matchedLot?.lotId),
+    lotNo: toCleanText(matchedLot?.lotNo),
+    lotExpDate: toCleanText(matchedLot?.expDate),
+  };
+}
+
 function buildLineNote(item, fallbackReportType = "") {
   const metadata = [];
   const reportType = toCleanText(item?.reportType || fallbackReportType).toUpperCase();
@@ -150,6 +186,7 @@ export default function Deliver() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [branchOptions, setBranchOptions] = useState([]);
   const [selectedBranchCode, setSelectedBranchCode] = useState(userBranchCode);
+  const effectiveBranchCode = isAdmin ? toCleanText(selectedBranchCode) : userBranchCode;
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
   const [branchLoadError, setBranchLoadError] = useState("");
   const [smartcardStatus, setSmartcardStatus] = useState({
@@ -158,11 +195,21 @@ export default function Deliver() {
   });
   const barcodeInputRef = useRef(null);
   const lotOptionsCacheRef = useRef(new Map());
+  const itemsRef = useRef([]);
+  const activeItemKeyRef = useRef("");
   const deliverNotesRef = useRef("");
   const lastAutoFilledNotesRef = useRef("");
   const lastSmartcardFillRef = useRef({ signature: "", at: 0 });
 
   const parsedNotes = useMemo(() => parseDeliverNotes(deliverNotes), [deliverNotes]);
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  useEffect(() => {
+    activeItemKeyRef.current = activeItemKey;
+  }, [activeItemKey]);
 
   useEffect(() => {
     deliverNotesRef.current = deliverNotes;
@@ -327,6 +374,36 @@ export default function Deliver() {
     }));
   }, []);
 
+  const loadLotsForProduct = useCallback(
+    async (product) => {
+      if (isAdmin && !effectiveBranchCode) {
+        return { lotCacheKey: "", lots: [] };
+      }
+
+      const productId = toCleanText(product?.id ?? product?.productId);
+      const productCode = toCleanText(
+        product?.productCode ?? product?.companyCode ?? product?.product_code ?? ""
+      );
+      const lotCacheKey = buildLotCacheKey(productId, productCode, effectiveBranchCode);
+      if (!lotCacheKey) {
+        return { lotCacheKey: "", lots: [] };
+      }
+
+      let cachedLots = lotOptionsCacheRef.current.get(lotCacheKey);
+      if (!cachedLots) {
+        cachedLots = await fetchProductLots({
+          productId,
+          productCode,
+          branchCode: effectiveBranchCode,
+        });
+        lotOptionsCacheRef.current.set(lotCacheKey, cachedLots);
+      }
+
+      return { lotCacheKey, lots: cachedLots };
+    },
+    [effectiveBranchCode, isAdmin]
+  );
+
   const syncProductMeta = useCallback(
     async (product) => {
       const metadata = await hydrateProductMetadata(product);
@@ -355,11 +432,7 @@ export default function Deliver() {
       const productCode = toCleanText(
         source?.productCode ?? source?.companyCode ?? ""
       );
-      const lotCacheKey = productId
-        ? `id:${productId}`
-        : productCode
-        ? `code:${productCode}`
-        : "";
+      const lotCacheKey = buildLotCacheKey(productId, productCode, effectiveBranchCode);
 
       if (!lotCacheKey) {
         setLotOptions([]);
@@ -382,26 +455,20 @@ export default function Deliver() {
         return;
       }
 
-      let cachedLots = lotOptionsCacheRef.current.get(lotCacheKey);
-      if (!cachedLots) {
-        try {
-          cachedLots = await fetchProductLots({ productId, productCode });
-          lotOptionsCacheRef.current.set(lotCacheKey, cachedLots);
-        } catch {
-          cachedLots = [];
-        }
+      let cachedLots = [];
+      try {
+        const result = await loadLotsForProduct({ id: productId, productCode });
+        cachedLots = Array.isArray(result?.lots) ? result.lots : [];
+      } catch {
+        cachedLots = [];
       }
 
       setLotOptions(cachedLots);
-      const preferredLotId = toCleanText(matchingItem?.lotId || selectedLotId);
-      const matchedLot =
-        cachedLots.find((option) => toCleanText(option.lotId) === preferredLotId) ||
-        cachedLots.find((option) => option.lotNo === toCleanText(matchingItem?.lotNo)) ||
-        cachedLots[0] ||
-        null;
-      const resolvedLotId = toCleanText(matchedLot?.lotId);
-      const resolvedLotNo = toCleanText(matchedLot?.lotNo);
-      const resolvedLotExpDate = toCleanText(matchedLot?.expDate);
+      const { lotId: resolvedLotId, lotNo: resolvedLotNo, lotExpDate: resolvedLotExpDate } =
+        resolveLotSelection(cachedLots, {
+          preferredLotId: matchingItem?.lotId || selectedLotId,
+          preferredLotNo: matchingItem?.lotNo,
+        });
 
       setSelectedLotId(resolvedLotId);
 
@@ -421,8 +488,108 @@ export default function Deliver() {
         );
       }
     },
-    [buildReportTypeOptions, items, selectedLotId, selectedReportType]
+    [
+      buildReportTypeOptions,
+      effectiveBranchCode,
+      items,
+      loadLotsForProduct,
+      selectedLotId,
+      selectedReportType,
+    ]
   );
+
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+
+    let cancelled = false;
+
+    const revalidateLotsForBranch = async () => {
+      const currentItems = itemsRef.current;
+      if (!currentItems.length) {
+        setLotOptions([]);
+        setSelectedLotId("");
+        return;
+      }
+
+      const lotsByProductKey = new Map();
+
+      for (const item of currentItems) {
+        const productId = toCleanText(item?.id);
+        const productCode = toCleanText(
+          item?.productCode ?? item?.companyCode ?? item?.product_code ?? ""
+        );
+        const productKey = buildProductIdentityKey(productId, productCode);
+        if (!productKey || lotsByProductKey.has(productKey)) continue;
+
+        try {
+          const result = await loadLotsForProduct({ id: productId, productCode });
+          if (cancelled) return;
+          lotsByProductKey.set(productKey, Array.isArray(result?.lots) ? result.lots : []);
+        } catch {
+          if (cancelled) return;
+          lotsByProductKey.set(productKey, []);
+        }
+      }
+
+      if (cancelled) return;
+
+      setItems((prev) =>
+        prev.map((item) => {
+          const productId = toCleanText(item?.id);
+          const productCode = toCleanText(
+            item?.productCode ?? item?.companyCode ?? item?.product_code ?? ""
+          );
+          const productKey = buildProductIdentityKey(productId, productCode);
+          const lots = productKey ? lotsByProductKey.get(productKey) || [] : [];
+          const nextLotSelection = resolveLotSelection(lots, {
+            preferredLotId: item?.lotId,
+            preferredLotNo: item?.lotNo,
+          });
+
+          return {
+            ...item,
+            lotId: nextLotSelection.lotId,
+            lotNo: nextLotSelection.lotNo,
+            lotExpDate: nextLotSelection.lotExpDate,
+          };
+        })
+      );
+
+      const activeKey = activeItemKeyRef.current;
+      if (!activeKey) {
+        setLotOptions([]);
+        setSelectedLotId("");
+        return;
+      }
+
+      const activeItem =
+        currentItems.find((item) => toItemKey(item?.name) === activeKey) || null;
+      if (!activeItem) {
+        setLotOptions([]);
+        setSelectedLotId("");
+        return;
+      }
+
+      const activeProductKey = buildProductIdentityKey(
+        activeItem?.id,
+        activeItem?.productCode ?? activeItem?.companyCode ?? activeItem?.product_code ?? ""
+      );
+      const activeLots = activeProductKey ? lotsByProductKey.get(activeProductKey) || [] : [];
+      const nextActiveLotSelection = resolveLotSelection(activeLots, {
+        preferredLotId: activeItem?.lotId,
+        preferredLotNo: activeItem?.lotNo,
+      });
+
+      setLotOptions(activeLots);
+      setSelectedLotId(nextActiveLotSelection.lotId);
+    };
+
+    void revalidateLotsForBranch();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveBranchCode, isAdmin, loadLotsForProduct]);
 
   const parseMultiplier = useCallback((rawValue) => {
     const normalized = String(rawValue ?? "").trim();
@@ -659,7 +826,7 @@ export default function Deliver() {
 
     const patient = parsedNotes?.patient || {};
     const reportType = toCleanText(selectedReportType).toUpperCase();
-    const branchCode = isAdmin ? toCleanText(selectedBranchCode) : userBranchCode;
+    const branchCode = effectiveBranchCode;
 
     if (isAdmin) {
       if (isLoadingBranches) {
@@ -700,11 +867,11 @@ export default function Deliver() {
       error: "",
     };
   }, [
+    effectiveBranchCode,
     isAdmin,
     isLoadingBranches,
     items,
     parsedNotes,
-    selectedBranchCode,
     selectedReportType,
     userBranchCode,
   ]);
@@ -826,7 +993,6 @@ export default function Deliver() {
   }, [items]);
 
   const selectedBranchLabel = useMemo(() => {
-    const effectiveBranchCode = isAdmin ? selectedBranchCode : userBranchCode;
     if (!effectiveBranchCode) {
       return isAdmin ? "-" : "ตามสิทธิ์ผู้ใช้";
     }
@@ -837,7 +1003,7 @@ export default function Deliver() {
     }
 
     return effectiveBranchCode;
-  }, [branchOptions, isAdmin, selectedBranchCode, userBranchCode]);
+  }, [branchOptions, effectiveBranchCode, isAdmin]);
 
   const handleModalBackdrop = useCallback(
     (event) => {
@@ -1032,7 +1198,11 @@ export default function Deliver() {
                           >
                             <option value="">
                               {selectedProductName
-                                ? "ไม่พบ lot ที่เคยรับเข้า/คงเหลือสำหรับสินค้านี้"
+                                ? isAdmin && !effectiveBranchCode
+                                  ? "เลือกสาขาที่ทำรายการก่อนดึง lot"
+                                  : lotOptions.length
+                                  ? "เลือก lot ที่มี stock ในสาขาที่กำลังทำรายการ"
+                                  : "ไม่พบ lot ที่เคยรับเข้า/คงเหลือสำหรับสินค้านี้"
                                 : "สแกนสินค้าเพื่อดึงเลข lot อัตโนมัติ"}
                             </option>
                             {lotOptions.map((option) => {

@@ -1,4 +1,5 @@
 import { getApiBase } from "./deliverApiBase";
+import { authApiClient } from "../lib/authApi";
 
 const API_BASE = getApiBase();
 const CACHE_DB = "rx1011-pos-cache";
@@ -317,16 +318,21 @@ export async function hydrateProductMetadata(seedProduct) {
 export async function fetchProductLots(filters = {}) {
   const safeProductId = String(filters?.productId || "").trim();
   const safeProductCode = String(filters?.productCode || "").trim();
+  const safeBranchCode = String(filters?.branchCode || "").trim();
   if (!safeProductId && !safeProductCode) return [];
 
-  const requestUrl = safeProductId
-    ? `${API_BASE}/api/stock/on-hand?productId=${encodeURIComponent(safeProductId)}`
-    : `${API_BASE}/api/stock/on-hand`;
-  const res = await fetch(requestUrl);
-  if (!res.ok) return [];
+  const params = {};
+  if (safeProductId) {
+    params.productId = safeProductId;
+  }
+  if (safeBranchCode) {
+    params.branchCode = safeBranchCode;
+  }
 
-  const rows = await res.json();
-  const list = Array.isArray(rows) ? rows : [];
+  const response = await authApiClient.get("/api/stock/on-hand", {
+    params: Object.keys(params).length ? params : undefined,
+  });
+  const list = Array.isArray(response?.data) ? response.data : [];
   const seen = new Set();
   const lots = [];
 

@@ -12,6 +12,7 @@ import {
   productUnitLevelsActiveCompatPredicate,
   resolveProductBaseUnitLevel,
   resolveActorUserId,
+  resolveBranchById,
   resolveBranchByCode,
   toIsoTimestamp,
   toPositiveNumeric,
@@ -109,6 +110,436 @@ function toExistingIsoTimestamp(value, fieldName) {
     throw httpError(500, `Stored ${fieldName} is invalid`);
   }
   return date.toISOString();
+}
+
+function normalizeMovementWriteInput(body = {}, user = {}) {
+  const movementType = normalizeText(body?.movementType).toUpperCase();
+  const productId = normalizeText(body?.productId);
+  const qty = toPositiveNumeric(body?.qty, "qty");
+  const unitLevelIdInput = normalizeText(body?.unitLevelId || body?.unit_level_id);
+  const unitLabel = normalizeText(body?.unitLabel || body?.unit);
+  const lotIdInput = normalizeText(body?.lotId || body?.lot_id);
+  const lotNo = normalizeText(body?.lotNo || body?.lot_no);
+  const expDate = toIsoDateOnly(body?.expDate || body?.exp_date, "expDate");
+  const mfgDate = toIsoDateOnly(body?.mfgDate || body?.mfg_date, "mfgDate");
+  const manufacturer = normalizeText(body?.manufacturer || body?.manufacturerName);
+  const note = body?.note || null;
+  const createdByUserId = user?.id || body?.createdByUserId || null;
+  const userRole = normalizeRole(user?.role);
+  const userLocationId = toNullableText(user?.location_id);
+  const fromLocationIdInput = toNullableText(body?.from_location_id ?? body?.fromLocationId);
+  const toLocationIdInput = toNullableText(body?.to_location_id ?? body?.toLocationId);
+  const isAdmin = userRole === "ADMIN";
+
+  if (!MOVEMENT_TYPES.has(movementType)) {
+    throw httpError(400, `Unsupported movementType: ${movementType || "-"}`);
+  }
+  if (!productId) throw httpError(400, "productId is required");
+  if (!unitLevelIdInput && !unitLabel) {
+    throw httpError(400, "unitLevelId or unitLabel is required");
+  }
+  if (!lotIdInput && !lotNo) throw httpError(400, "lotNo is required");
+  if (!lotIdInput && !expDate) throw httpError(400, "expDate is required");
+
+  if (!isAdmin && !userLocationId) {
+    throw httpError(403, "Branch-scoped access requires location_id");
+  }
+
+  if (!isAdmin) {
+    if (movementType === "RECEIVE" && toLocationIdInput && toLocationIdInput !== userLocationId) {
+      throw httpError(403, "Forbidden: to_location_id mismatch");
+    }
+    if (
+      (movementType === "TRANSFER_OUT" || movementType === "DISPENSE") &&
+      fromLocationIdInput &&
+      fromLocationIdInput !== userLocationId
+    ) {
+      throw httpError(403, "Forbidden: from_location_id mismatch");
+    }
+  }
+
+  let effectiveFromLocationId = fromLocationIdInput;
+  let effectiveToLocationId = toLocationIdInput;
+
+  if (!isAdmin) {
+    if (movementType === "RECEIVE") {
+      effectiveToLocationId = userLocationId;
+    } else if (movementType === "TRANSFER_OUT") {
+      effectiveFromLocationId = userLocationId;
+    } else if (movementType === "DISPENSE") {
+      effectiveFromLocationId = userLocationId;
+      effectiveToLocationId = "";
+    }
+  }
+
+  if (movementType === "RECEIVE" && !effectiveToLocationId) {
+    throw httpError(400, "to_location_id is required for RECEIVE");
+  }
+  if (movementType === "TRANSFER_OUT" && !effectiveFromLocationId) {
+    throw httpError(400, "from_location_id is required for TRANSFER_OUT");
+  }
+  if (movementType === "TRANSFER_OUT" && !effectiveToLocationId) {
+    throw httpError(400, "to_location_id is required for TRANSFER_OUT");
+  }
+  if (movementType === "DISPENSE" && !effectiveFromLocationId) {
+    throw httpError(400, "from_location_id is required for DISPENSE");
+  }
+  if (movementType === "DISPENSE") {
+    effectiveToLocationId = "";
+  }
+
+  if (
+    effectiveFromLocationId &&
+    effectiveToLocationId &&
+    effectiveFromLocationId === effectiveToLocationId
+  ) {
+    throw httpError(400, "from_location_id and to_location_id must be different");
+  }
+
+  return {
+    movementType,
+    productId,
+    qty,
+    unitLevelIdInput,
+    unitLabel,
+    lotIdInput,
+    lotNo,
+    expDate,
+    mfgDate,
+    manufacturer,
+    note,
+    createdByUserId,
+    effectiveFromLocationId,
+    effectiveToLocationId,
+  };
+}
+
+async function executeMovementWrite(client, body = {}, user = {}) {
+  const input = normalizeMovementWriteInput(body, user);
+  const actorUserId = await resolveActorUserId(client, input.createdByUserId);
+  await ensureProductExists(client, input.productId);
+  const unitLevel = await resolveRequestedUnitLevel(client, {
+    productId: input.productId,
+    unitLevelId: input.unitLevelIdInput,
+    unitLabel: input.unitLabel,
+    unitStructure: body || {},
+  });
+  const baseUnitLevel = await resolveProductBaseUnitLevel(client, input.productId);
+  const quantityBase = convertToBase(input.qty, unitLevel);
+  const lotId = await resolveLotIdForMovement(client, {
+    productId: input.productId,
+    movementType: input.movementType,
+    explicitLotId: input.lotIdInput || null,
+    lotNo: input.lotNo,
+    expDate: input.expDate,
+    mfgDate: input.mfgDate,
+    manufacturer: input.manufacturer,
+  });
+
+  await assertUnitLevelAllowedForLot(client, {
+    productId: input.productId,
+    lotId,
+    unitLevelId: unitLevel.id,
+  });
+
+  const fromLocation = await resolveActiveLocationById(
+    client,
+    input.effectiveFromLocationId,
+    "from_location_id"
+  );
+  const toLocation = await resolveActiveLocationById(
+    client,
+    input.effectiveToLocationId,
+    "to_location_id"
+  );
+  let movementCount = 0;
+  let transferRequestId = null;
+  let transferStatus = null;
+
+  if (input.movementType === "RECEIVE") {
+    await client.query(
+      `
+        INSERT INTO stock_movements (
+          movement_type,
+          from_location_id,
+          to_location_id,
+          product_id,
+          lot_id,
+          quantity,
+          quantity_base,
+          unit_level_id,
+          occurred_at,
+          created_by,
+          note_text
+        )
+        VALUES (
+          'RECEIVE',
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          $7,
+          now(),
+          $8,
+          $9
+        )
+      `,
+      [
+        fromLocation?.id || null,
+        toLocation?.id || null,
+        input.productId,
+        lotId,
+        input.qty,
+        convertMovementToSignedBase(input.qty, "RECEIVE", unitLevel),
+        unitLevel.id,
+        actorUserId,
+        input.note,
+      ]
+    );
+
+    await applyStockDelta(client, {
+      branchId: toLocation.id,
+      productId: input.productId,
+      lotId,
+      baseUnitLevelId: baseUnitLevel.id,
+      deltaQtyBase: quantityBase,
+    });
+
+    movementCount = 1;
+  } else if (input.movementType === "TRANSFER_OUT") {
+    const isBranchToBranchTransfer =
+      fromLocation?.locationType === "BRANCH" && toLocation?.locationType === "BRANCH";
+
+    await applyStockDelta(client, {
+      branchId: fromLocation.id,
+      productId: input.productId,
+      lotId,
+      baseUnitLevelId: baseUnitLevel.id,
+      deltaQtyBase: -quantityBase,
+    });
+
+    if (isBranchToBranchTransfer) {
+      transferRequestId = randomUUID();
+      transferStatus = "PENDING";
+
+      const transferOutMovementResult = await client.query(
+        `
+          INSERT INTO stock_movements (
+            movement_type,
+            from_location_id,
+            to_location_id,
+            product_id,
+            lot_id,
+            quantity,
+            quantity_base,
+            unit_level_id,
+            source_ref_type,
+            source_ref_id,
+            occurred_at,
+            created_by,
+            note_text
+          )
+          VALUES (
+            'TRANSFER_OUT',
+            $1,
+            $2,
+            $3,
+            $4,
+            $5,
+            $6,
+            $7,
+            $8,
+            $9::uuid,
+            now(),
+            $10,
+            $11
+          )
+          RETURNING id
+        `,
+        [
+          fromLocation.id,
+          toLocation.id,
+          input.productId,
+          lotId,
+          input.qty,
+          convertMovementToSignedBase(input.qty, "TRANSFER_OUT", unitLevel),
+          unitLevel.id,
+          TRANSFER_REQUEST_SOURCE_REF,
+          transferRequestId,
+          actorUserId,
+          input.note,
+        ]
+      );
+
+      await client.query(
+        `
+          INSERT INTO inventory_transfer_requests (
+            id,
+            from_location_id,
+            to_location_id,
+            product_id,
+            lot_id,
+            unit_level_id,
+            base_unit_level_id,
+            quantity,
+            quantity_base,
+            note_text,
+            status,
+            requested_by,
+            requested_at,
+            transfer_out_movement_id
+          )
+          VALUES (
+            $1::uuid,
+            $2,
+            $3,
+            $4,
+            $5,
+            $6,
+            $7,
+            $8,
+            $9,
+            $10,
+            'PENDING',
+            $11,
+            now(),
+            $12
+          )
+        `,
+        [
+          transferRequestId,
+          fromLocation.id,
+          toLocation.id,
+          input.productId,
+          lotId,
+          unitLevel.id,
+          baseUnitLevel.id,
+          input.qty,
+          quantityBase,
+          input.note,
+          actorUserId,
+          transferOutMovementResult.rows[0]?.id || null,
+        ]
+      );
+
+      movementCount = 1;
+    } else {
+      await applyStockDelta(client, {
+        branchId: toLocation.id,
+        productId: input.productId,
+        lotId,
+        baseUnitLevelId: baseUnitLevel.id,
+        deltaQtyBase: quantityBase,
+      });
+
+      await client.query(
+        `
+          INSERT INTO stock_movements (
+            movement_type,
+            from_location_id,
+            to_location_id,
+            product_id,
+            lot_id,
+            quantity,
+            quantity_base,
+            unit_level_id,
+            occurred_at,
+            created_by,
+            note_text
+          )
+          VALUES
+            ('TRANSFER_OUT', $1, $2, $3, $4, $5, $6, $7, now(), $8, $9),
+            ('TRANSFER_IN',  $1, $2, $3, $4, $5, $10, $7, now(), $8, $9)
+        `,
+        [
+          fromLocation.id,
+          toLocation.id,
+          input.productId,
+          lotId,
+          input.qty,
+          convertMovementToSignedBase(input.qty, "TRANSFER_OUT", unitLevel),
+          unitLevel.id,
+          actorUserId,
+          input.note,
+          convertMovementToSignedBase(input.qty, "TRANSFER_IN", unitLevel),
+        ]
+      );
+
+      movementCount = 2;
+    }
+  } else {
+    await applyStockDelta(client, {
+      branchId: fromLocation.id,
+      productId: input.productId,
+      lotId,
+      baseUnitLevelId: baseUnitLevel.id,
+      deltaQtyBase: -quantityBase,
+    });
+
+    await client.query(
+      `
+        INSERT INTO stock_movements (
+          movement_type,
+          from_location_id,
+          to_location_id,
+          product_id,
+          lot_id,
+          quantity,
+          quantity_base,
+          unit_level_id,
+          occurred_at,
+          created_by,
+          note_text
+        )
+        VALUES (
+          'DISPENSE',
+          $1,
+          NULL,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          now(),
+          $7,
+          $8
+        )
+      `,
+      [
+        fromLocation.id,
+        input.productId,
+        lotId,
+        input.qty,
+        convertMovementToSignedBase(input.qty, "DISPENSE", unitLevel),
+        unitLevel.id,
+        actorUserId,
+        input.note,
+      ]
+    );
+
+    movementCount = 1;
+  }
+
+  return {
+    movementType: input.movementType,
+    movementCount,
+    from_location_id: fromLocation?.id || null,
+    to_location_id: toLocation?.id || null,
+    transferRequestId,
+    transferStatus,
+  };
+}
+
+function normalizeMovementBatchBody(body = {}) {
+  if (Array.isArray(body)) {
+    return body;
+  }
+  if (Array.isArray(body?.movements)) {
+    return body.movements;
+  }
+  return [];
 }
 
 async function resolveActiveLocationById(client, locationId, fieldName) {
@@ -504,397 +935,61 @@ export async function transferInventory(req, res) {
 }
 
 export async function createMovement(req, res) {
-  const movementType = normalizeText(req.body?.movementType).toUpperCase();
-  const productId = normalizeText(req.body?.productId);
-  const qty = toPositiveNumeric(req.body?.qty, "qty");
-  const unitLevelIdInput = normalizeText(req.body?.unitLevelId || req.body?.unit_level_id);
-  const unitLabel = normalizeText(req.body?.unitLabel || req.body?.unit);
-  const lotIdInput = normalizeText(req.body?.lotId || req.body?.lot_id);
-  const lotNo = normalizeText(req.body?.lotNo || req.body?.lot_no);
-  const expDate = toIsoDateOnly(req.body?.expDate || req.body?.exp_date, "expDate");
-  const mfgDate = toIsoDateOnly(req.body?.mfgDate || req.body?.mfg_date, "mfgDate");
-  const manufacturer = normalizeText(req.body?.manufacturer || req.body?.manufacturerName);
-  const note = req.body?.note || null;
-  const createdByUserId = req.user?.id || req.body?.createdByUserId || null;
-  const userRole = normalizeRole(req.user?.role);
-  const userLocationId = toNullableText(req.user?.location_id);
-  const fromLocationIdInput = toNullableText(req.body?.from_location_id ?? req.body?.fromLocationId);
-  const toLocationIdInput = toNullableText(req.body?.to_location_id ?? req.body?.toLocationId);
-  const isAdmin = userRole === "ADMIN";
+  const result = await withTransaction((client) => executeMovementWrite(client, req.body, req.user));
 
-  if (!MOVEMENT_TYPES.has(movementType)) {
-    throw httpError(400, `Unsupported movementType: ${movementType || "-"}`);
-  }
-  if (!productId) throw httpError(400, "productId is required");
-  if (!unitLevelIdInput && !unitLabel) {
-    throw httpError(400, "unitLevelId or unitLabel is required");
-  }
-  if (!lotIdInput && !lotNo) throw httpError(400, "lotNo is required");
-  if (!lotIdInput && !expDate) throw httpError(400, "expDate is required");
+  return res.status(201).json({
+    ok: true,
+    ...result,
+  });
+}
 
-  if (!isAdmin && !userLocationId) {
-    throw httpError(403, "Branch-scoped access requires location_id");
-  }
+export async function createMovementBatch(req, res) {
+  const movements = normalizeMovementBatchBody(req.body);
 
-  if (!isAdmin) {
-    if (movementType === "RECEIVE" && toLocationIdInput && toLocationIdInput !== userLocationId) {
-      throw httpError(403, "Forbidden: to_location_id mismatch");
-    }
-    if (
-      (movementType === "TRANSFER_OUT" || movementType === "DISPENSE") &&
-      fromLocationIdInput &&
-      fromLocationIdInput !== userLocationId
-    ) {
-      throw httpError(403, "Forbidden: from_location_id mismatch");
-    }
-  }
-
-  let effectiveFromLocationId = fromLocationIdInput;
-  let effectiveToLocationId = toLocationIdInput;
-
-  if (!isAdmin) {
-    if (movementType === "RECEIVE") {
-      effectiveToLocationId = userLocationId;
-    } else if (movementType === "TRANSFER_OUT") {
-      effectiveFromLocationId = userLocationId;
-    } else if (movementType === "DISPENSE") {
-      effectiveFromLocationId = userLocationId;
-      effectiveToLocationId = "";
-    }
-  }
-
-  if (movementType === "RECEIVE" && !effectiveToLocationId) {
-    throw httpError(400, "to_location_id is required for RECEIVE");
-  }
-  if (movementType === "TRANSFER_OUT" && !effectiveFromLocationId) {
-    throw httpError(400, "from_location_id is required for TRANSFER_OUT");
-  }
-  if (movementType === "TRANSFER_OUT" && !effectiveToLocationId) {
-    throw httpError(400, "to_location_id is required for TRANSFER_OUT");
-  }
-  if (movementType === "DISPENSE" && !effectiveFromLocationId) {
-    throw httpError(400, "from_location_id is required for DISPENSE");
-  }
-  if (movementType === "DISPENSE") {
-    effectiveToLocationId = "";
-  }
-
-  if (
-    effectiveFromLocationId &&
-    effectiveToLocationId &&
-    effectiveFromLocationId === effectiveToLocationId
-  ) {
-    throw httpError(400, "from_location_id and to_location_id must be different");
+  if (!movements.length) {
+    throw httpError(400, "movements must contain at least one item");
   }
 
   const result = await withTransaction(async (client) => {
-    const actorUserId = await resolveActorUserId(client, createdByUserId);
-    await ensureProductExists(client, productId);
-    const unitLevel = await resolveRequestedUnitLevel(client, {
-      productId,
-      unitLevelId: unitLevelIdInput,
-      unitLabel,
-      unitStructure: req.body || {},
-    });
-    const baseUnitLevel = await resolveProductBaseUnitLevel(client, productId);
-    const quantityBase = convertToBase(qty, unitLevel);
-    const lotId = await resolveLotIdForMovement(client, {
-      productId,
-      movementType,
-      explicitLotId: lotIdInput || null,
-      lotNo,
-      expDate,
-      mfgDate,
-      manufacturer,
-    });
-    await assertUnitLevelAllowedForLot(client, {
-      productId,
-      lotId,
-      unitLevelId: unitLevel.id,
-    });
-    const fromLocation = await resolveActiveLocationById(
-      client,
-      effectiveFromLocationId,
-      "from_location_id"
-    );
-    const toLocation = await resolveActiveLocationById(client, effectiveToLocationId, "to_location_id");
+    const items = [];
     let movementCount = 0;
-    let transferRequestId = null;
-    let transferStatus = null;
 
-    if (movementType === "RECEIVE") {
-      await client.query(
-        `
-          INSERT INTO stock_movements (
-            movement_type,
-            from_location_id,
-            to_location_id,
-            product_id,
-            lot_id,
-            quantity,
-            quantity_base,
-            unit_level_id,
-            occurred_at,
-            created_by,
-            note_text
-          )
-          VALUES (
-            'RECEIVE',
-            $1,
-            $2,
-            $3,
-            $4,
-            $5,
-            $6,
-            $7,
-            now(),
-            $8,
-            $9
-          )
-        `,
-        [
-          fromLocation?.id || null,
-          toLocation?.id || null,
-          productId,
-          lotId,
-          qty,
-          convertMovementToSignedBase(qty, "RECEIVE", unitLevel),
-          unitLevel.id,
-          actorUserId,
-          note,
-        ]
-      );
-
-      await applyStockDelta(client, {
-        branchId: toLocation.id,
-        productId,
-        lotId,
-        baseUnitLevelId: baseUnitLevel.id,
-        deltaQtyBase: quantityBase,
-      });
-
-      movementCount = 1;
-    } else if (movementType === "TRANSFER_OUT") {
-      const isBranchToBranchTransfer =
-        fromLocation?.locationType === "BRANCH" && toLocation?.locationType === "BRANCH";
-
-      await applyStockDelta(client, {
-        branchId: fromLocation.id,
-        productId,
-        lotId,
-        baseUnitLevelId: baseUnitLevel.id,
-        deltaQtyBase: -quantityBase,
-      });
-
-      if (isBranchToBranchTransfer) {
-        transferRequestId = randomUUID();
-        transferStatus = "PENDING";
-
-        const transferOutMovementResult = await client.query(
-          `
-            INSERT INTO stock_movements (
-              movement_type,
-              from_location_id,
-              to_location_id,
-              product_id,
-              lot_id,
-              quantity,
-              quantity_base,
-              unit_level_id,
-              source_ref_type,
-              source_ref_id,
-              occurred_at,
-              created_by,
-              note_text
-            )
-            VALUES (
-              'TRANSFER_OUT',
-              $1,
-              $2,
-              $3,
-              $4,
-              $5,
-              $6,
-              $7,
-              $8,
-              $9::uuid,
-              now(),
-              $10,
-              $11
-            )
-            RETURNING id
-          `,
-          [
-            fromLocation.id,
-            toLocation.id,
-            productId,
-            lotId,
-            qty,
-            convertMovementToSignedBase(qty, "TRANSFER_OUT", unitLevel),
-            unitLevel.id,
-            TRANSFER_REQUEST_SOURCE_REF,
-            transferRequestId,
-            actorUserId,
-            note,
-          ]
-        );
-
-        await client.query(
-          `
-            INSERT INTO inventory_transfer_requests (
-              id,
-              from_location_id,
-              to_location_id,
-              product_id,
-              lot_id,
-              unit_level_id,
-              base_unit_level_id,
-              quantity,
-              quantity_base,
-              note_text,
-              status,
-              requested_by,
-              requested_at,
-              transfer_out_movement_id
-            )
-            VALUES (
-              $1::uuid,
-              $2,
-              $3,
-              $4,
-              $5,
-              $6,
-              $7,
-              $8,
-              $9,
-              $10,
-              'PENDING',
-              $11,
-              now(),
-              $12
-            )
-          `,
-          [
-            transferRequestId,
-            fromLocation.id,
-            toLocation.id,
-            productId,
-            lotId,
-            unitLevel.id,
-            baseUnitLevel.id,
-            qty,
-            quantityBase,
-            note,
-            actorUserId,
-            transferOutMovementResult.rows[0]?.id || null,
-          ]
-        );
-
-        movementCount = 1;
-      } else {
-        await applyStockDelta(client, {
-          branchId: toLocation.id,
-          productId,
-          lotId,
-          baseUnitLevelId: baseUnitLevel.id,
-          deltaQtyBase: quantityBase,
+    for (let index = 0; index < movements.length; index += 1) {
+      const movement = movements[index];
+      if (!movement || typeof movement !== "object" || Array.isArray(movement)) {
+        throw httpError(400, `Movement row ${index + 1} must be an object`, {
+          rowIndex: index,
+          rowNumber: index + 1,
         });
-
-        await client.query(
-          `
-            INSERT INTO stock_movements (
-              movement_type,
-              from_location_id,
-              to_location_id,
-              product_id,
-              lot_id,
-              quantity,
-              quantity_base,
-              unit_level_id,
-              occurred_at,
-              created_by,
-              note_text
-            )
-            VALUES
-              ('TRANSFER_OUT', $1, $2, $3, $4, $5, $6, $7, now(), $8, $9),
-              ('TRANSFER_IN',  $1, $2, $3, $4, $5, $10, $7, now(), $8, $9)
-          `,
-          [
-            fromLocation.id,
-            toLocation.id,
-            productId,
-            lotId,
-            qty,
-            convertMovementToSignedBase(qty, "TRANSFER_OUT", unitLevel),
-            unitLevel.id,
-            actorUserId,
-            note,
-            convertMovementToSignedBase(qty, "TRANSFER_IN", unitLevel),
-          ]
-        );
-
-        movementCount = 2;
       }
-    } else {
-      await applyStockDelta(client, {
-        branchId: fromLocation.id,
-        productId,
-        lotId,
-        baseUnitLevelId: baseUnitLevel.id,
-        deltaQtyBase: -quantityBase,
-      });
 
-      await client.query(
-        `
-          INSERT INTO stock_movements (
-            movement_type,
-            from_location_id,
-            to_location_id,
-            product_id,
-            lot_id,
-            quantity,
-            quantity_base,
-            unit_level_id,
-            occurred_at,
-            created_by,
-            note_text
-          )
-          VALUES (
-            'DISPENSE',
-            $1,
-            NULL,
-            $2,
-            $3,
-            $4,
-            $5,
-            $6,
-            now(),
-            $7,
-            $8
-          )
-        `,
-        [
-          fromLocation.id,
-          productId,
-          lotId,
-          qty,
-          convertMovementToSignedBase(qty, "DISPENSE", unitLevel),
-          unitLevel.id,
-          actorUserId,
-          note,
-        ]
-      );
-
-      movementCount = 1;
+      try {
+        const itemResult = await executeMovementWrite(client, movement, req.user);
+        items.push({
+          rowIndex: index,
+          rowNumber: index + 1,
+          ...itemResult,
+        });
+        movementCount += Number(itemResult?.movementCount || 0);
+      } catch (error) {
+        throw httpError(
+          Number(error?.status || 400),
+          `Movement row ${index + 1} failed: ${error?.message || "Invalid movement payload"}`,
+          {
+            rowIndex: index,
+            rowNumber: index + 1,
+            movementType: normalizeText(movement?.movementType).toUpperCase() || null,
+            reason: error?.message || "Invalid movement payload",
+            cause: error?.details ?? null,
+          }
+        );
+      }
     }
 
     return {
-      movementType,
+      itemCount: items.length,
       movementCount,
-      from_location_id: fromLocation?.id || null,
-      to_location_id: toLocation?.id || null,
-      transferRequestId,
-      transferStatus,
+      items,
     };
   });
 
@@ -1270,64 +1365,37 @@ export async function listLocations(req, res) {
 }
 
 export async function getStockOnHand(req, res) {
-  const activePredicate = productUnitLevelsActiveCompatPredicate("pul");
   const branchCode = String(req.query.branchCode || "").trim();
   const productId = String(req.query.productId || "").trim();
+  const userRole = normalizeRole(req.user?.role);
+  const userLocationId = normalizeText(req.user?.location_id);
+  let effectiveBranchCode = branchCode;
+
+  if (userRole !== "ADMIN") {
+    if (!userLocationId) {
+      throw httpError(403, "Branch-scoped access requires location_id");
+    }
+
+    const viewerBranch = await resolveBranchById({ query }, userLocationId);
+    if (branchCode && branchCode !== viewerBranch.code) {
+      throw httpError(403, "Forbidden: branchCode mismatch");
+    }
+    effectiveBranchCode = viewerBranch.code;
+  }
 
   const params = [];
   const where = ["l.location_type = 'BRANCH'"];
-  if (branchCode) {
-    params.push(branchCode);
+  if (effectiveBranchCode) {
+    params.push(effectiveBranchCode);
     where.push(`l.code = $${params.length}`);
   }
   if (productId) {
     params.push(productId);
-    where.push(`mb.product_id = $${params.length}::uuid`);
+    where.push(`soh.product_id = $${params.length}::uuid`);
   }
 
   const result = await query(
     `
-      WITH movement_branches AS (
-        SELECT
-          COALESCE(
-            CASE
-              WHEN sm.quantity_base > 0 THEN sm.to_location_id
-              WHEN sm.quantity_base < 0 THEN sm.from_location_id
-              ELSE NULL
-            END,
-            sm.to_location_id,
-            sm.from_location_id
-          ) AS branch_id,
-          sm.product_id,
-          sm.lot_id,
-          SUM(sm.quantity_base) AS quantity_base
-        FROM stock_movements sm
-        GROUP BY
-          COALESCE(
-            CASE
-              WHEN sm.quantity_base > 0 THEN sm.to_location_id
-              WHEN sm.quantity_base < 0 THEN sm.from_location_id
-              ELSE NULL
-            END,
-            sm.to_location_id,
-            sm.from_location_id
-          ),
-          sm.product_id,
-          sm.lot_id
-      ),
-      base_unit_pick AS (
-        SELECT DISTINCT ON (pul.product_id)
-          pul.product_id,
-          pul.id AS base_unit_level_id,
-          pul.code AS base_unit_code,
-          pul.display_name AS base_unit_label,
-          ut.code AS base_unit_type_code,
-          COALESCE(NULLIF(ut.name_th, ''), NULLIF(ut.name_en, ''), NULLIF(ut.symbol, ''), ut.code, 'base') AS base_unit_symbol
-        FROM product_unit_levels pul
-        LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
-        WHERE ${activePredicate}
-        ORDER BY pul.product_id, pul.is_base DESC, pul.sort_order ASC, pul.created_at ASC
-      )
       SELECT
         l.code AS "branchCode",
         l.name AS "branchName",
@@ -1337,18 +1405,19 @@ export async function getStockOnHand(req, res) {
         pl.id AS "lotId",
         pl.lot_no AS "lotNo",
         pl.exp_date AS "expDate",
-        mb.quantity_base AS "quantityBase",
-        mb.quantity_base AS "quantity",
-        COALESCE(bu.base_unit_type_code, bu.base_unit_code, 'BASE') AS "unitCode",
-        COALESCE(NULLIF(trim(bu.base_unit_label), ''), bu.base_unit_symbol, 'base') AS "unitLabel",
-        bu.base_unit_symbol AS "baseUnitLabel"
-      FROM movement_branches mb
-      JOIN locations l ON l.id = mb.branch_id
-      JOIN products p ON p.id = mb.product_id
-      LEFT JOIN product_lots pl ON pl.id = mb.lot_id
-      LEFT JOIN base_unit_pick bu ON bu.product_id = mb.product_id
+        soh.quantity_on_hand AS "quantityBase",
+        soh.quantity_on_hand AS "quantity",
+        COALESCE(ut.code, pul.code, 'BASE') AS "unitCode",
+        COALESCE(NULLIF(trim(pul.display_name), ''), NULLIF(ut.symbol, ''), ut.code, pul.code, 'base') AS "unitLabel",
+        COALESCE(NULLIF(ut.symbol, ''), ut.code, pul.code, 'base') AS "baseUnitLabel"
+      FROM stock_on_hand soh
+      JOIN locations l ON l.id = soh.branch_id
+      JOIN products p ON p.id = soh.product_id
+      LEFT JOIN product_lots pl ON pl.id = soh.lot_id
+      LEFT JOIN product_unit_levels pul ON pul.id = soh.base_unit_level_id
+      LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
       WHERE ${where.join(" AND ")}
-        AND mb.quantity_base > 0
+        AND soh.quantity_on_hand > 0
       ORDER BY l.code, p.trade_name, pl.exp_date NULLS LAST, pl.lot_no
     `,
     params

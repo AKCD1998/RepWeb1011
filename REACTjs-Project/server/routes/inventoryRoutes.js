@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   acceptTransferRequest,
   createMovement,
+  createMovementBatch,
   listTransferRequests,
   rejectTransferRequest,
   receiveInventory,
@@ -38,6 +39,12 @@ router.post(
   verifyToken,
   requireRole("ADMIN", "PHARMACIST"),
   asyncHandler(createMovement)
+);
+router.post(
+  "/movements/batch",
+  verifyToken,
+  requireRole("ADMIN", "PHARMACIST"),
+  asyncHandler(createMovementBatch)
 );
 router.get(
   "/transfer-requests",

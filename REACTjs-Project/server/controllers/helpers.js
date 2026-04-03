@@ -1137,6 +1137,10 @@ export async function applyStockDelta(
           updated_at
         )
         VALUES ($1, $2, $3, $4, $5, now())
+        ON CONFLICT (branch_id, product_id, lot_id, base_unit_level_id)
+        DO UPDATE
+        SET quantity_on_hand = stock_on_hand.quantity_on_hand + EXCLUDED.quantity_on_hand,
+            updated_at = now()
       `,
       [branchId, productId, lotId || null, baseUnitLevelId, deltaQtyBase]
     );

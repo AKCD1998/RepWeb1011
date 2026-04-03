@@ -33,6 +33,76 @@ function buildStockOnHandParams(filters = {}) {
   return Object.keys(params).length ? params : undefined;
 }
 
+function buildMovementWriteRequestPayload(payload = {}) {
+  const movementType = String(payload.movementType || "").trim().toUpperCase();
+  const productId = String(payload.productId || "").trim();
+  const qty = Number(payload.qty);
+  const unitLevelId = String(payload.unitLevelId ?? payload.unit_level_id ?? "").trim();
+  const unitLabel = String(payload.unitLabel || payload.unit || "").trim();
+  const fromLocationId = String(payload.from_location_id ?? payload.fromLocationId ?? "").trim();
+  const toLocationId = String(payload.to_location_id ?? payload.toLocationId ?? "").trim();
+  const lotId = String(payload.lotId ?? payload.lot_id ?? "").trim();
+  const lotNo = String(payload.lotNo ?? payload.lot_no ?? "").trim();
+  const expDate = String(payload.expDate ?? payload.exp_date ?? "").trim();
+  const mfgDate = String(payload.mfgDate ?? payload.mfg_date ?? "").trim();
+  const manufacturer = String(payload.manufacturer ?? payload.manufacturerName ?? "").trim();
+
+  if (!movementType) {
+    throw new Error("movementType is required");
+  }
+  if (!productId) {
+    throw new Error("productId is required");
+  }
+  if (!Number.isFinite(qty) || qty <= 0) {
+    throw new Error("qty must be a positive number");
+  }
+  if (!unitLevelId && !unitLabel) {
+    throw new Error("unitLevelId or unitLabel is required");
+  }
+  if (!lotId && !lotNo) {
+    throw new Error("lotNo is required");
+  }
+  if (!lotId && !expDate) {
+    throw new Error("expDate is required");
+  }
+
+  const occurredAt = normalizeBangkokDateTimeInput(payload.occurredAt);
+  const note = String(payload.note || "").trim() || null;
+  const requestPayload = {
+    movementType,
+    productId,
+    qty,
+    lotNo,
+    expDate,
+    occurredAt,
+    note,
+  };
+
+  if (lotId) {
+    requestPayload.lot_id = lotId;
+  }
+  if (unitLevelId) {
+    requestPayload.unit_level_id = unitLevelId;
+  }
+  if (unitLabel) {
+    requestPayload.unitLabel = unitLabel;
+  }
+  if (mfgDate) {
+    requestPayload.mfgDate = mfgDate;
+  }
+  if (manufacturer) {
+    requestPayload.manufacturer = manufacturer;
+  }
+  if (fromLocationId) {
+    requestPayload.from_location_id = fromLocationId;
+  }
+  if (toLocationId) {
+    requestPayload.to_location_id = toLocationId;
+  }
+
+  return requestPayload;
+}
+
 export const productsApi = {
   list(search = "") {
     const value = String(search || "").trim();
@@ -160,74 +230,28 @@ function emitInventoryChanged() {
 
 export const inventoryApi = {
   async createMovement(payload = {}) {
-    const movementType = String(payload.movementType || "").trim().toUpperCase();
-    const productId = String(payload.productId || "").trim();
-    const qty = Number(payload.qty);
-    const unitLevelId = String(payload.unitLevelId ?? payload.unit_level_id ?? "").trim();
-    const unitLabel = String(payload.unitLabel || payload.unit || "").trim();
-    const fromLocationId = String(
-      payload.from_location_id ?? payload.fromLocationId ?? ""
-    ).trim();
-    const toLocationId = String(payload.to_location_id ?? payload.toLocationId ?? "").trim();
-    const lotNo = String(payload.lotNo ?? payload.lot_no ?? "").trim();
-    const expDate = String(payload.expDate ?? payload.exp_date ?? "").trim();
-    const mfgDate = String(payload.mfgDate ?? payload.mfg_date ?? "").trim();
-    const manufacturer = String(payload.manufacturer ?? payload.manufacturerName ?? "").trim();
-
-    if (!movementType) {
-      throw new Error("movementType is required");
-    }
-    if (!productId) {
-      throw new Error("productId is required");
-    }
-    if (!Number.isFinite(qty) || qty <= 0) {
-      throw new Error("qty must be a positive number");
-    }
-    if (!unitLevelId && !unitLabel) {
-      throw new Error("unitLevelId or unitLabel is required");
-    }
-    if (!lotNo) {
-      throw new Error("lotNo is required");
-    }
-    if (!expDate) {
-      throw new Error("expDate is required");
-    }
-
-    const occurredAt = normalizeBangkokDateTimeInput(payload.occurredAt);
-    const note = String(payload.note || "").trim() || null;
-    const requestPayload = {
-      movementType,
-      productId,
-      qty,
-      lotNo,
-      expDate,
-      occurredAt,
-      note,
-    };
-    if (unitLevelId) {
-      requestPayload.unit_level_id = unitLevelId;
-    }
-    if (unitLabel) {
-      requestPayload.unitLabel = unitLabel;
-    }
-    if (mfgDate) {
-      requestPayload.mfgDate = mfgDate;
-    }
-    if (manufacturer) {
-      requestPayload.manufacturer = manufacturer;
-    }
-
-    if (fromLocationId) {
-      requestPayload.from_location_id = fromLocationId;
-    }
-    if (toLocationId) {
-      requestPayload.to_location_id = toLocationId;
-    }
-
+    const requestPayload = buildMovementWriteRequestPayload(payload);
     const response = await requestJson({
       method: "POST",
       url: "/api/inventory/movements",
       data: requestPayload,
+    });
+    emitInventoryChanged();
+    return response;
+  },
+  async createMovementBatch(movements = []) {
+    const list = Array.isArray(movements) ? movements : [];
+    if (!list.length) {
+      throw new Error("movements must contain at least one item");
+    }
+
+    const requestPayload = list.map((movement) => buildMovementWriteRequestPayload(movement));
+    const response = await requestJson({
+      method: "POST",
+      url: "/api/inventory/movements/batch",
+      data: {
+        movements: requestPayload,
+      },
     });
     emitInventoryChanged();
     return response;

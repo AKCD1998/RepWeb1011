@@ -373,6 +373,13 @@
   width: min(760px, 92vw);
 }
 
+.receiving-page .movement-modal-card--editor,
+.receiving-page .movement-confirm-card {
+  width: min(1120px, 96vw);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+}
+
 .receiving-page .movement-form {
   display: grid;
   gap: 12px;
@@ -427,6 +434,237 @@
 .receiving-page .movement-search-status {
   color: #95b8cf;
   font-size: 12px;
+}
+
+.receiving-page .movement-inline-btn {
+  padding: 8px 10px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+
+.receiving-page .movement-lines-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid #294254;
+  background: linear-gradient(180deg, rgba(15, 24, 42, 0.98), rgba(11, 20, 36, 0.98));
+}
+
+.receiving-page .movement-lines-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.receiving-page .movement-lines-toolbar-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.receiving-page .movement-stock-picker {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #2b3f54;
+  background: rgba(9, 18, 31, 0.72);
+}
+
+.receiving-page .movement-stock-picker-header {
+  display: grid;
+  gap: 4px;
+}
+
+.receiving-page .movement-stock-picker-header strong {
+  color: #e6f7fb;
+}
+
+.receiving-page .movement-stock-picker-header span {
+  color: #95b8cf;
+  font-size: 12px;
+}
+
+.receiving-page .movement-stock-option-list {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.receiving-page .movement-stock-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #294254;
+  background: #0f1b2d;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.receiving-page .movement-stock-option:hover {
+  border-color: #3f90bf;
+  background: #112338;
+}
+
+.receiving-page .movement-stock-option input {
+  margin: 0;
+}
+
+.receiving-page .movement-stock-option.is-selected {
+  border-color: #49a8dc;
+  background: #142b43;
+  box-shadow: inset 0 0 0 1px rgba(125, 198, 239, 0.22);
+}
+
+.receiving-page .movement-stock-option-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.receiving-page .movement-stock-option-copy span {
+  font-size: 12px;
+  color: #9dc4dd;
+}
+
+.receiving-page .movement-stock-option-qty {
+  white-space: nowrap;
+  font-weight: 700;
+  color: #d9f7ff;
+}
+
+.receiving-page .movement-lines-table,
+.receiving-page .movement-confirm-table {
+  display: grid;
+  gap: 8px;
+}
+
+.receiving-page .movement-lines-head,
+.receiving-page .movement-line-row,
+.receiving-page .movement-confirm-head,
+.receiving-page .movement-confirm-row {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(190px, 1.45fr) minmax(150px, 0.95fr) minmax(140px, 0.9fr) minmax(
+      180px,
+      1.1fr
+    ) 146px;
+}
+
+.receiving-page .movement-lines-table--transfer .movement-lines-head,
+.receiving-page .movement-lines-table--transfer .movement-line-row,
+.receiving-page .movement-confirm-table--transfer .movement-confirm-head,
+.receiving-page .movement-confirm-table--transfer .movement-confirm-row {
+  grid-template-columns: minmax(190px, 1.35fr) minmax(150px, 0.9fr) minmax(140px, 0.85fr) minmax(
+      180px,
+      1fr
+    ) minmax(160px, 0.95fr) 146px;
+}
+
+.receiving-page .movement-lines-head,
+.receiving-page .movement-confirm-head {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: linear-gradient(#11283a, #0a1d2a);
+  color: #dbe8f4;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.receiving-page .movement-lines-body,
+.receiving-page .movement-confirm-body {
+  display: grid;
+  gap: 8px;
+}
+
+.receiving-page .movement-line-row,
+.receiving-page .movement-confirm-row {
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #24384c;
+  background: #0b1424;
+  align-items: start;
+}
+
+.receiving-page .movement-line-cell,
+.receiving-page .movement-confirm-row > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.receiving-page .movement-line-readonly,
+.receiving-page .movement-line-stock {
+  min-height: 38px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #314b60;
+  background: #101c30;
+  display: grid;
+  gap: 4px;
+  align-content: center;
+}
+
+.receiving-page .movement-line-readonly span,
+.receiving-page .movement-line-stock span {
+  font-size: 12px;
+  color: #9dc4dd;
+}
+
+.receiving-page .movement-line-cell--actions {
+  justify-items: end;
+}
+
+.receiving-page .movement-line-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.receiving-page .movement-line-index {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(28, 60, 82, 0.9);
+  color: #b8dced;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.receiving-page .movement-lines-placeholder {
+  padding: 18px 16px;
+  border-radius: 10px;
+  border: 1px dashed #375267;
+  background: #0b1424;
+  color: #9ccfda;
+  text-align: center;
+  font-size: 13px;
+}
+
+.receiving-page .movement-line-mobile-label {
+  display: none;
+  color: #95b8cf;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.receiving-page .movement-confirm-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #294254;
+  background: #0b1424;
+  color: #dbe8f4;
+  font-size: 13px;
 }
 
 .receiving-page .product-search-results {
@@ -532,6 +770,11 @@
     grid-template-columns: 1fr;
   }
 
+  .receiving-page .movement-modal-card--editor,
+  .receiving-page .movement-confirm-card {
+    width: min(96vw, 820px);
+  }
+
   .receiving-page .table-totals {
     margin-left: 0;
     width: 100%;
@@ -541,6 +784,38 @@
   .receiving-page .pos-table .thead,
   .receiving-page .pos-table .row {
     grid-template-columns: 140px 1fr 100px 120px 120px 170px;
+  }
+
+  .receiving-page .movement-lines-toolbar {
+    flex-direction: column;
+  }
+
+  .receiving-page .movement-confirm-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .receiving-page .movement-lines-head,
+  .receiving-page .movement-confirm-head {
+    display: none;
+  }
+
+  .receiving-page .movement-line-row,
+  .receiving-page .movement-line-row--transfer,
+  .receiving-page .movement-confirm-row,
+  .receiving-page .movement-confirm-row--transfer {
+    grid-template-columns: 1fr;
+  }
+
+  .receiving-page .movement-line-mobile-label {
+    display: block;
+  }
+
+  .receiving-page .movement-line-cell--actions {
+    justify-items: stretch;
+  }
+
+  .receiving-page .movement-line-actions {
+    justify-content: flex-start;
   }
 }
 
@@ -559,5 +834,18 @@
 
   .receiving-page .movement-search-row {
     grid-template-columns: 1fr;
+  }
+
+  .receiving-page .modal {
+    padding: 12px;
+  }
+
+  .receiving-page .movement-stock-option {
+    grid-template-columns: auto 1fr;
+  }
+
+  .receiving-page .movement-stock-option-qty {
+    grid-column: 1 / -1;
+    padding-left: 24px;
   }
 }

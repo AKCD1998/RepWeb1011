@@ -3,3 +3,6 @@ dist/
 
 .env
 server/.env
+.env.local-simulation
+server/.env.local-simulation
+docker-data/
