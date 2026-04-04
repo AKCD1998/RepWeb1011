@@ -1546,7 +1546,7 @@ export async function getDeliverSearchProducts(req, res) {
             WHERE prg.product_id = p.id
               AND prg.effective_from <= CURRENT_DATE
               AND (prg.effective_to IS NULL OR prg.effective_to > CURRENT_DATE)
-              AND rg.code = 'KY11'
+              AND rg.code = 'KY10'
           )
           OR (
             EXISTS (
@@ -1556,7 +1556,7 @@ export async function getDeliverSearchProducts(req, res) {
               WHERE prg.product_id = p.id
                 AND prg.effective_from <= CURRENT_DATE
                 AND (prg.effective_to IS NULL OR prg.effective_to > CURRENT_DATE)
-                AND rg.code = 'KY10'
+                AND rg.code = 'KY11'
             )
             AND EXISTS (
               SELECT 1

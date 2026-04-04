@@ -96,6 +96,25 @@ function normalizeDeliverSearchProductRow(row) {
   };
 }
 
+function getDeliverSearchCategory(product) {
+  const reportGroupCodes = normalizeReportGroupCodes(product?.reportGroupCodes);
+  if (reportGroupCodes.includes("KY10")) {
+    return {
+      code: "KY10",
+      label: "ขย.10",
+      description: "ยาควบคุมพิเศษ",
+      sortOrder: 0,
+    };
+  }
+
+  return {
+    code: "KY11_TRAMADOL",
+    label: "ขย.11 + TRAMADOL",
+    description: "ยาอันตราย",
+    sortOrder: 1,
+  };
+}
+
 function buildLotCacheKey(productId, productCode, branchCode) {
   const productKey = buildProductIdentityKey(productId, productCode);
   if (!productKey) return "";
@@ -705,6 +724,11 @@ export default function Deliver() {
         .map(normalizeDeliverSearchProductRow)
         .filter((row) => row.id)
         .sort((left, right) => {
+          const leftCategory = getDeliverSearchCategory(left);
+          const rightCategory = getDeliverSearchCategory(right);
+          if (leftCategory.sortOrder !== rightCategory.sortOrder) {
+            return leftCategory.sortOrder - rightCategory.sortOrder;
+          }
           if (left.name !== right.name) return left.name.localeCompare(right.name);
           return left.productCode.localeCompare(right.productCode);
         });
@@ -1390,7 +1414,7 @@ export default function Deliver() {
                   disabled={!canOpenProductSearch}
                   title={
                     canOpenProductSearch
-                      ? "ค้นหารายการยา ขย.10 ที่มี TRAMADOL และ ขย.11"
+                      ? "ค้นหารายการยา ขย.10 ทั้งหมด และ ขย.11 ที่มี TRAMADOL"
                       : "กรุณาเลือกสาขาที่ทำรายการก่อนค้นหายา"
                   }
                 >
@@ -1506,7 +1530,7 @@ export default function Deliver() {
                   ค้นหายา
                 </h2>
                 <p className="pos-search-body">
-                  แสดงเฉพาะรายการ ขย.10 ที่มีตัวยาสำคัญ TRAMADOL และรายการ ขย.11 ทั้งหมดของสาขา {selectedBranchLabel}
+                  แสดงเฉพาะรายการ ขย.10 ทั้งหมด และรายการ ขย.11 ที่มีตัวยาสำคัญ TRAMADOL ของสาขา {selectedBranchLabel}
                 </p>
               </div>
             </div>
@@ -1529,6 +1553,7 @@ export default function Deliver() {
                 ) : deliverSearchProducts.length ? (
                   deliverSearchProducts.map((product) => {
                     const isSelected = product.id === selectedDeliverSearchProductId;
+                    const category = getDeliverSearchCategory(product);
                     return (
                       <div
                         key={product.id}
@@ -1552,7 +1577,19 @@ export default function Deliver() {
                         }}
                       >
                         <div className="pos-search-code">{product.productCode || "-"}</div>
-                        <div className="pos-search-name">{product.name || "-"}</div>
+                        <div className="pos-search-name">
+                          <div>{product.name || "-"}</div>
+                          <div className="pos-search-tags">
+                            <span
+                              className={`pos-search-tag${
+                                category.code === "KY10" ? " is-ky10" : " is-ky11"
+                              }`}
+                            >
+                              {category.label}
+                            </span>
+                            <span className="pos-search-tag-detail">{category.description}</span>
+                          </div>
+                        </div>
                         <div className="pos-search-stock">
                           {formatQuantityAsUnits(product.quantityBase, product.baseUnitLabel || product.unit)}
                         </div>
