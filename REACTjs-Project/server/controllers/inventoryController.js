@@ -40,6 +40,35 @@ function normalizeRole(role) {
   return normalizeText(role).toUpperCase();
 }
 
+async function resolveAccessibleBranchCodeForStockRead({
+  requestedBranchCode = "",
+  user = {},
+  requireBranchCodeForAdmin = false,
+}) {
+  const branchCode = normalizeText(requestedBranchCode);
+  const userRole = normalizeRole(user?.role);
+  const userLocationId = normalizeText(user?.location_id);
+
+  if (userRole !== "ADMIN") {
+    if (!userLocationId) {
+      throw httpError(403, "Branch-scoped access requires location_id");
+    }
+
+    const viewerBranch = await resolveBranchById({ query }, userLocationId);
+    if (branchCode && branchCode !== viewerBranch.code) {
+      throw httpError(403, "Forbidden: branchCode mismatch");
+    }
+
+    return viewerBranch.code;
+  }
+
+  if (requireBranchCodeForAdmin && !branchCode) {
+    throw httpError(400, "branchCode is required");
+  }
+
+  return branchCode;
+}
+
 function toNullableText(value) {
   const normalized = normalizeText(value);
   return normalized || "";
@@ -1367,21 +1396,10 @@ export async function listLocations(req, res) {
 export async function getStockOnHand(req, res) {
   const branchCode = String(req.query.branchCode || "").trim();
   const productId = String(req.query.productId || "").trim();
-  const userRole = normalizeRole(req.user?.role);
-  const userLocationId = normalizeText(req.user?.location_id);
-  let effectiveBranchCode = branchCode;
-
-  if (userRole !== "ADMIN") {
-    if (!userLocationId) {
-      throw httpError(403, "Branch-scoped access requires location_id");
-    }
-
-    const viewerBranch = await resolveBranchById({ query }, userLocationId);
-    if (branchCode && branchCode !== viewerBranch.code) {
-      throw httpError(403, "Forbidden: branchCode mismatch");
-    }
-    effectiveBranchCode = viewerBranch.code;
-  }
+  const effectiveBranchCode = await resolveAccessibleBranchCodeForStockRead({
+    requestedBranchCode: branchCode,
+    user: req.user,
+  });
 
   const params = [];
   const where = ["l.location_type = 'BRANCH'"];
@@ -1424,6 +1442,166 @@ export async function getStockOnHand(req, res) {
   );
 
   return res.json(result.rows);
+}
+
+export async function getDeliverSearchProducts(req, res) {
+  const branchCode = normalizeText(req.query.branchCode);
+  const effectiveBranchCode = await resolveAccessibleBranchCodeForStockRead({
+    requestedBranchCode: branchCode,
+    user: req.user,
+    requireBranchCodeForAdmin: true,
+  });
+  const defaultUnitActivePredicate = productUnitLevelsActiveCompatPredicate("default_pul");
+  const baseUnitActivePredicate = productUnitLevelsActiveCompatPredicate("base_pul");
+
+  const result = await query(
+    `
+      SELECT
+        p.id AS id,
+        p.id AS "productId",
+        p.product_code AS "productCode",
+        p.trade_name AS "tradeName",
+        default_pul.barcode AS barcode,
+        COALESCE(default_price.price, 0) AS price,
+        COALESCE(
+          NULLIF(TRIM(default_pul.display_name), ''),
+          NULLIF(default_ut.symbol, ''),
+          default_ut.code,
+          default_pul.code,
+          base_unit.base_unit_label,
+          'base'
+        ) AS "unitLabel",
+        base_unit.base_unit_label AS "baseUnitLabel",
+        COALESCE(SUM(soh.quantity_on_hand), 0) AS "quantityBase",
+        COALESCE(report_groups.report_group_codes, ARRAY[]::text[]) AS "reportGroupCodes"
+      FROM stock_on_hand soh
+      JOIN locations l ON l.id = soh.branch_id
+      JOIN products p ON p.id = soh.product_id
+      LEFT JOIN LATERAL (
+        SELECT array_agg(rg.code ORDER BY rg.code) AS report_group_codes
+        FROM product_report_groups prg
+        JOIN report_groups rg ON rg.id = prg.report_group_id
+        WHERE prg.product_id = p.id
+          AND prg.effective_from <= CURRENT_DATE
+          AND (prg.effective_to IS NULL OR prg.effective_to > CURRENT_DATE)
+      ) report_groups ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          default_pul.id,
+          default_pul.code,
+          default_pul.barcode,
+          default_pul.display_name,
+          default_pul.unit_type_id
+        FROM product_unit_levels default_pul
+        WHERE default_pul.product_id = p.id
+          AND ${defaultUnitActivePredicate}
+        ORDER BY
+          default_pul.is_sellable DESC,
+          default_pul.is_base DESC,
+          default_pul.sort_order ASC,
+          default_pul.created_at ASC
+        LIMIT 1
+      ) default_pul ON true
+      LEFT JOIN unit_types default_ut ON default_ut.id = default_pul.unit_type_id
+      LEFT JOIN LATERAL (
+        SELECT
+          COALESCE(
+            NULLIF(TRIM(base_pul.display_name), ''),
+            NULLIF(base_ut.symbol, ''),
+            base_ut.code,
+            base_pul.code,
+            'base'
+          ) AS base_unit_label
+        FROM product_unit_levels base_pul
+        LEFT JOIN unit_types base_ut ON base_ut.id = base_pul.unit_type_id
+        WHERE base_pul.product_id = p.id
+          AND ${baseUnitActivePredicate}
+        ORDER BY
+          base_pul.is_base DESC,
+          base_pul.sort_order ASC,
+          base_pul.created_at ASC
+        LIMIT 1
+      ) base_unit ON true
+      LEFT JOIN LATERAL (
+        SELECT pp.price
+        FROM product_prices pp
+        LEFT JOIN price_tiers pt ON pt.id = pp.price_tier_id
+        WHERE pp.product_id = p.id
+          AND pp.unit_level_id = default_pul.id
+          AND (pp.effective_to IS NULL OR pp.effective_to >= CURRENT_DATE)
+        ORDER BY
+          COALESCE(pt.is_default, false) DESC,
+          pp.effective_from DESC
+        LIMIT 1
+      ) default_price ON true
+      WHERE l.location_type = 'BRANCH'
+        AND l.code = $1
+        AND p.is_active = true
+        AND soh.quantity_on_hand > 0
+        AND (
+          EXISTS (
+            SELECT 1
+            FROM product_report_groups prg
+            JOIN report_groups rg ON rg.id = prg.report_group_id
+            WHERE prg.product_id = p.id
+              AND prg.effective_from <= CURRENT_DATE
+              AND (prg.effective_to IS NULL OR prg.effective_to > CURRENT_DATE)
+              AND rg.code = 'KY11'
+          )
+          OR (
+            EXISTS (
+              SELECT 1
+              FROM product_report_groups prg
+              JOIN report_groups rg ON rg.id = prg.report_group_id
+              WHERE prg.product_id = p.id
+                AND prg.effective_from <= CURRENT_DATE
+                AND (prg.effective_to IS NULL OR prg.effective_to > CURRENT_DATE)
+                AND rg.code = 'KY10'
+            )
+            AND EXISTS (
+              SELECT 1
+              FROM product_ingredients pi
+              JOIN active_ingredients ai ON ai.id = pi.active_ingredient_id
+              WHERE pi.product_id = p.id
+                AND (
+                  ai.code ILIKE '%TRAMADOL%'
+                  OR ai.name_en ILIKE '%TRAMADOL%'
+                  OR COALESCE(ai.name_th, '') ILIKE '%TRAMADOL%'
+                )
+            )
+          )
+        )
+      GROUP BY
+        p.id,
+        p.product_code,
+        p.trade_name,
+        default_pul.barcode,
+        default_pul.display_name,
+        default_pul.code,
+        default_ut.symbol,
+        default_ut.code,
+        base_unit.base_unit_label,
+        default_price.price,
+        report_groups.report_group_codes
+      ORDER BY p.trade_name ASC, p.product_code ASC
+    `,
+    [effectiveBranchCode]
+  );
+
+  return res.json(
+    result.rows.map((row) => ({
+      id: row.id,
+      productId: row.productId,
+      productCode: row.productCode,
+      tradeName: row.tradeName,
+      barcode: row.barcode || "",
+      price: Number(row.price || 0),
+      unitLabel: row.unitLabel || row.baseUnitLabel || "",
+      baseUnitLabel: row.baseUnitLabel || "",
+      quantityBase: Number(row.quantityBase || 0),
+      reportGroupCodes: Array.isArray(row.reportGroupCodes) ? row.reportGroupCodes : [],
+    }))
+  );
 }
 
 export async function updateMovementOccurredAtCorrection(req, res) {

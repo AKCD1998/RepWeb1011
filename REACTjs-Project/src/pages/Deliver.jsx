@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { dispenseApi, inventoryApi, productsApi } from "../lib/api";
+import { formatQuantityAsUnits } from "../lib/productUnits";
 import { parseDeliverNotes } from "../utils/deliverPatientParser";
 import {
   SMARTCARD_DEFAULTS,
@@ -59,6 +60,40 @@ function buildProductIdentityKey(productId, productCode) {
   if (safeProductCode) return `code:${safeProductCode}`;
 
   return "";
+}
+
+function getProductCodeValue(product) {
+  return toCleanText(product?.productCode ?? product?.companyCode ?? product?.product_code ?? "");
+}
+
+function getItemIdentity(item) {
+  return buildProductIdentityKey(item?.id ?? item?.productId, getProductCodeValue(item)) || toItemKey(item?.name);
+}
+
+function normalizeReportGroupCodes(value) {
+  if (!Array.isArray(value)) return [];
+  const unique = new Set();
+  value.forEach((entry) => {
+    const normalized = toCleanText(entry).toUpperCase();
+    if (normalized) unique.add(normalized);
+  });
+  return [...unique];
+}
+
+function normalizeDeliverSearchProductRow(row) {
+  const quantityBase = Number(row?.quantityBase ?? row?.quantity_base ?? 0);
+  return {
+    id: toCleanText(row?.id ?? row?.productId ?? row?.product_id),
+    productCode: getProductCodeValue(row),
+    companyCode: getProductCodeValue(row),
+    name: toCleanText(row?.tradeName ?? row?.productName ?? row?.name) || "-",
+    barcode: toCleanText(row?.barcode),
+    price: Number(row?.price ?? 0),
+    unit: toCleanText(row?.unitLabel ?? row?.unit ?? row?.baseUnitLabel),
+    baseUnitLabel: toCleanText(row?.baseUnitLabel ?? row?.base_unit_label ?? row?.unit ?? row?.unitLabel),
+    quantityBase: Number.isFinite(quantityBase) ? quantityBase : 0,
+    reportGroupCodes: normalizeReportGroupCodes(row?.reportGroupCodes ?? row?.report_group_codes),
+  };
 }
 
 function buildLotCacheKey(productId, productCode, branchCode) {
@@ -173,6 +208,7 @@ export default function Deliver() {
   const userBranchCode = toCleanText(user?.branchCode || user?.branch_code || "");
   const [items, setItems] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isProductSearchModalOpen, setIsProductSearchModalOpen] = useState(false);
   const [pendingMultiplier, setPendingMultiplier] = useState(null);
   const [deliverNotes, setDeliverNotes] = useState("");
   const [reportTypeOptions, setReportTypeOptions] = useState([]);
@@ -189,6 +225,10 @@ export default function Deliver() {
   const effectiveBranchCode = isAdmin ? toCleanText(selectedBranchCode) : userBranchCode;
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
   const [branchLoadError, setBranchLoadError] = useState("");
+  const [deliverSearchProducts, setDeliverSearchProducts] = useState([]);
+  const [deliverSearchLoadError, setDeliverSearchLoadError] = useState("");
+  const [isLoadingDeliverSearchProducts, setIsLoadingDeliverSearchProducts] = useState(false);
+  const [selectedDeliverSearchProductId, setSelectedDeliverSearchProductId] = useState("");
   const [smartcardStatus, setSmartcardStatus] = useState({
     tone: "info",
     message: "กำลังเริ่ม smartcard listener",
@@ -355,6 +395,17 @@ export default function Deliver() {
     return () => document.removeEventListener("keydown", handleKeydown);
   }, [isModalOpen, isSubmitting]);
 
+  useEffect(() => {
+    if (!isProductSearchModalOpen) return undefined;
+    const handleKeydown = (event) => {
+      if (event.key === "Escape") {
+        setIsProductSearchModalOpen(false);
+      }
+    };
+    document.addEventListener("keydown", handleKeydown);
+    return () => document.removeEventListener("keydown", handleKeydown);
+  }, [isProductSearchModalOpen]);
+
   const buildReportTypeOptions = useCallback((product) => {
     const rawCodes = Array.isArray(product?.reportGroupCodes)
       ? product.reportGroupCodes
@@ -409,7 +460,7 @@ export default function Deliver() {
       const metadata = await hydrateProductMetadata(product);
       const source = metadata || product;
       const itemName = toCleanText(source?.name || product?.name);
-      const itemKey = toItemKey(itemName);
+      const itemKey = getItemIdentity(source || product);
 
       setSelectedProductName(itemName);
       setActiveItemKey(itemKey);
@@ -417,7 +468,7 @@ export default function Deliver() {
       const nextReportOptions = buildReportTypeOptions(source);
       setReportTypeOptions(nextReportOptions);
 
-      const matchingItem = items.find((item) => toItemKey(item?.name) === itemKey);
+      const matchingItem = items.find((item) => getItemIdentity(item) === itemKey);
       const preferredReportType = toCleanText(
         matchingItem?.reportType || selectedReportType
       ).toUpperCase();
@@ -440,7 +491,7 @@ export default function Deliver() {
         if (itemKey) {
           setItems((prev) =>
             prev.map((item) =>
-              toItemKey(item?.name) === itemKey
+              getItemIdentity(item) === itemKey
                 ? {
                     ...item,
                     reportType: resolvedReportType,
@@ -475,7 +526,7 @@ export default function Deliver() {
       if (itemKey) {
         setItems((prev) =>
           prev.map((item) =>
-            toItemKey(item?.name) === itemKey
+            getItemIdentity(item) === itemKey
               ? {
                   ...item,
                   reportType: resolvedReportType,
@@ -563,7 +614,7 @@ export default function Deliver() {
       }
 
       const activeItem =
-        currentItems.find((item) => toItemKey(item?.name) === activeKey) || null;
+        currentItems.find((item) => getItemIdentity(item) === activeKey) || null;
       if (!activeItem) {
         setLotOptions([]);
         setSelectedLotId("");
@@ -615,8 +666,8 @@ export default function Deliver() {
     const safeQty = Number(qtyToAdd);
     const resolvedQty = Number.isFinite(safeQty) && safeQty > 0 ? safeQty : 1;
     setItems((prev) => {
-      const key = toItemKey(product?.name);
-      const index = prev.findIndex((item) => toItemKey(item?.name) === key);
+      const key = getItemIdentity(product);
+      const index = prev.findIndex((item) => getItemIdentity(item) === key);
 
       if (index >= 0) {
         const next = [...prev];
@@ -637,6 +688,95 @@ export default function Deliver() {
       ];
     });
   }, []);
+
+  const loadDeliverSearchProducts = useCallback(async () => {
+    if (isAdmin && !effectiveBranchCode) {
+      setDeliverSearchProducts([]);
+      setSelectedDeliverSearchProductId("");
+      setDeliverSearchLoadError("กรุณาเลือกสาขาที่ทำรายการก่อนค้นหายา");
+      return;
+    }
+
+    setIsLoadingDeliverSearchProducts(true);
+    setDeliverSearchLoadError("");
+    try {
+      const rows = await inventoryApi.deliverSearchProducts(effectiveBranchCode);
+      const normalized = (Array.isArray(rows) ? rows : [])
+        .map(normalizeDeliverSearchProductRow)
+        .filter((row) => row.id)
+        .sort((left, right) => {
+          if (left.name !== right.name) return left.name.localeCompare(right.name);
+          return left.productCode.localeCompare(right.productCode);
+        });
+      setDeliverSearchProducts(normalized);
+      setSelectedDeliverSearchProductId((prev) =>
+        normalized.some((row) => row.id === prev) ? prev : ""
+      );
+    } catch (error) {
+      setDeliverSearchProducts([]);
+      setSelectedDeliverSearchProductId("");
+      setDeliverSearchLoadError(error?.message || "ไม่สามารถโหลดรายการยาที่ค้นหาได้");
+    } finally {
+      setIsLoadingDeliverSearchProducts(false);
+    }
+  }, [effectiveBranchCode, isAdmin]);
+
+  useEffect(() => {
+    if (!isProductSearchModalOpen) return;
+    void loadDeliverSearchProducts();
+  }, [isProductSearchModalOpen, loadDeliverSearchProducts]);
+
+  const handleOpenProductSearchModal = useCallback(() => {
+    if (isAdmin && !effectiveBranchCode) {
+      setSubmitError("กรุณาเลือกสาขาที่ทำรายการก่อนค้นหายา");
+      return;
+    }
+
+    setSubmitError("");
+    setDeliverSearchLoadError("");
+    setSelectedDeliverSearchProductId("");
+    setIsProductSearchModalOpen(true);
+  }, [effectiveBranchCode, isAdmin]);
+
+  const handleCloseProductSearchModal = useCallback(() => {
+    setIsProductSearchModalOpen(false);
+    setSelectedDeliverSearchProductId("");
+  }, []);
+
+  const handleProductSearchModalBackdrop = useCallback((event) => {
+    if (event.target === event.currentTarget) {
+      handleCloseProductSearchModal();
+    }
+  }, [handleCloseProductSearchModal]);
+
+  const selectedDeliverSearchProduct = useMemo(
+    () =>
+      deliverSearchProducts.find((product) => product.id === selectedDeliverSearchProductId) || null,
+    [deliverSearchProducts, selectedDeliverSearchProductId]
+  );
+
+  const commitDeliverSearchSelection = useCallback(
+    async (product) => {
+      const selectedProduct = product || selectedDeliverSearchProduct;
+      if (!selectedProduct) return;
+
+      handleAddProduct(selectedProduct, 1);
+      setPendingMultiplier(null);
+      setIsProductSearchModalOpen(false);
+      setSelectedDeliverSearchProductId("");
+
+      try {
+        await syncProductMeta(selectedProduct);
+      } catch {
+        // keep added row even if metadata hydration fails
+      }
+
+      if (barcodeInputRef.current) {
+        barcodeInputRef.current.focus();
+      }
+    },
+    [handleAddProduct, selectedDeliverSearchProduct, syncProductMeta]
+  );
 
   const handleBarcodeKeyDown = useCallback(
     async (event) => {
@@ -705,9 +845,9 @@ export default function Deliver() {
   );
 
   const handleDelete = useCallback(
-    (name) => {
-      const key = toItemKey(name);
-      setItems((prev) => prev.filter((item) => toItemKey(item?.name) !== key));
+    (itemToDelete) => {
+      const key = getItemIdentity(itemToDelete);
+      setItems((prev) => prev.filter((item) => getItemIdentity(item) !== key));
 
       if (activeItemKey && activeItemKey === key) {
         setActiveItemKey("");
@@ -741,7 +881,7 @@ export default function Deliver() {
 
       setItems((prev) =>
         prev.map((item) =>
-          toItemKey(item?.name) === activeItemKey
+          getItemIdentity(item) === activeItemKey
             ? { ...item, reportType: value }
             : item
         )
@@ -763,7 +903,7 @@ export default function Deliver() {
 
       setItems((prev) =>
         prev.map((item) =>
-          toItemKey(item?.name) === activeItemKey
+          getItemIdentity(item) === activeItemKey
             ? { ...item, lotNo, lotId, lotExpDate }
             : item
         )
@@ -1016,6 +1156,9 @@ export default function Deliver() {
   );
 
   const canConfirm = items.length > 0 && !isSubmitting;
+  const canOpenProductSearch = !isLoadingBranches && (!isAdmin || Boolean(effectiveBranchCode));
+  const canConfirmProductSearchSelection =
+    Boolean(selectedDeliverSearchProduct) && !isLoadingDeliverSearchProducts;
 
   return (
     <>
@@ -1055,10 +1198,10 @@ export default function Deliver() {
                   <div className="tbody" id="items">
                     {items.map((item, index) => (
                       <div
-                        key={`${item.name}-${item.barcode}-${index}`}
+                        key={getItemIdentity(item) || `${item.name}-${item.barcode}-${index}`}
                         data-name={item.name}
                         className={
-                          toItemKey(item?.name) === activeItemKey
+                          getItemIdentity(item) === activeItemKey
                             ? "pos-item-row is-active"
                             : "pos-item-row"
                         }
@@ -1085,7 +1228,7 @@ export default function Deliver() {
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
-                              handleDelete(item.name);
+                              handleDelete(item);
                             }}
                             aria-label="Delete item"
                             data-name={item.name}
@@ -1241,6 +1384,20 @@ export default function Deliver() {
                 </div>
 
                 <button
+                  className="btn pos-search-btn"
+                  type="button"
+                  onClick={handleOpenProductSearchModal}
+                  disabled={!canOpenProductSearch}
+                  title={
+                    canOpenProductSearch
+                      ? "ค้นหารายการยา ขย.10 ที่มี TRAMADOL และ ขย.11"
+                      : "กรุณาเลือกสาขาที่ทำรายการก่อนค้นหายา"
+                  }
+                >
+                  ค้นหายา
+                </button>
+
+                <button
                   className="btn btn-primary"
                   id="pos-confirmBtn"
                   type="button"
@@ -1330,6 +1487,101 @@ export default function Deliver() {
                 disabled={isSubmitting}
               >
                 {isSubmitting ? "กำลังยืนยัน..." : "ยืนยัน"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isProductSearchModalOpen ? (
+        <div
+          className="pos-modal"
+          aria-hidden="false"
+          onClick={handleProductSearchModalBackdrop}
+        >
+          <div className="pos-search-dialog" role="dialog" aria-modal="true" aria-labelledby="deliver-product-search-title">
+            <div className="pos-search-header">
+              <div>
+                <h2 className="pos-search-title" id="deliver-product-search-title">
+                  ค้นหายา
+                </h2>
+                <p className="pos-search-body">
+                  แสดงเฉพาะรายการ ขย.10 ที่มีตัวยาสำคัญ TRAMADOL และรายการ ขย.11 ทั้งหมดของสาขา {selectedBranchLabel}
+                </p>
+              </div>
+            </div>
+
+            {deliverSearchLoadError ? (
+              <div className="pos-feedback pos-feedback--error pos-search-feedback">
+                {deliverSearchLoadError}
+              </div>
+            ) : null}
+
+            <div className="pos-search-table" role="region" aria-label="รายการยาที่เลือกได้">
+              <div className="pos-search-table-head">
+                <div>รหัสสินค้า</div>
+                <div>ชื่อสินค้า</div>
+                <div>จำนวนคงเหลือในสต็อก</div>
+              </div>
+              <div className="pos-search-table-body">
+                {isLoadingDeliverSearchProducts ? (
+                  <div className="pos-search-empty">กำลังโหลดรายการยา...</div>
+                ) : deliverSearchProducts.length ? (
+                  deliverSearchProducts.map((product) => {
+                    const isSelected = product.id === selectedDeliverSearchProductId;
+                    return (
+                      <div
+                        key={product.id}
+                        className={`pos-search-row${isSelected ? " is-selected" : ""}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setSelectedDeliverSearchProductId(product.id)}
+                        onDoubleClick={() => {
+                          void commitDeliverSearchSelection(product);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void commitDeliverSearchSelection(product);
+                            return;
+                          }
+                          if (event.key === " ") {
+                            event.preventDefault();
+                            setSelectedDeliverSearchProductId(product.id);
+                          }
+                        }}
+                      >
+                        <div className="pos-search-code">{product.productCode || "-"}</div>
+                        <div className="pos-search-name">{product.name || "-"}</div>
+                        <div className="pos-search-stock">
+                          {formatQuantityAsUnits(product.quantityBase, product.baseUnitLabel || product.unit)}
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="pos-search-empty">ไม่พบรายการยาที่ตรงเงื่อนไขในสาขานี้</div>
+                )}
+              </div>
+            </div>
+
+            <div className="pos-confirm-actions">
+              <button
+                type="button"
+                className="btn pos-confirm-cancel"
+                onClick={handleCloseProductSearchModal}
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary pos-confirm-submit"
+                onClick={() => {
+                  void commitDeliverSearchSelection();
+                }}
+                disabled={!canConfirmProductSearchSelection}
+              >
+                ตกลง
               </button>
             </div>
           </div>

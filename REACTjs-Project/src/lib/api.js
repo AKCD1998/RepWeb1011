@@ -362,6 +362,14 @@ export const inventoryApi = {
       params: buildStockOnHandParams({ branchCode }),
     });
   },
+  deliverSearchProducts(branchCode = "") {
+    const safeBranchCode = String(branchCode || "").trim();
+    return requestJson({
+      method: "GET",
+      url: "/api/stock/deliver-search-products",
+      params: safeBranchCode ? { branchCode: safeBranchCode } : undefined,
+    });
+  },
   movements(filters = {}) {
     const params = {};
     Object.entries(filters).forEach(([key, value]) => {
