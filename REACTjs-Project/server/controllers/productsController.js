@@ -1775,6 +1775,7 @@ export async function listProducts(req, res) {
   const barcode = String(req.query.barcode || "").trim();
   const activeExpression = productUnitLevelsIsActiveCompatExpression("pul");
   const activePredicate = productUnitLevelsActiveCompatPredicate("pul");
+  const searchActivePredicate = productUnitLevelsActiveCompatPredicate("pul_search");
 
   if (barcode) {
     const result = await query(
@@ -1953,6 +1954,16 @@ export async function listProducts(req, res) {
         OR COALESCE(p.product_code, '') ILIKE $2
         OR COALESCE(pu.barcode, '') ILIKE $2
         OR COALESCE(pu.package_size, '') ILIKE $2
+        OR EXISTS (
+          SELECT 1
+          FROM product_unit_levels pul_search
+          WHERE pul_search.product_id = p.id
+            AND ${searchActivePredicate}
+            AND (
+              COALESCE(pul_search.barcode, '') ILIKE $2
+              OR COALESCE(pul_search.display_name, '') ILIKE $2
+            )
+        )
         OR COALESCE(mloc.name, '') ILIKE $2
         OR EXISTS (
           SELECT 1

@@ -14,6 +14,7 @@
     "db:local:seed": "node scripts/db-local-seed.mjs",
     "db:local:bootstrap": "npm run db:local:init && npm run db:local:migrate && npm run db:local:seed",
     "audit:lot-whitelists": "node scripts/audit-lot-whitelists.mjs",
+    "audit:receiving-search": "node scripts/audit-receiving-search-gaps.mjs",
     "audit:unit-levels": "node scripts/audit-unit-levels.mjs",
     "verify:unit-level": "node scripts/verify-unit-level-stability.mjs",
     "check:server": "node scripts/check-server-syntax.mjs",
