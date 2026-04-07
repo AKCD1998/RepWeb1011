@@ -130,6 +130,7 @@ function createEmptyForm() {
     manufacturerName: "",
     price: "",
     reportGroupCode: "",
+    reportReceiveUnitSelectionKey: "",
     noteText: "",
     packagingLevels: [
       createEmptyPackagingLevel({
@@ -197,6 +198,63 @@ function createPackagingLevelsForForm(item) {
       isSellable: true,
     }),
   ];
+}
+
+function normalizePackagingLevelQuantityPerBase(level) {
+  const numeric = Number(level?.quantityPerBase);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  if (Boolean(level?.isBase)) return 1;
+  const matches = [...String(level?.displayName || "").matchAll(/[0-9]+(?:\.[0-9]+)?/g)].map((entry) =>
+    Number(entry[0])
+  );
+  if (matches.length >= 2) return matches[1];
+  if (matches.length === 1) return matches[0];
+  return 1;
+}
+
+function buildPackagingLevelSelectionKey(level) {
+  return [
+    String(level?.unitTypeCode || "").trim().toUpperCase(),
+    String(normalizePackagingLevelQuantityPerBase(level)),
+    Boolean(level?.isBase) ? "BASE" : "NON_BASE",
+  ].join("|");
+}
+
+function extractPackagingContainerLabel(value) {
+  const normalized = String(value || "").trim().replace(/\s+/g, " ");
+  if (!normalized) return "";
+  const firstPart = normalized.split(/\s*[xX×]\s*/u)[0] || "";
+  const containerMatch = firstPart.match(/^1\s+(.+)$/u);
+  return String(containerMatch?.[1] || firstPart).trim();
+}
+
+function buildReportReceiveUnitOptions(packagingLevels) {
+  const levels = Array.isArray(packagingLevels) ? packagingLevels : [];
+  const seenKeys = new Set();
+
+  return levels
+    .filter((level) => !isPackagingLevelRowBlank(level))
+    .map((level) => {
+      const key = buildPackagingLevelSelectionKey(level);
+      return {
+        key,
+        fullLabel: String(level?.displayName || "").trim(),
+        shortLabel: extractPackagingContainerLabel(level?.displayName) || String(level?.displayName || "").trim(),
+        isSellable: Boolean(level?.isSellable),
+        isBase: Boolean(level?.isBase),
+      };
+    })
+    .filter((option) => {
+      if (!option.key || seenKeys.has(option.key)) return false;
+      seenKeys.add(option.key);
+      return true;
+    });
+}
+
+function getDefaultReportReceiveUnitSelectionKey(packagingLevels) {
+  const levels = Array.isArray(packagingLevels) ? packagingLevels : [];
+  const preferredLevel = levels.find((level) => level.isSellable) || levels.find((level) => level.isBase) || levels[0];
+  return preferredLevel ? buildPackagingLevelSelectionKey(preferredLevel) : "";
 }
 
 function normalizeIngredientForForm(
@@ -642,6 +700,10 @@ export default function Products() {
   const unitTypeCodeOptions = useMemo(() => UNIT_TYPE_CODE_OPTIONS, []);
   const packageSizeOptions = useMemo(() => PACKAGE_SIZE_OPTIONS, []);
   const dosageFormCodeOptions = useMemo(() => DOSAGE_FORM_CODE_OPTIONS, []);
+  const reportReceiveUnitOptions = useMemo(
+    () => buildReportReceiveUnitOptions(form.packagingLevels),
+    [form.packagingLevels]
+  );
   const isLegacyDosageFormCodeValue = useMemo(() => {
     if (!form.dosageFormCode) return false;
     return !dosageFormCodeOptions.includes(form.dosageFormCode);
@@ -658,6 +720,28 @@ export default function Products() {
       null,
     [lotWhitelistData.lots, selectedLotWhitelistLotId]
   );
+
+  useEffect(() => {
+    const fallbackKey = getDefaultReportReceiveUnitSelectionKey(form.packagingLevels);
+
+    setForm((prev) => {
+      if (
+        prev.reportReceiveUnitSelectionKey &&
+        reportReceiveUnitOptions.some((option) => option.key === prev.reportReceiveUnitSelectionKey)
+      ) {
+        return prev;
+      }
+
+      if ((prev.reportReceiveUnitSelectionKey || "") === fallbackKey) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        reportReceiveUnitSelectionKey: fallbackKey,
+      };
+    });
+  }, [form.packagingLevels, reportReceiveUnitOptions]);
 
   useEffect(() => {
     if (!isEditMode || !activeIngredientOptionsByName.size) return;
@@ -1205,6 +1289,7 @@ export default function Products() {
         unitTypeCode: primaryPackagingLevel?.unitTypeCode || null,
         price: form.price === "" ? null : form.price,
         reportGroupCodes: form.reportGroupCode ? [form.reportGroupCode] : [],
+        reportReceiveUnitKey: form.reportReceiveUnitSelectionKey || null,
         noteText: form.noteText || null,
         packagingLevels: packagingLevelsPayload,
         ingredients: ingredientsPayload,
@@ -1249,6 +1334,9 @@ export default function Products() {
       manufacturerName: item.manufacturerName || "",
       price: item.price === null || item.price === undefined ? "" : String(item.price),
       reportGroupCode: Array.isArray(item.reportGroupCodes) ? item.reportGroupCodes[0] || "" : "",
+      reportReceiveUnitSelectionKey:
+        String(item.reportReceiveUnitKey || "").trim() ||
+        getDefaultReportReceiveUnitSelectionKey(packagingLevels),
       noteText: item.noteText || "",
       packagingLevels,
       ingredients: ingredientRows,
@@ -1407,6 +1495,34 @@ export default function Products() {
                 </option>
               ))}
             </select>
+          </label>
+          <label className="products-report-unit-field">
+            หน่วยรายงานสำหรับ "จำนวนที่รับ"
+            <select
+              value={form.reportReceiveUnitSelectionKey}
+              onChange={(event) =>
+                setForm((prev) => ({
+                  ...prev,
+                  reportReceiveUnitSelectionKey: event.target.value,
+                }))
+              }
+              disabled={!reportReceiveUnitOptions.length}
+            >
+              {reportReceiveUnitOptions.length ? (
+                reportReceiveUnitOptions.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {`${option.shortLabel} : ${option.fullLabel}`}
+                    {option.isSellable ? " [ขาย]" : ""}
+                    {option.isBase ? " [ฐาน]" : ""}
+                  </option>
+                ))
+              ) : (
+                <option value="">เพิ่ม packaging level ก่อน</option>
+              )}
+            </select>
+            <small className="products-generic-help">
+              ใช้กับ Card B ในหน้า Reports เฉพาะช่อง "จำนวนที่รับ" เพื่อให้ระบบแปลง qty ไปหน่วยที่เลือก
+            </small>
           </label>
           <div className="products-packaging">
             <div className="products-packaging-header">
@@ -1977,6 +2093,7 @@ export default function Products() {
               <th>บรรจุภัณฑ์</th>
               <th>ราคา</th>
               <th>ชนิดรายงาน</th>
+              <th>หน่วยรายงานจำนวนที่รับ</th>
               <th>รูปแบบยา</th>
               <th>สถานะ</th>
               <th>การจัดการ</th>
@@ -1985,7 +2102,7 @@ export default function Products() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={11}>กำลังโหลด...</td>
+                <td colSpan={12}>กำลังโหลด...</td>
               </tr>
             ) : items.length ? (
               items.map((item) => (
@@ -2007,6 +2124,9 @@ export default function Products() {
                     {Array.isArray(item.reportGroupCodes) && item.reportGroupCodes.length
                       ? item.reportGroupCodes.join(", ")
                       : "-"}
+                  </td>
+                  <td title={item.reportReceiveUnitLabel || "-"}>
+                    {item.reportReceiveUnitShortLabel || item.reportReceiveUnitLabel || "-"}
                   </td>
                   <td>{item.dosageFormCode || "-"}</td>
                   <td>{item.isActive ? "ใช้งาน" : "ปิดใช้งาน"}</td>
@@ -2032,7 +2152,7 @@ export default function Products() {
               ))
             ) : (
               <tr>
-                <td colSpan={11}>ไม่พบข้อมูล</td>
+                <td colSpan={12}>ไม่พบข้อมูล</td>
               </tr>
             )}
           </tbody>

@@ -293,6 +293,14 @@ function normalizePackagingDisplayName(value) {
   return toCleanText(value).replace(/\s+/g, " ");
 }
 
+function extractPackagingContainerLabel(displayName) {
+  const normalized = normalizePackagingDisplayName(displayName);
+  if (!normalized) return "";
+  const firstPart = normalized.split(/\s*[xX×]\s*/u)[0] || "";
+  const containerMatch = firstPart.match(/^1\s+(.+)$/u);
+  return normalizePackagingDisplayName(containerMatch?.[1] || firstPart);
+}
+
 function formatPackagingQuantity(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric <= 0) return "";
@@ -316,12 +324,45 @@ function inferLegacyQuantityPerBase(displayName, isBase) {
   return 1;
 }
 
+function resolvePackagingLevelQuantityPerBase(level) {
+  const explicitQuantity = Number(
+    level?.quantityPerBase ??
+      level?.quantity_per_base ??
+      extractQuantityPerBaseFromUnitKey(level?.unitKey ?? level?.unit_key)
+  );
+  if (Number.isFinite(explicitQuantity) && explicitQuantity > 0) {
+    return explicitQuantity;
+  }
+  return inferLegacyQuantityPerBase(level?.displayName ?? level?.display_name, level?.isBase ?? level?.is_base);
+}
+
 function toPackagingStructuralKey(level) {
   return [
     toCleanText(level?.unitTypeCode || level?.unit_type_code).toUpperCase(),
-    formatPackagingQuantity(level?.quantityPerBase ?? level?.quantity_per_base),
+    formatPackagingQuantity(resolvePackagingLevelQuantityPerBase(level)),
     parseBoolean(level?.isBase ?? level?.is_base, false) ? "BASE" : "NON_BASE",
   ].join("|");
+}
+
+function normalizeReportReceiveUnitSelectionInput(body = {}) {
+  const hasField =
+    hasOwnField(body, "reportReceiveUnitLevelId") ||
+    hasOwnField(body, "report_receive_unit_level_id") ||
+    hasOwnField(body, "reportReceiveUnitKey") ||
+    hasOwnField(body, "report_receive_unit_key");
+
+  const levelId = toCleanText(body.reportReceiveUnitLevelId ?? body.report_receive_unit_level_id);
+  const selectionKey = toCleanText(body.reportReceiveUnitKey ?? body.report_receive_unit_key);
+
+  if (levelId && !isUuid(levelId)) {
+    throw httpError(400, "reportReceiveUnitLevelId must be a valid UUID");
+  }
+
+  return {
+    hasField,
+    levelId: levelId || null,
+    selectionKey: selectionKey || null,
+  };
 }
 
 function normalizePackagingLevelInput(rawLevel, index) {
@@ -518,6 +559,92 @@ async function listActiveProductUnitLevelRows(db, productId) {
   );
 
   return result.rows;
+}
+
+async function getStoredReportReceiveUnitSelection(db, productId) {
+  const result = await db.query(
+    `
+      SELECT
+        p.report_receive_unit_level_id::text AS "levelId",
+        pul.display_name AS "displayName",
+        pul.is_base AS "isBase",
+        ut.code AS "unitTypeCode",
+        NULLIF((regexp_match(COALESCE(pul.unit_key, ''), 'qpb=([0-9]+(?:\\.[0-9]+)?)'))[1], '')::numeric AS "quantityPerBase"
+      FROM products p
+      LEFT JOIN product_unit_levels pul ON pul.id = p.report_receive_unit_level_id
+      LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
+      WHERE p.id = $1
+      LIMIT 1
+    `,
+    [productId]
+  );
+
+  const row = result.rows[0];
+  const levelId = toCleanText(row?.levelId);
+  if (!levelId) {
+    return {
+      hasField: false,
+      levelId: null,
+      selectionKey: null,
+    };
+  }
+
+  return {
+    hasField: true,
+    levelId,
+    selectionKey: toPackagingStructuralKey({
+      unitTypeCode: row?.unitTypeCode,
+      quantityPerBase: row?.quantityPerBase,
+      displayName: row?.displayName,
+      isBase: row?.isBase,
+    }),
+  };
+}
+
+async function setProductReportReceiveUnitLevelId(db, productId, unitLevelId) {
+  await db.query(
+    `
+      UPDATE products
+      SET report_receive_unit_level_id = $2::uuid,
+          updated_at = now()
+      WHERE id = $1
+    `,
+    [productId, unitLevelId || null]
+  );
+}
+
+async function syncProductReportReceiveUnitSelection(
+  db,
+  productId,
+  selection = { hasField: false, levelId: null, selectionKey: null },
+  { fallbackToPrimary = false } = {}
+) {
+  const activeLevels = (await listActiveProductUnitLevelRows(db, productId)).map(normalizePackagingLevelRow);
+
+  let matchedLevel = null;
+  if (selection?.levelId) {
+    matchedLevel = activeLevels.find((level) => toCleanText(level.id) === toCleanText(selection.levelId)) || null;
+  }
+
+  if (!matchedLevel && selection?.selectionKey) {
+    matchedLevel =
+      activeLevels.find((level) => toPackagingStructuralKey(level) === selection.selectionKey) || null;
+  }
+
+  if (!matchedLevel && selection?.hasField && (selection.levelId || selection.selectionKey)) {
+    throw httpError(400, "reportReceiveUnit must match an active packaging level of the product");
+  }
+
+  if (!matchedLevel && fallbackToPrimary) {
+    matchedLevel =
+      activeLevels.find((level) => level.isSellable && level.isActive !== false) ||
+      activeLevels.find((level) => level.isBase && level.isActive !== false) ||
+      activeLevels[0] ||
+      null;
+  }
+
+  await setProductReportReceiveUnitLevelId(db, productId, matchedLevel?.id || null);
+  return matchedLevel;
 }
 
 async function findProductLotForUnitLevelLookup(db, productId, { lotId, lotNo, expDate }) {
@@ -1713,6 +1840,22 @@ function mapProductRow(row) {
     packagingLevels.find((level) => level.isBase && level.isActive !== false) ||
     packagingLevels[0] ||
     null;
+  const mappedReportReceiveUnitLevelId = toCleanText(row.reportReceiveUnitLevelId);
+  const mappedReportReceivePackagingLevel =
+    packagingLevels.find((level) => toCleanText(level.id) === mappedReportReceiveUnitLevelId) || null;
+  const effectiveReportReceiveUnit =
+    mappedReportReceivePackagingLevel ||
+    (row.reportReceiveUnitLabel
+      ? {
+          id: mappedReportReceiveUnitLevelId,
+          displayName: row.reportReceiveUnitLabel,
+          quantityPerBase: row.reportReceiveUnitQuantityPerBase,
+          unitTypeCode: row.reportReceiveUnitTypeCode,
+          isBase: row.reportReceiveUnitIsBase,
+        }
+      : primaryPackagingLevel);
+  const effectiveReportReceiveUnitLabel =
+    toCleanText(effectiveReportReceiveUnit?.displayName) || primaryPackagingLevel?.displayName || null;
 
   return {
     ...row,
@@ -1726,6 +1869,13 @@ function mapProductRow(row) {
     packageSize: row.packageSize || primaryPackagingLevel?.displayName || null,
     unitTypeCode: row.unitTypeCode || primaryPackagingLevel?.unitTypeCode || null,
     barcode: row.barcode || primaryPackagingLevel?.barcode || null,
+    reportReceiveUnitLevelId: mappedReportReceiveUnitLevelId || null,
+    reportReceiveUnitLabel: effectiveReportReceiveUnitLabel,
+    reportReceiveUnitShortLabel:
+      extractPackagingContainerLabel(effectiveReportReceiveUnitLabel) || effectiveReportReceiveUnitLabel,
+    reportReceiveUnitKey: effectiveReportReceiveUnit
+      ? toPackagingStructuralKey(effectiveReportReceiveUnit)
+      : "",
   };
 }
 
@@ -1748,6 +1898,11 @@ async function getProductById(productId) {
         COALESCE(pkg.packaging_levels, '[]'::json) AS "packagingLevels",
         COALESCE(pr.report_group_codes, ARRAY[]::text[]) AS "reportGroupCodes",
         COALESCE(pr.report_group_names, ARRAY[]::text[]) AS "reportGroupNames",
+        rru.id AS "reportReceiveUnitLevelId",
+        rru.label AS "reportReceiveUnitLabel",
+        rru."quantityPerBase" AS "reportReceiveUnitQuantityPerBase",
+        rru."unitTypeCode" AS "reportReceiveUnitTypeCode",
+        rru."isBase" AS "reportReceiveUnitIsBase",
         mloc.name AS "manufacturerName",
         df.code AS "dosageFormCode",
         p.note_text AS "noteText",
@@ -1806,6 +1961,18 @@ async function getProductById(productId) {
         WHERE pul.product_id = p.id
           AND ${activePredicate}
       ) pkg ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          pul.id::text AS id,
+          pul.display_name AS label,
+          NULLIF((regexp_match(COALESCE(pul.unit_key, ''), 'qpb=([0-9]+(?:\\.[0-9]+)?)'))[1], '')::numeric AS "quantityPerBase",
+          ut.code AS "unitTypeCode",
+          pul.is_base AS "isBase"
+        FROM product_unit_levels pul
+        LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
+        WHERE pul.id = p.report_receive_unit_level_id
+        LIMIT 1
+      ) rru ON true
       LEFT JOIN LATERAL (
         SELECT
           pul.barcode,
@@ -1936,6 +2103,11 @@ export async function listProducts(req, res) {
         COALESCE(pkg.packaging_levels, '[]'::json) AS "packagingLevels",
         COALESCE(pr.report_group_codes, ARRAY[]::text[]) AS "reportGroupCodes",
         COALESCE(pr.report_group_names, ARRAY[]::text[]) AS "reportGroupNames",
+        rru.id AS "reportReceiveUnitLevelId",
+        rru.label AS "reportReceiveUnitLabel",
+        rru."quantityPerBase" AS "reportReceiveUnitQuantityPerBase",
+        rru."unitTypeCode" AS "reportReceiveUnitTypeCode",
+        rru."isBase" AS "reportReceiveUnitIsBase",
         mloc.name AS "manufacturerName",
         df.code AS "dosageFormCode",
         p.note_text AS "noteText",
@@ -1994,6 +2166,18 @@ export async function listProducts(req, res) {
         WHERE pul.product_id = p.id
           AND ${activePredicate}
       ) pkg ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          pul.id::text AS id,
+          pul.display_name AS label,
+          NULLIF((regexp_match(COALESCE(pul.unit_key, ''), 'qpb=([0-9]+(?:\\.[0-9]+)?)'))[1], '')::numeric AS "quantityPerBase",
+          ut.code AS "unitTypeCode",
+          pul.is_base AS "isBase"
+        FROM product_unit_levels pul
+        LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
+        WHERE pul.id = p.report_receive_unit_level_id
+        LIMIT 1
+      ) rru ON true
       LEFT JOIN LATERAL (
         SELECT
           pul.barcode,
@@ -2743,6 +2927,7 @@ export async function createProduct(req, res) {
   const hasIngredientsField = hasOwnField(body, "ingredients");
   const ingredients = hasIngredientsField ? normalizeIngredientsInput(body.ingredients) : [];
   const { reportGroupCodes } = normalizeReportGroupCodesInput(body);
+  const reportReceiveUnitSelection = normalizeReportReceiveUnitSelectionInput(body);
   const { hasPackagingLevelsField, packagingLevels } = normalizePackagingLevelsInput(body);
   const genericNameInput = toCleanText(body.genericName || body.generic_name);
   const barcode = toCleanText(body.barcode);
@@ -2819,6 +3004,10 @@ export async function createProduct(req, res) {
       });
     }
 
+    await syncProductReportReceiveUnitSelection(client, createdProductId, reportReceiveUnitSelection, {
+      fallbackToPrimary: true,
+    });
+
     return createdProductId;
   });
 
@@ -2862,6 +3051,7 @@ export async function updateProduct(req, res) {
   const hasIngredientsField = hasOwnField(body, "ingredients");
   const ingredients = hasIngredientsField ? normalizeIngredientsInput(body.ingredients) : [];
   const { hasReportGroupField, reportGroupCodes } = normalizeReportGroupCodesInput(body);
+  const reportReceiveUnitSelection = normalizeReportReceiveUnitSelectionInput(body);
   const { hasPackagingLevelsField, packagingLevels } = normalizePackagingLevelsInput(body);
   const hasGenericNameField = hasOwnField(body, "genericName") || hasOwnField(body, "generic_name");
   const genericNameInput = toCleanText(body.genericName || body.generic_name);
@@ -2886,6 +3076,10 @@ export async function updateProduct(req, res) {
   const price = hasPriceField ? parseOptionalNonNegativeNumber(body.price, "price") : null;
   const shouldUpsertUnit =
     hasBarcodeField || hasPackageSizeField || hasUnitTypeCodeField || hasPriceField || hasPackagingLevelsField;
+  const hasPackagingDefinitionChange =
+    hasPackagingLevelsField || hasBarcodeField || hasPackageSizeField || hasUnitTypeCodeField;
+  const shouldSyncReportReceiveUnit =
+    reportReceiveUnitSelection.hasField || hasPackagingDefinitionChange;
 
   const current = existing.rows[0];
   const nextIsActive = hasIsActiveField
@@ -2900,6 +3094,10 @@ export async function updateProduct(req, res) {
     ? toCleanText(body.noteText || body.note_text) || null
     : current.note_text;
   await withTransaction(async (client) => {
+    const fallbackReportReceiveUnitSelection =
+      shouldSyncReportReceiveUnit && !reportReceiveUnitSelection.hasField
+        ? await getStoredReportReceiveUnitSelection(client, id)
+        : null;
     const normalizedIngredients = hasIngredientsField
       ? await hydrateIngredientsByActiveIngredientId(client, ingredients)
       : [];
@@ -2969,6 +3167,17 @@ export async function updateProduct(req, res) {
         unitTypeCode: hasUnitTypeCodeField ? unitTypeCode : "",
         price,
       });
+    }
+
+    if (shouldSyncReportReceiveUnit) {
+      await syncProductReportReceiveUnitSelection(
+        client,
+        id,
+        reportReceiveUnitSelection.hasField ? reportReceiveUnitSelection : fallbackReportReceiveUnitSelection,
+        {
+          fallbackToPrimary: true,
+        }
+      );
     }
   });
 

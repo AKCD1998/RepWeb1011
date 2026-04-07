@@ -64,6 +64,32 @@ function formatQuantityText(quantity, unitLabel) {
   return `${formatted} ${safeUnitLabel}`;
 }
 
+function extractPackagingContainerLabel(unitLabel) {
+  const normalized = toCleanText(unitLabel).replace(/\s+/g, " ");
+  if (!normalized) return "";
+  const firstPart = normalized.split(/\s*[xX×]\s*/u)[0] || "";
+  const containerMatch = firstPart.match(/^1\s+(.+)$/u);
+  return String(containerMatch?.[1] || firstPart).trim();
+}
+
+function inferQuantityPerBase(unitLabel, isBase) {
+  if (isBase) return 1;
+  const matches = [...String(unitLabel || "").matchAll(/[0-9]+(?:\.[0-9]+)?/g)].map((entry) =>
+    Number(entry[0])
+  );
+  if (matches.length >= 2) return matches[1];
+  if (matches.length === 1) return matches[0];
+  return 1;
+}
+
+function resolveQuantityPerBase(value, unitLabel, isBase) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return numeric;
+  }
+  return inferQuantityPerBase(unitLabel, isBase);
+}
+
 const REPORT_METADATA_TAG_PATTERN =
   /\[(?:[^\]]*?(?:reportType|source|lotNo)=[^\]]*?)\]/gi;
 
@@ -185,13 +211,37 @@ async function getProductMeta(productId) {
         p.product_code AS "productCode",
         p.trade_name AS "tradeName",
         mloc.name AS "manufacturerName",
-        COALESCE(NULLIF(trim(sellable_pul.display_name), ''), sellable_pul.code, '-') AS "packageSize"
+        COALESCE(NULLIF(trim(sellable_pul.display_name), ''), sellable_pul.code, '-') AS "packageSize",
+        report_pul.id AS "reportReceiveUnitLevelId",
+        COALESCE(NULLIF(trim(report_pul.display_name), ''), NULLIF(trim(sellable_pul.display_name), ''), sellable_pul.code, '-') AS "reportReceiveUnitLabel",
+        CASE
+          WHEN report_pul.id IS NOT NULL
+            THEN NULLIF((regexp_match(COALESCE(report_pul.unit_key, ''), 'qpb=([0-9]+(?:\\.[0-9]+)?)'))[1], '')::numeric
+          ELSE NULLIF((regexp_match(COALESCE(sellable_pul.unit_key, ''), 'qpb=([0-9]+(?:\\.[0-9]+)?)'))[1], '')::numeric
+        END AS "reportReceiveUnitQuantityPerBase",
+        CASE
+          WHEN report_pul.id IS NOT NULL THEN report_pul.is_base
+          ELSE COALESCE(sellable_pul.is_base, false)
+        END AS "reportReceiveUnitIsBase"
       FROM products p
       LEFT JOIN locations mloc ON mloc.id = p.manufacturer_location_id
       LEFT JOIN LATERAL (
         SELECT
+          pul.id::text AS id,
           pul.display_name,
-          pul.code
+          pul.code,
+          pul.unit_key,
+          pul.is_base
+        FROM product_unit_levels pul
+        WHERE pul.id = p.report_receive_unit_level_id
+        LIMIT 1
+      ) report_pul ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          pul.display_name,
+          pul.code,
+          pul.unit_key,
+          pul.is_base
         FROM product_unit_levels pul
         WHERE pul.product_id = p.id
         ORDER BY pul.is_sellable DESC, pul.is_base DESC, pul.sort_order ASC, pul.created_at ASC
@@ -308,32 +358,24 @@ export async function getOrganicDispenseLedgerReport(req, res) {
     const receiveQtyResult = await query(
       `
         SELECT
-          lot_totals."lotId",
-          STRING_AGG(
-            lot_totals."quantityText",
-            ' + '
-            ORDER BY lot_totals."unitLabel"
-          ) AS "receivedQuantityText"
-        FROM (
-          SELECT
-            sm.lot_id AS "lotId",
-            COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit') AS "unitLabel",
-            CASE
-              WHEN SUM(sm.quantity) = TRUNC(SUM(sm.quantity))
-                THEN TRIM(TO_CHAR(SUM(sm.quantity), 'FM999999999999990'))
-              ELSE TRIM(TO_CHAR(SUM(sm.quantity), 'FM999999999999990.####'))
-            END
-            || ' '
-            || COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit') AS "quantityText"
-          FROM stock_movements sm
-          JOIN product_unit_levels pul ON pul.id = sm.unit_level_id
-          WHERE sm.movement_type IN ('RECEIVE', 'TRANSFER_IN')
-            AND sm.to_location_id = $1::uuid
-            AND sm.product_id = $2::uuid
-            AND sm.lot_id = ANY($3::uuid[])
-          GROUP BY sm.lot_id, COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit')
-        ) lot_totals
-        GROUP BY lot_totals."lotId"
+          sm.lot_id AS "lotId",
+          pul.id::text AS "unitLevelId",
+          COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit') AS "unitLabel",
+          pul.is_base AS "isBase",
+          NULLIF((regexp_match(COALESCE(pul.unit_key, ''), 'qpb=([0-9]+(?:\\.[0-9]+)?)'))[1], '')::numeric AS "quantityPerBase",
+          SUM(sm.quantity) AS quantity
+        FROM stock_movements sm
+        JOIN product_unit_levels pul ON pul.id = sm.unit_level_id
+        WHERE sm.movement_type IN ('RECEIVE', 'TRANSFER_IN')
+          AND sm.to_location_id = $1::uuid
+          AND sm.product_id = $2::uuid
+          AND sm.lot_id = ANY($3::uuid[])
+        GROUP BY
+          sm.lot_id,
+          pul.id,
+          COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit'),
+          pul.is_base,
+          NULLIF((regexp_match(COALESCE(pul.unit_key, ''), 'qpb=([0-9]+(?:\\.[0-9]+)?)'))[1], '')::numeric
       `,
       receiveParams
     );
@@ -346,14 +388,35 @@ export async function getOrganicDispenseLedgerReport(req, res) {
       });
     }
 
+    const reportReceiveUnitLabel =
+      extractPackagingContainerLabel(product.reportReceiveUnitLabel) ||
+      toCleanText(product.reportReceiveUnitLabel) ||
+      "unit";
+    const reportReceiveUnitQuantityPerBase = resolveQuantityPerBase(
+      product.reportReceiveUnitQuantityPerBase,
+      product.reportReceiveUnitLabel,
+      product.reportReceiveUnitIsBase
+    );
+    const receivedBaseQuantityByLotId = new Map();
+
     for (const row of receiveQtyResult.rows) {
       const key = toCleanText(row.lotId);
+      const quantity = Number(row.quantity || 0);
+      const sourceQuantityPerBase = resolveQuantityPerBase(row.quantityPerBase, row.unitLabel, row.isBase);
+      const nextBaseQuantity = (receivedBaseQuantityByLotId.get(key) || 0) + quantity * sourceQuantityPerBase;
+      receivedBaseQuantityByLotId.set(key, nextBaseQuantity);
+    }
+
+    for (const [key, totalBaseQuantity] of receivedBaseQuantityByLotId.entries()) {
       const current = receiveSummaryByLotId.get(key) || {
         receivedAt: null,
         sourceName: "-",
         receivedQuantityText: "-",
       };
-      current.receivedQuantityText = toCleanText(row.receivedQuantityText) || "-";
+      current.receivedQuantityText = formatQuantityText(
+        totalBaseQuantity / reportReceiveUnitQuantityPerBase,
+        reportReceiveUnitLabel
+      );
       receiveSummaryByLotId.set(key, current);
     }
   }
@@ -409,6 +472,10 @@ export async function getOrganicDispenseLedgerReport(req, res) {
       productCode: toCleanText(product.productCode),
       product: toCleanText(product.tradeName) || "-",
       packSize: toCleanText(product.packageSize) || "-",
+      reportReceiveUnitLabel:
+        extractPackagingContainerLabel(product.reportReceiveUnitLabel) ||
+        toCleanText(product.reportReceiveUnitLabel) ||
+        "-",
       maker: toCleanText(product.manufacturerName) || "-",
     },
     pages,

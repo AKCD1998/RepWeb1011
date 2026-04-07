@@ -316,6 +316,10 @@
   grid-column: 1 / -1;
 }
 
+.products-grid .products-report-unit-field {
+  grid-column: 1 / -1;
+}
+
 .products-generic-field .products-generic-custom-input {
   text-transform: uppercase;
 }
@@ -616,7 +620,7 @@
 .products-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 1250px;
+  min-width: 1420px;
 }
 
 .products-table th,

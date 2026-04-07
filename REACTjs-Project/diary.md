@@ -1398,3 +1398,41 @@ Start with Deliver line-model refactor to support multiple rows for the same pro
 - Important:
   - this does not modify stored dispense data
   - it only sanitizes what the organic report displays / exports
+
+## 2026-04-07 21:05:00 +07:00 - Added per-product report receive unit mapping for Card B
+- Goal:
+  - stop deriving the report header `จำนวนที่รับ` unit purely from free-text package strings
+  - let each product define its own canonical report unit using `product_unit_levels`
+  - keep the old report generator untouched and only improve Card B / product master behavior
+- Migration:
+  - added `migrations/0021_product_report_receive_unit_levels.sql`
+  - new nullable column on `products`: `report_receive_unit_level_id`
+  - backfilled existing active products to their current primary packaging level
+  - applied migration to the active Render PostgreSQL database from `server/.env`
+- Backend:
+  - updated `server/controllers/productsController.js`
+  - product API now returns:
+    - `reportReceiveUnitLevelId`
+    - `reportReceiveUnitLabel`
+    - `reportReceiveUnitShortLabel`
+    - `reportReceiveUnitKey`
+  - create/update product now accepts `reportReceiveUnitKey` and resolves it against active packaging levels
+  - if packaging changes and no new explicit choice is sent, the server preserves the current mapping when possible and otherwise falls back to the primary packaging level
+  - updated `server/controllers/organicReportsController.js`
+  - Card B now converts receive quantities through `quantityPerBase` into the mapped report unit instead of concatenating raw movement unit labels
+  - example target behavior: `1 กล่อง x 1 แผง x 10 เม็ด` can now render report receive quantity as `19 กล่อง`
+- Frontend:
+  - updated `src/pages/Products.jsx`
+  - updated `src/pages/Products.css`
+  - product form now has a dedicated field: `หน่วยรายงานสำหรับ "จำนวนที่รับ"`
+  - option source is the product's own packaging levels
+  - product table now shows the configured report receive unit so every product can be reviewed/labeled from the master list
+- Intentionally not changed:
+  - `src/lib/report1011/buildReport.js`
+  - `src/pages/Receiving.jsx`
+  - dispense write logic
+  - stock movement write logic
+- Verification:
+  - `npm run check:server` passed
+  - `npm run build` passed
+  - post-migration DB check confirmed `48 / 48` active products now have `report_receive_unit_level_id`
