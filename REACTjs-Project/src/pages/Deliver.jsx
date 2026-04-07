@@ -1262,6 +1262,23 @@ export default function Deliver() {
 
   return (
     <>
+      <style>{`
+        #pos-main-page .pos-left {
+          padding-bottom: 320px;
+        }
+
+        @media (max-width: 768px) {
+          #pos-main-page .pos-left {
+            padding-bottom: 350px;
+          }
+        }
+
+        @media (max-width: 480px) {
+          #pos-main-page .pos-left {
+            padding-bottom: 370px;
+          }
+        }
+      `}</style>
       <div
         id="pos-main-page"
         className="rx1011-form-container"
