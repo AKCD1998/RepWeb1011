@@ -1402,6 +1402,18 @@ export default function Deliver() {
                         >
                           {smartcardStatus.message}
                         </div>
+
+                        <div className="pos-smartcard-policy">
+                          <div className="pos-smartcard-policy__title">Smartcard policy</div>
+                          <div className="pos-notes-help">
+                            ทุกบทบาทต้องอ่านข้อมูลจาก smartcard ก่อนยืนยันการส่งมอบยา
+                            หากไม่มีบัตรหรือข้อมูลบัตรไม่ครบ ระบบจะไม่ finalize รายการนี้
+                          </div>
+                          <div className="pos-smartcard-policy__status">
+                            <strong>สถานะ smartcard:</strong>{" "}
+                            {hasCapturedSmartcardData ? "อ่านข้อมูลแล้ว" : "ยังไม่มีข้อมูลจาก smartcard"}
+                          </div>
+                        </div>
                       </div>
 
                       <div className="pos-notes-column pos-notes-column--meta">
@@ -1465,18 +1477,6 @@ export default function Deliver() {
                               );
                             })}
                           </select>
-                        </div>
-
-                        <div className="pos-smartcard-policy">
-                          <div className="pos-smartcard-policy__title">Smartcard policy</div>
-                          <div className="pos-notes-help">
-                            ทุกบทบาทต้องอ่านข้อมูลจาก smartcard ก่อนยืนยันการส่งมอบยา
-                            หากไม่มีบัตรหรือข้อมูลบัตรไม่ครบ ระบบจะไม่ finalize รายการนี้
-                          </div>
-                          <div className="pos-smartcard-policy__status">
-                            <strong>สถานะ smartcard:</strong>{" "}
-                            {hasCapturedSmartcardData ? "อ่านข้อมูลแล้ว" : "ยังไม่มีข้อมูลจาก smartcard"}
-                          </div>
                         </div>
                       </div>
                     </div>
