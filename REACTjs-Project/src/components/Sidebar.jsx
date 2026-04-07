@@ -1,5 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import {
+  FiAlertTriangle,
   FiBox,
   FiCode,
   FiClock,
@@ -38,6 +39,7 @@ function PosScannerIcon() {
 const navItems = [
   { to: "/", label: "หน้าหลัก", icon: FiHome, end: true },
   { to: "/reports", label: "หน้าเอกสารรายงาน", icon: FiFileText },
+  { to: "/admin/incidents", label: "Incident Reports", icon: FiAlertTriangle, adminOnly: true },
   { to: "/products", label: "จัดการสินค้า", icon: FiBox, adminOnly: true },
   { to: "/deliver", label: "หน้าส่งมอบยา", icon: PosScannerIcon },
   { to: "/patient-history", label: "ประวัติการจ่ายยา", icon: FiClock },

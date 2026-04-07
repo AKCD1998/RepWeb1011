@@ -1,4 +1,5 @@
 import { authApiClient } from "./authApi";
+import { normalizeDateOnlyInput } from "./dateOnly";
 
 async function requestJson(config) {
   const response = await authApiClient.request(config);
@@ -43,8 +44,8 @@ function buildMovementWriteRequestPayload(payload = {}) {
   const toLocationId = String(payload.to_location_id ?? payload.toLocationId ?? "").trim();
   const lotId = String(payload.lotId ?? payload.lot_id ?? "").trim();
   const lotNo = String(payload.lotNo ?? payload.lot_no ?? "").trim();
-  const expDate = String(payload.expDate ?? payload.exp_date ?? "").trim();
-  const mfgDate = String(payload.mfgDate ?? payload.mfg_date ?? "").trim();
+  const expDate = normalizeDateOnlyInput(payload.expDate ?? payload.exp_date);
+  const mfgDate = normalizeDateOnlyInput(payload.mfgDate ?? payload.mfg_date);
   const manufacturer = String(payload.manufacturer ?? payload.manufacturerName ?? "").trim();
 
   if (!movementType) {
@@ -121,7 +122,7 @@ export const productsApi = {
     const params = {};
     const lotId = String(options?.lotId || options?.lot_id || "").trim();
     const lotNo = String(options?.lotNo || options?.lot_no || "").trim();
-    const expDate = String(options?.expDate || options?.exp_date || "").trim();
+    const expDate = normalizeDateOnlyInput(options?.expDate || options?.exp_date);
 
     if (lotId) {
       params.lotId = lotId;
@@ -168,6 +169,41 @@ export const productsApi = {
           ? payload.allowedUnitLevelIds
           : [],
         defaultUnitLevelId: String(payload?.defaultUnitLevelId || "").trim() || null,
+      },
+    });
+  },
+  updateLotMetadata(productId, lotId, payload = {}) {
+    const id = String(productId || "").trim();
+    const normalizedLotId = String(lotId || "").trim();
+    const lotNo = String(payload?.lotNo ?? payload?.lot_no ?? "").trim();
+    const mfgDate = normalizeDateOnlyInput(payload?.mfgDate ?? payload?.mfg_date) || null;
+    const expDate = normalizeDateOnlyInput(payload?.expDate ?? payload?.exp_date);
+    const reason = String(payload?.reason ?? payload?.reasonText ?? payload?.reason_text ?? "").trim();
+
+    if (!id) {
+      throw new Error("productId is required");
+    }
+    if (!normalizedLotId) {
+      throw new Error("lotId is required");
+    }
+    if (!lotNo) {
+      throw new Error("lotNo is required");
+    }
+    if (!expDate) {
+      throw new Error("expDate is required");
+    }
+    if (!reason) {
+      throw new Error("reason is required");
+    }
+
+    return requestJson({
+      method: "PUT",
+      url: `/api/products/${encodeURIComponent(id)}/lots/${encodeURIComponent(normalizedLotId)}/metadata`,
+      data: {
+        lotNo,
+        mfgDate,
+        expDate,
+        reason,
       },
     });
   },
@@ -474,6 +510,118 @@ export const adminApi = {
       method: "POST",
       url: "/api/admin/sql/execute",
       data: { sql: text },
+    });
+  },
+  listIncidents(filters = {}) {
+    const params = {};
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      const text = String(value).trim();
+      if (!text) return;
+      params[key] = text;
+    });
+
+    return requestJson({
+      method: "GET",
+      url: "/api/admin/incidents",
+      params: Object.keys(params).length ? params : undefined,
+    });
+  },
+  getIncident(id) {
+    const incidentId = String(id || "").trim();
+    if (!incidentId) {
+      throw new Error("incident id is required");
+    }
+
+    return requestJson({
+      method: "GET",
+      url: `/api/admin/incidents/${encodeURIComponent(incidentId)}`,
+    });
+  },
+  createIncident(payload = {}) {
+    const incidentType = String(payload?.incidentType ?? payload?.incident_type ?? "").trim();
+    const incidentReason = String(payload?.incidentReason ?? payload?.incident_reason ?? "").trim();
+    const incidentDescription = String(
+      payload?.incidentDescription ?? payload?.incident_description ?? ""
+    ).trim();
+    const branchCode = String(payload?.branchCode ?? payload?.branch_code ?? "").trim();
+    const branchId = String(payload?.branchId ?? payload?.branch_id ?? "").trim();
+    const happenedAt = normalizeBangkokDateTimeInput(payload?.happenedAt ?? payload?.happened_at);
+    const status = String(payload?.status ?? "").trim().toUpperCase();
+    const note = String(payload?.note ?? payload?.noteText ?? payload?.note_text ?? "").trim();
+    const smartcardSessionId = String(
+      payload?.smartcardSessionId ?? payload?.smartcard_session_id ?? ""
+    ).trim();
+    const dispenseAttemptId = String(
+      payload?.dispenseAttemptId ?? payload?.dispense_attempt_id ?? ""
+    ).trim();
+    const items = Array.isArray(payload?.items)
+      ? payload.items.map((item) => ({
+          productId: String(item?.productId ?? item?.product_id ?? "").trim(),
+          lotId: String(item?.lotId ?? item?.lot_id ?? "").trim() || null,
+          qty: Number(item?.qty),
+          unitLevelId: String(item?.unitLevelId ?? item?.unit_level_id ?? "").trim() || null,
+          unitLabel: String(
+            item?.unitLabel ?? item?.unit_label ?? item?.unitLabelSnapshot ?? item?.unit_label_snapshot ?? ""
+          ).trim() || null,
+          lotNoSnapshot: String(
+            item?.lotNoSnapshot ?? item?.lot_no_snapshot ?? item?.lotNo ?? item?.lot_no ?? ""
+          ).trim() || null,
+          expDateSnapshot: normalizeDateOnlyInput(
+            item?.expDateSnapshot ?? item?.exp_date_snapshot
+          ) || null,
+          note: String(item?.note ?? item?.noteText ?? item?.note_text ?? "").trim() || null,
+        }))
+      : [];
+
+    if (!incidentType) {
+      throw new Error("incidentType is required");
+    }
+    if (!incidentReason) {
+      throw new Error("incidentReason is required");
+    }
+    if (!incidentDescription) {
+      throw new Error("incidentDescription is required");
+    }
+    if (!branchCode && !branchId) {
+      throw new Error("branchCode or branchId is required");
+    }
+    if (!happenedAt) {
+      throw new Error("happenedAt is required");
+    }
+
+    return requestJson({
+      method: "POST",
+      url: "/api/admin/incidents",
+      data: {
+        incidentType,
+        incidentReason,
+        incidentDescription,
+        branchCode: branchCode || undefined,
+        branchId: branchId || undefined,
+        happenedAt,
+        status: status || undefined,
+        note: note || undefined,
+        smartcardSessionId: smartcardSessionId || undefined,
+        dispenseAttemptId: dispenseAttemptId || undefined,
+        items,
+      },
+    });
+  },
+  updateIncidentStatus(id, payload = {}) {
+    const incidentId = String(id || "").trim();
+    const status = String(payload?.status ?? "").trim().toUpperCase();
+    if (!incidentId) {
+      throw new Error("incident id is required");
+    }
+    if (!status) {
+      throw new Error("status is required");
+    }
+
+    return requestJson({
+      method: "PATCH",
+      url: `/api/admin/incidents/${encodeURIComponent(incidentId)}/status`,
+      data: { status },
     });
   },
 };

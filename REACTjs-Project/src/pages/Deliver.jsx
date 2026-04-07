@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import AdminIncidentModal from "../components/AdminIncidentModal";
 import { useAuth } from "../context/AuthContext";
 import { dispenseApi, inventoryApi, productsApi } from "../lib/api";
+import { formatDateOnlyDisplay } from "../lib/dateOnly";
 import { formatQuantityAsUnits } from "../lib/productUnits";
 import { parseDeliverNotes } from "../utils/deliverPatientParser";
 import {
@@ -43,13 +45,7 @@ function toDisplayKey(value) {
 }
 
 function toDateLabel(value) {
-  const text = toCleanText(value);
-  if (!text) return "";
-  const date = new Date(text);
-  if (Number.isNaN(date.getTime())) {
-    return text;
-  }
-  return date.toISOString().slice(0, 10);
+  return formatDateOnlyDisplay(value);
 }
 
 function buildProductIdentityKey(productId, productCode) {
@@ -227,6 +223,8 @@ export default function Deliver() {
   const userBranchCode = toCleanText(user?.branchCode || user?.branch_code || "");
   const [items, setItems] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isIncidentModalOpen, setIsIncidentModalOpen] = useState(false);
+  const [incidentModalSeed, setIncidentModalSeed] = useState(null);
   const [isProductSearchModalOpen, setIsProductSearchModalOpen] = useState(false);
   const [pendingMultiplier, setPendingMultiplier] = useState(null);
   const [deliverNotes, setDeliverNotes] = useState("");
@@ -252,6 +250,7 @@ export default function Deliver() {
     tone: "info",
     message: "กำลังเริ่ม smartcard listener",
   });
+  const [hasCapturedSmartcardData, setHasCapturedSmartcardData] = useState(false);
   const barcodeInputRef = useRef(null);
   const lotOptionsCacheRef = useRef(new Map());
   const itemsRef = useRef([]);
@@ -293,6 +292,8 @@ export default function Deliver() {
       return;
     }
 
+    setHasCapturedSmartcardData(true);
+
     const currentNotes = deliverNotesRef.current;
     const canReplaceCurrentNotes =
       !toCleanText(currentNotes) || currentNotes === lastAutoFilledNotesRef.current;
@@ -331,7 +332,6 @@ export default function Deliver() {
     lastAutoFilledNotesRef.current = nextNotes;
     deliverNotesRef.current = nextNotes;
     setDeliverNotes(nextNotes);
-
     const patientName = toCleanText(
       normalized?.fields?.thaiName ||
         normalized?.fields?.fullName ||
@@ -991,6 +991,9 @@ export default function Deliver() {
     const patient = parsedNotes?.patient || {};
     const reportType = toCleanText(selectedReportType).toUpperCase();
     const branchCode = effectiveBranchCode;
+    const patientName = toCleanText(patient?.fullName);
+    const patientPid = toCleanText(patient?.pid);
+    const hasRecipientNotes = Boolean(toCleanText(parsedNotes?.rawText));
 
     if (isAdmin) {
       if (isLoadingBranches) {
@@ -1006,6 +1009,34 @@ export default function Deliver() {
           error: "กรุณาเลือกสาขาที่ทำรายการก่อนยืนยันการส่งมอบยา",
         };
       }
+    }
+
+    if (!hasRecipientNotes) {
+      return {
+        payload: null,
+        error: "ต้องอ่านข้อมูลจาก smartcard ก่อนยืนยันการส่งมอบยา",
+      };
+    }
+
+    if (!patientName) {
+      return {
+        payload: null,
+        error: "ข้อมูล smartcard ยังไม่สมบูรณ์: ไม่พบชื่อผู้รับมอบยา",
+      };
+    }
+
+    if (!hasCapturedSmartcardData) {
+      return {
+        payload: null,
+        error: "ต้องอ่านข้อมูลจาก smartcard ก่อนยืนยันการส่งมอบยา",
+      };
+    }
+
+    if (!patientPid) {
+      return {
+        payload: null,
+        error: "ไม่พบเลขบัตรประชาชนจาก smartcard จึงยังไม่สามารถบันทึกการส่งมอบยาได้",
+      };
     }
 
     return {
@@ -1032,6 +1063,7 @@ export default function Deliver() {
     };
   }, [
     effectiveBranchCode,
+    hasCapturedSmartcardData,
     isAdmin,
     isLoadingBranches,
     items,
@@ -1134,6 +1166,7 @@ export default function Deliver() {
       deliverNotesRef.current = "";
       lastAutoFilledNotesRef.current = "";
       lastSmartcardFillRef.current = { signature: "", at: 0 };
+      setHasCapturedSmartcardData(false);
       setReportTypeOptions([]);
       setSelectedReportType("");
       setLotOptions([]);
@@ -1178,6 +1211,49 @@ export default function Deliver() {
     },
     [isSubmitting]
   );
+
+  const handleOpenIncidentModal = useCallback(() => {
+    const recipientName = toCleanText(parsedNotes?.patient?.fullName);
+    const incidentType = hasCapturedSmartcardData ? "PROCESS_DEVIATION" : "SMARTCARD_EXCEPTION";
+    const incidentReason = hasCapturedSmartcardData
+      ? "STAFF_PROCESS_MISSED"
+      : "DISPENSE_BEFORE_SMARTCARD";
+
+    setSubmitError("");
+    setIncidentModalSeed({
+      incidentType,
+      incidentReason,
+      status: "ACKNOWLEDGED",
+      branchCode: effectiveBranchCode || "",
+      happenedAt: new Date().toISOString(),
+      incidentDescription: [
+        "สร้างจากหน้า Deliver เพื่อบันทึกเหตุผิดปกติแยกจาก dispense",
+        `สถานะ smartcard: ${hasCapturedSmartcardData ? "อ่านข้อมูลแล้ว" : "ยังไม่มีข้อมูลจาก smartcard"}`,
+        `ผู้รับมอบยาที่เห็นในหน้าจอ: ${recipientName || "-"}`,
+        `ประเภทรายงาน: ${selectedReportType || "-"}`,
+      ].join("\n"),
+      note: [
+        `สาขาที่เกี่ยวข้อง: ${selectedBranchLabel}`,
+        `จำนวนรายการยาในหน้าจอ: ${items.length}`,
+      ].join("\n"),
+      items: items.map((item) => ({
+        productId: toCleanText(item?.id),
+        lotId: toCleanText(item?.lotId),
+        lotNoSnapshot: toCleanText(item?.lotNo),
+        expDateSnapshot: toCleanText(item?.lotExpDate),
+        qty: Number(item?.qty || 0),
+        unitLabel: toCleanText(item?.unit),
+      })),
+    });
+    setIsIncidentModalOpen(true);
+  }, [
+    effectiveBranchCode,
+    hasCapturedSmartcardData,
+    items,
+    parsedNotes?.patient?.fullName,
+    selectedBranchLabel,
+    selectedReportType,
+  ]);
 
   const canConfirm = items.length > 0 && !isSubmitting;
   const canOpenProductSearch = !isLoadingBranches && (!isAdmin || Boolean(effectiveBranchCode));
@@ -1306,10 +1382,12 @@ export default function Deliver() {
                         <textarea
                           id="deliver-notes"
                           className="pos-notes-textarea"
-                          placeholder="หมายเหตุ (กด Enter เพื่อขึ้นบรรทัดใหม่ได้)"
+                          placeholder="ข้อมูลผู้รับมอบยาจะถูกกรอกจาก smartcard เท่านั้น"
                           rows={4}
                           value={deliverNotes}
-                          onChange={(event) => setDeliverNotes(event.target.value)}
+                          readOnly
+                          aria-readonly="true"
+                          spellCheck={false}
                         />
                         <div
                           className={`pos-notes-help pos-notes-help--smartcard${
@@ -1388,6 +1466,18 @@ export default function Deliver() {
                             })}
                           </select>
                         </div>
+
+                        <div className="pos-smartcard-policy">
+                          <div className="pos-smartcard-policy__title">Smartcard policy</div>
+                          <div className="pos-notes-help">
+                            ทุกบทบาทต้องอ่านข้อมูลจาก smartcard ก่อนยืนยันการส่งมอบยา
+                            หากไม่มีบัตรหรือข้อมูลบัตรไม่ครบ ระบบจะไม่ finalize รายการนี้
+                          </div>
+                          <div className="pos-smartcard-policy__status">
+                            <strong>สถานะ smartcard:</strong>{" "}
+                            {hasCapturedSmartcardData ? "อ่านข้อมูลแล้ว" : "ยังไม่มีข้อมูลจาก smartcard"}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1431,6 +1521,17 @@ export default function Deliver() {
                 >
                   {isSubmitting ? "กำลังบันทึก..." : "ยืนยันการทำรายการ"}
                 </button>
+
+                {isAdmin ? (
+                  <button
+                    className="btn pos-incident-trigger"
+                    type="button"
+                    onClick={handleOpenIncidentModal}
+                    disabled={isSubmitting}
+                  >
+                    รายงานเหตุผิดปกติ
+                  </button>
+                ) : null}
 
                 <div className="pos-rail-field">
                   <label className="pos-notes-label" htmlFor="deliver-branch-code">
@@ -1488,6 +1589,7 @@ export default function Deliver() {
               <div>ยอดรวม: {toMoney(grandTotal)} บาท</div>
               <div>สาขาที่ทำรายการ: {selectedBranchLabel}</div>
               <div>ประเภทรายงาน: {selectedReportType || "-"}</div>
+              <div>Smartcard: {hasCapturedSmartcardData ? "อ่านข้อมูลแล้ว" : "ไม่มีข้อมูลในรายการนี้"}</div>
               <div>
                 ผู้รับมอบยา: {toCleanText(parsedNotes?.patient?.fullName) || "-"}
               </div>
@@ -1516,6 +1618,20 @@ export default function Deliver() {
           </div>
         </div>
       ) : null}
+
+      <AdminIncidentModal
+        open={isIncidentModalOpen}
+        initialValues={incidentModalSeed}
+        title="รายงานเหตุผิดปกติจากหน้า Deliver"
+        onClose={() => setIsIncidentModalOpen(false)}
+        onCreated={(incident) => {
+          setIsIncidentModalOpen(false);
+          setSubmitError("");
+          setSubmitSuccess(
+            `บันทึก incident report สำเร็จ (${toCleanText(incident?.incidentCode) || toCleanText(incident?.id) || "-"})`
+          );
+        }}
+      />
 
       {isProductSearchModalOpen ? (
         <div

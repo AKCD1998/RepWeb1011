@@ -1,5 +1,6 @@
 import { query, withTransaction } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
+import { formatDateOnlyDisplay, parseDateOnlyInput } from "../utils/dateOnly.js";
 import {
   buildUnitLevelKey,
   hasProductLotAllowedUnitLevelsTable,
@@ -13,6 +14,7 @@ const INGREDIENT_CODE_MAX_LENGTH = 80;
 const LOCATION_CODE_MAX_LENGTH = 30;
 const PRODUCT_UNIT_LEVEL_CODE_MAX_LENGTH = 50;
 const UNIT_LEVEL_DEFAULT_CODE = "SELLABLE";
+let hasProductLotEditAuditsTableCache = null;
 
 function buildProductUnitLevelsIsActiveSelect(alias, outputAlias = "isActive") {
   return `${productUnitLevelsIsActiveCompatExpression(alias)} AS "${outputAlias}"`;
@@ -25,18 +27,7 @@ function isUuid(value) {
 }
 
 function normalizeDateOnlyQueryValue(value, fieldName) {
-  const text = toCleanText(value);
-  if (!text) return "";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-    throw httpError(400, `${fieldName} must be a date in YYYY-MM-DD format`);
-  }
-
-  const parsed = new Date(`${text}T00:00:00.000Z`);
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== text) {
-    throw httpError(400, `${fieldName} must be a valid date`);
-  }
-
-  return text;
+  return parseDateOnlyInput(value, fieldName, { allowEmpty: true });
 }
 
 function hasOwnField(objectValue, key) {
@@ -73,6 +64,56 @@ function parseOptionalNonNegativeNumber(value, fieldName) {
     throw httpError(400, `${fieldName} must be a non-negative number`);
   }
   return numeric;
+}
+
+async function hasProductLotEditAuditsTable(db) {
+  if (hasProductLotEditAuditsTableCache === true) {
+    return true;
+  }
+
+  const result = await db.query(
+    `
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = 'product_lot_edit_audits'
+      LIMIT 1
+    `
+  );
+
+  if (result.rows[0]) {
+    hasProductLotEditAuditsTableCache = true;
+    return true;
+  }
+
+  return false;
+}
+
+function normalizeLotMetadataUpdateInput(body = {}) {
+  const lotNo = toCleanText(body?.lotNo ?? body?.lot_no);
+  const mfgDate =
+    parseDateOnlyInput(body?.mfgDate ?? body?.mfg_date, "mfgDate", { allowEmpty: true }) || null;
+  const expDate = parseDateOnlyInput(body?.expDate ?? body?.exp_date, "expDate", {
+    allowEmpty: false,
+  });
+  const reason = toCleanText(body?.reason ?? body?.reasonText ?? body?.reason_text);
+
+  if (!lotNo) {
+    throw httpError(400, "lotNo is required");
+  }
+  if (!reason) {
+    throw httpError(400, "reason is required");
+  }
+  if (mfgDate && expDate < mfgDate) {
+    throw httpError(400, "expDate must be the same date or later than mfgDate");
+  }
+
+  return {
+    lotNo,
+    mfgDate,
+    expDate,
+    reason,
+  };
 }
 
 function buildIngredientCodeBase(nameEn) {
@@ -581,13 +622,54 @@ async function listProductLotWhitelistMappings(db, productId) {
   return result.rows;
 }
 
-async function listProductLots(db, productId) {
+async function listProductLots(db, productId, { includeLatestAudit = false } = {}) {
+  if (includeLatestAudit && (await hasProductLotEditAuditsTable(db))) {
+    const result = await db.query(
+      `
+        SELECT
+          pl.id,
+          pl.lot_no AS "lotNo",
+          pl.mfg_date::text AS "mfgDate",
+          pl.exp_date::text AS "expDate",
+          pl.manufacturer_name AS "manufacturerName",
+          latest_audit.reason_text AS "latestEditReason",
+          latest_audit.edited_at AS "latestEditedAt",
+          latest_audit.edited_by_name AS "latestEditedByName",
+          latest_audit.edited_by_username AS "latestEditedByUsername"
+        FROM product_lots pl
+        LEFT JOIN LATERAL (
+          SELECT
+            pla.reason_text,
+            pla.edited_at,
+            COALESCE(NULLIF(trim(u.full_name), ''), NULLIF(trim(u.username), ''), 'unknown') AS edited_by_name,
+            u.username AS edited_by_username
+          FROM product_lot_edit_audits pla
+          LEFT JOIN users u ON u.id = pla.edited_by
+          WHERE pla.product_lot_id = pl.id
+          ORDER BY pla.edited_at DESC
+          LIMIT 1
+        ) latest_audit ON true
+        WHERE pl.product_id = $1
+        ORDER BY pl.exp_date DESC, pl.lot_no ASC
+      `,
+      [productId]
+    );
+
+    return result.rows;
+  }
+
   const result = await db.query(
     `
       SELECT
         id,
         lot_no AS "lotNo",
-        exp_date::text AS "expDate"
+        mfg_date::text AS "mfgDate",
+        exp_date::text AS "expDate",
+        manufacturer_name AS "manufacturerName",
+        NULL::text AS "latestEditReason",
+        NULL::timestamptz AS "latestEditedAt",
+        NULL::text AS "latestEditedByName",
+        NULL::text AS "latestEditedByUsername"
       FROM product_lots
       WHERE product_id = $1
       ORDER BY exp_date DESC, lot_no ASC
@@ -2120,7 +2202,7 @@ export async function getProductLotWhitelists(req, res) {
 
   const [unitLevelRows, lotRows, mappingRows] = await Promise.all([
     listActiveProductUnitLevelRows({ query }, productId),
-    listProductLots({ query }, productId),
+    listProductLots({ query }, productId, { includeLatestAudit: true }),
     listProductLotWhitelistMappings({ query }, productId),
   ]);
 
@@ -2130,11 +2212,17 @@ export async function getProductLotWhitelists(req, res) {
       {
         id: toCleanText(row.id),
         lotNo: toCleanText(row.lotNo),
+        mfgDate: toCleanText(row.mfgDate),
         expDate: toCleanText(row.expDate),
+        manufacturerName: toCleanText(row.manufacturerName),
         hasWhitelist: false,
         allowedUnitLevelIds: [],
         defaultUnitLevelId: "",
         invalidUnitLevelIds: [],
+        latestEditReason: toCleanText(row.latestEditReason),
+        latestEditedAt: row.latestEditedAt || null,
+        latestEditedByName: toCleanText(row.latestEditedByName),
+        latestEditedByUsername: toCleanText(row.latestEditedByUsername),
       },
     ])
   );
@@ -2318,6 +2406,156 @@ export async function updateProductLotWhitelist(req, res) {
     lotId,
     allowedUnitLevelIds,
     defaultUnitLevelId: defaultUnitLevelId || null,
+  });
+}
+
+export async function updateProductLotMetadata(req, res) {
+  const productId = toCleanText(req.params.id || req.params.productId);
+  const lotId = toCleanText(req.params.lotId || req.params.productLotId);
+  const editedByUserId = toCleanText(req.user?.id);
+
+  if (!productId) {
+    throw httpError(400, "product id is required");
+  }
+  if (!lotId || !isUuid(lotId)) {
+    throw httpError(400, "lotId must be a valid UUID");
+  }
+  if (!editedByUserId || !isUuid(editedByUserId)) {
+    throw httpError(401, "Authentication required");
+  }
+  if (!(await hasProductLotEditAuditsTable({ query }))) {
+    throw httpError(
+      409,
+      "Lot metadata incident logging requires migration 0019_product_lot_edit_audits.sql"
+    );
+  }
+
+  const input = normalizeLotMetadataUpdateInput(req.body);
+
+  const result = await withTransaction(async (client) => {
+    const existingLotResult = await client.query(
+      `
+        SELECT
+          pl.id,
+          pl.product_id AS "productId",
+          pl.lot_no AS "lotNo",
+          pl.mfg_date::text AS "mfgDate",
+          pl.exp_date::text AS "expDate",
+          pl.manufacturer_name AS "manufacturerName"
+        FROM product_lots pl
+        WHERE pl.id = $1::uuid
+          AND pl.product_id = $2
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [lotId, productId]
+    );
+
+    const existingLot = existingLotResult.rows[0];
+    if (!existingLot) {
+      throw httpError(404, "Product lot not found");
+    }
+
+    const hasChange =
+      input.lotNo !== toCleanText(existingLot.lotNo) ||
+      input.mfgDate !== (toCleanText(existingLot.mfgDate) || null) ||
+      input.expDate !== toCleanText(existingLot.expDate);
+
+    if (!hasChange) {
+      throw httpError(400, "No lot metadata change detected");
+    }
+
+    const duplicateResult = await client.query(
+      `
+        SELECT id
+        FROM product_lots
+        WHERE product_id = $1
+          AND lot_no = $2
+          AND exp_date = $3::date
+          AND id <> $4::uuid
+        LIMIT 1
+      `,
+      [productId, input.lotNo, input.expDate, lotId]
+    );
+
+    if (duplicateResult.rows[0]) {
+      throw httpError(409, "Another lot already uses this lot number and expiry date");
+    }
+
+    const updatedLotResult = await client.query(
+      `
+        UPDATE product_lots
+        SET lot_no = $2,
+            mfg_date = $3::date,
+            exp_date = $4::date
+        WHERE id = $1::uuid
+        RETURNING
+          id,
+          product_id AS "productId",
+          lot_no AS "lotNo",
+          mfg_date::text AS "mfgDate",
+          exp_date::text AS "expDate",
+          manufacturer_name AS "manufacturerName"
+      `,
+      [lotId, input.lotNo, input.mfgDate, input.expDate]
+    );
+
+    await client.query(
+      `
+        INSERT INTO product_lot_edit_audits (
+          product_lot_id,
+          product_id,
+          previous_lot_no,
+          new_lot_no,
+          previous_mfg_date,
+          new_mfg_date,
+          previous_exp_date,
+          new_exp_date,
+          reason_text,
+          edited_by
+        )
+        VALUES (
+          $1::uuid,
+          $2::uuid,
+          $3,
+          $4,
+          $5::date,
+          $6::date,
+          $7::date,
+          $8::date,
+          $9,
+          $10::uuid
+        )
+      `,
+      [
+        lotId,
+        productId,
+        existingLot.lotNo,
+        input.lotNo,
+        existingLot.mfgDate || null,
+        input.mfgDate,
+        existingLot.expDate,
+        input.expDate,
+        input.reason,
+        editedByUserId,
+      ]
+    );
+
+    return updatedLotResult.rows[0];
+  });
+
+  return res.json({
+    ok: true,
+    productId,
+    lot: {
+      id: toCleanText(result.id),
+      productId: toCleanText(result.productId),
+      lotNo: toCleanText(result.lotNo),
+      mfgDate: toCleanText(result.mfgDate),
+      expDate: toCleanText(result.expDate),
+      expDateDisplay: formatDateOnlyDisplay(result.expDate),
+      manufacturerName: toCleanText(result.manufacturerName),
+    },
   });
 }
 

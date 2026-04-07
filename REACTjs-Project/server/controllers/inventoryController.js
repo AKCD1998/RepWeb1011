@@ -18,6 +18,7 @@ import {
   toPositiveNumeric,
 } from "./helpers.js";
 import { httpError } from "../utils/httpError.js";
+import { parseDateOnlyInput } from "../utils/dateOnly.js";
 
 const MOVEMENT_TYPES = new Set(["RECEIVE", "TRANSFER_OUT", "DISPENSE"]);
 const TRANSFER_REQUEST_SOURCE_REF = "TRANSFER_REQUEST";
@@ -118,13 +119,7 @@ function composeTransferDecisionNote(baseNote, decisionLabel, reason) {
 }
 
 function toIsoDateOnly(value, fieldName) {
-  const text = normalizeText(value);
-  if (!text) return "";
-  const date = new Date(text);
-  if (Number.isNaN(date.getTime())) {
-    throw httpError(400, `${fieldName} must be a valid date`);
-  }
-  return date.toISOString().slice(0, 10);
+  return parseDateOnlyInput(value, fieldName, { allowEmpty: true });
 }
 
 function isUuid(value) {

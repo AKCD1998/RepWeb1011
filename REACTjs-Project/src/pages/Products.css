@@ -106,7 +106,7 @@
 
 .products-lot-whitelist__summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
   gap: 10px;
 }
 
@@ -167,6 +167,96 @@
 }
 
 .products-lot-whitelist__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.products-lot-metadata {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+  background: color-mix(in srgb, var(--surface) 95%, #ffffff 5%);
+}
+
+.products-lot-metadata__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.products-lot-metadata__header h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.products-lot-metadata__header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.products-lot-metadata__latest {
+  display: grid;
+  gap: 4px;
+  min-width: min(320px, 100%);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.products-lot-metadata__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.products-lot-metadata__grid label,
+.products-lot-metadata__reason {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.products-lot-metadata__grid input,
+.products-lot-metadata__reason textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, #8fa1b5 18%);
+  border-radius: 10px;
+  padding: 9px 10px;
+  font: inherit;
+  background: var(--products-field-bg);
+  color: var(--products-field-text);
+}
+
+.products-lot-metadata__reason textarea {
+  resize: vertical;
+}
+
+.products-lot-metadata__history {
+  border: 1px solid color-mix(in srgb, var(--border) 88%, #ffffff 12%);
+  border-radius: 10px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--panel) 82%, var(--surface) 18%);
+}
+
+.products-lot-metadata__history strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.products-lot-metadata__history p {
+  margin: 0;
+}
+
+.products-lot-metadata__actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
@@ -394,6 +484,8 @@
 .products-grid input,
 .products-grid select,
 .products-grid textarea,
+.products-lot-metadata__grid input,
+.products-lot-metadata__reason textarea,
 .products-packaging-row > input,
 .products-packaging-row > select,
 .products-ingredient-search,
@@ -420,6 +512,8 @@
 .products-grid input:hover,
 .products-grid select:hover,
 .products-grid textarea:hover,
+.products-lot-metadata__grid input:hover,
+.products-lot-metadata__reason textarea:hover,
 .products-packaging-row > input:hover,
 .products-packaging-row > select:hover,
 .products-ingredient-search:hover,
@@ -433,6 +527,8 @@
 .products-grid input:focus,
 .products-grid select:focus,
 .products-grid textarea:focus,
+.products-lot-metadata__grid input:focus,
+.products-lot-metadata__reason textarea:focus,
 .products-packaging-row > input:focus,
 .products-packaging-row > select:focus,
 .products-ingredient-search:focus,
@@ -551,7 +647,8 @@
   }
 
   .products-lot-whitelist__summary,
-  .products-lot-whitelist__level {
+  .products-lot-whitelist__level,
+  .products-lot-metadata__grid {
     grid-template-columns: 1fr;
   }
 

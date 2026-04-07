@@ -133,6 +133,8 @@ export async function createDispense(req, res) {
   const branchCodeInput = toCleanText(req.body?.branchCode);
   const lines = Array.isArray(req.body?.lines) ? req.body.lines : [];
   const patient = req.body?.patient || {};
+  const patientPid = toCleanText(patient?.pid);
+  const patientFullName = toCleanText(patient?.fullName || patient?.full_name || patient?.name);
   const pharmacistUserIdInput = req.user?.id || req.body?.pharmacistUserId || null;
   const reportType = toCleanText(req.body?.reportType).toUpperCase();
   const actionSource = toCleanText(req.body?.actionSource) || "DELIVER_PAGE_FINAL";
@@ -144,6 +146,12 @@ export async function createDispense(req, res) {
   });
 
   if (!lines.length) throw httpError(400, "lines must contain at least one item");
+  if (!patientPid) {
+    throw httpError(400, "patient.pid is required");
+  }
+  if (!patientFullName) {
+    throw httpError(400, "patient.fullName is required");
+  }
 
   const result = await withTransaction(async (client) => {
     const branch = branchCodeInput

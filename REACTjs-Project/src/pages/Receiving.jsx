@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { INVENTORY_CHANGED_EVENT, inventoryApi, productsApi } from "../lib/api";
+import { formatDateOnlyDisplay as formatDateOnlyDisplayValue, normalizeDateOnlyInput } from "../lib/dateOnly";
 import {
   formatDisplayNumber as formatQty,
   formatQuantityAsUnits,
@@ -88,19 +89,7 @@ function toCleanText(value) {
 }
 
 function normalizeDateOnly(value) {
-  const text = toCleanText(value);
-  if (!text) return "";
-
-  const matchedDate = text.match(/^(\d{4}-\d{2}-\d{2})/);
-  if (matchedDate?.[1]) {
-    return matchedDate[1];
-  }
-
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return text;
-  }
-  return date.toISOString().slice(0, 10);
+  return normalizeDateOnlyInput(value);
 }
 
 function getLotOptionValue(lotNo, expDate) {
@@ -150,7 +139,7 @@ function mapTransferLotOptions(rows) {
 
 function buildTransferLotOptionLabel(option) {
   const lotNo = toCleanText(option?.lotNo) || "-";
-  const expDate = normalizeDateOnly(option?.expDate) || "-";
+  const expDate = formatDateOnlyDisplay(option?.expDate) || "-";
   const stockUnitLabel = toCleanText(option?.baseUnitLabel || option?.unitLabel);
   const qtyText = Number.isFinite(Number(option?.quantity))
     ? ` • คงเหลือ ${formatQuantityWithUnit(option.quantity, stockUnitLabel)}`
@@ -250,11 +239,7 @@ function getMovementLineLotKey(line) {
 }
 
 function formatDateOnlyDisplay(value) {
-  const text = normalizeDateOnly(value);
-  if (!text) return "-";
-  const [year, month, day] = text.split("-");
-  if (!year || !month || !day) return text;
-  return `${day}/${month}/${year}`;
+  return formatDateOnlyDisplayValue(normalizeDateOnly(value) || value) || "-";
 }
 
 function normalizeUnitOptionsResponse(response) {
@@ -1539,7 +1524,7 @@ export default function Receiving() {
           currentLineErrors.lotNo = "กรุณาระบุ lot number";
         }
         if (!normalizeDateOnly(line?.expDate)) {
-          currentLineErrors.expDate = "กรุณาระบุวันหมดอายุ (Exp)";
+          currentLineErrors.expDate = "กรุณาระบุวันหมดอายุ (Exp) เป็น dd/mm/yyyy";
         }
       }
 
@@ -2165,12 +2150,14 @@ export default function Receiving() {
                               ) : (
                                 <input
                                   id={`movementExpDate-${line.id}`}
-                                  type="date"
+                                  type="text"
+                                  inputMode="numeric"
                                   className="qinput"
                                   value={line.expDate ?? ""}
                                   onChange={(event) =>
                                     handleLineFieldChange(line.id, "expDate", event.target.value)
                                   }
+                                  placeholder="dd/mm/yyyy"
                                   required
                                 />
                               )}

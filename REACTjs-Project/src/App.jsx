@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import AppLayout from "./layouts/AppLayout";
+import AdminIncidentReports from "./pages/AdminIncidentReports";
 import Deliver from "./pages/Deliver";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
@@ -73,6 +74,14 @@ export default function App() {
       >
         <Route index element={<Home />} />
         <Route path="reports" element={<Reports />} />
+        <Route
+          path="admin/incidents"
+          element={
+            <RequireAdmin>
+              <AdminIncidentReports />
+            </RequireAdmin>
+          }
+        />
         <Route
           path="products"
           element={

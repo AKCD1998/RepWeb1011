@@ -1,0 +1,666 @@
+import { query, withTransaction } from "../db/pool.js";
+import { httpError } from "../utils/httpError.js";
+import { parseDateOnlyInput } from "../utils/dateOnly.js";
+import {
+  resolveBranchByCode,
+  resolveBranchById,
+  toIsoTimestamp,
+  toPositiveNumeric,
+} from "./helpers.js";
+
+const INCIDENT_STATUSES = new Set(["OPEN", "ACKNOWLEDGED", "CLOSED"]);
+const DEFAULT_LIST_LIMIT = 100;
+const MAX_LIST_LIMIT = 500;
+
+function toCleanText(value) {
+  return String(value ?? "").trim();
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    toCleanText(value)
+  );
+}
+
+function normalizeIncidentStatus(value, { allowEmpty = false, defaultValue = "ACKNOWLEDGED" } = {}) {
+  const status = toCleanText(value).toUpperCase();
+  if (!status) {
+    if (allowEmpty) return "";
+    return defaultValue;
+  }
+  if (!INCIDENT_STATUSES.has(status)) {
+    throw httpError(400, `Unsupported incident status: ${status}`);
+  }
+  return status;
+}
+
+function normalizeOptionalText(value, maxLength, fieldName) {
+  const text = toCleanText(value);
+  if (!text) return null;
+  if (maxLength && text.length > maxLength) {
+    throw httpError(400, `${fieldName} must be at most ${maxLength} characters`);
+  }
+  return text;
+}
+
+function normalizeRequiredText(value, maxLength, fieldName) {
+  const text = normalizeOptionalText(value, maxLength, fieldName);
+  if (!text) {
+    throw httpError(400, `${fieldName} is required`);
+  }
+  return text;
+}
+
+function normalizeListLimit(value) {
+  if (value === undefined || value === null || value === "") {
+    return DEFAULT_LIST_LIMIT;
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    throw httpError(400, "limit must be a positive integer");
+  }
+  return Math.min(Math.floor(numeric), MAX_LIST_LIMIT);
+}
+
+function normalizeIncidentDateFilterStart(value) {
+  const normalized = parseDateOnlyInput(value, "fromDate", { allowEmpty: true });
+  if (!normalized) return "";
+  return toIsoTimestamp(`${normalized}T00:00:00`);
+}
+
+function normalizeIncidentDateFilterEndExclusive(value) {
+  const normalized = parseDateOnlyInput(value, "toDate", { allowEmpty: true });
+  if (!normalized) return "";
+  const bangkokStart = new Date(`${normalized}T00:00:00+07:00`);
+  bangkokStart.setUTCDate(bangkokStart.getUTCDate() + 1);
+  return bangkokStart.toISOString();
+}
+
+function normalizeIncidentItemInput(item, index) {
+  const rowLabel = `items[${index}]`;
+  const productId = toCleanText(item?.productId ?? item?.product_id);
+  const lotId = toCleanText(item?.lotId ?? item?.lot_id);
+  const unitLevelId = toCleanText(item?.unitLevelId ?? item?.unit_level_id);
+  const qty = toPositiveNumeric(item?.qty, `${rowLabel}.qty`);
+  const unitLabel = normalizeOptionalText(
+    item?.unitLabel ?? item?.unit_label ?? item?.unitLabelSnapshot ?? item?.unit_label_snapshot,
+    160,
+    `${rowLabel}.unitLabel`
+  );
+  const lotNoSnapshot = normalizeOptionalText(
+    item?.lotNoSnapshot ?? item?.lot_no_snapshot ?? item?.lotNo ?? item?.lot_no,
+    120,
+    `${rowLabel}.lotNoSnapshot`
+  );
+  const expDateSnapshot =
+    parseDateOnlyInput(item?.expDateSnapshot ?? item?.exp_date_snapshot, `${rowLabel}.expDateSnapshot`, {
+      allowEmpty: true,
+    }) || null;
+  const note = normalizeOptionalText(item?.note ?? item?.noteText ?? item?.note_text, 2000, `${rowLabel}.note`);
+
+  if (!productId || !isUuid(productId)) {
+    throw httpError(400, `${rowLabel}.productId must be a valid UUID`);
+  }
+  if (lotId && !isUuid(lotId)) {
+    throw httpError(400, `${rowLabel}.lotId must be a valid UUID`);
+  }
+  if (unitLevelId && !isUuid(unitLevelId)) {
+    throw httpError(400, `${rowLabel}.unitLevelId must be a valid UUID`);
+  }
+
+  return {
+    productId,
+    lotId: lotId || null,
+    unitLevelId: unitLevelId || null,
+    qty,
+    unitLabel,
+    lotNoSnapshot,
+    expDateSnapshot,
+    note,
+  };
+}
+
+function buildIncidentCode(runningNo) {
+  return `INC-${String(runningNo).padStart(6, "0")}`;
+}
+
+function deriveStatusStateForCreate(status, adminUserId, timestamp) {
+  if (status === "OPEN") {
+    return {
+      acknowledgedByAdminUserId: null,
+      acknowledgedAt: null,
+      closedAt: null,
+    };
+  }
+
+  if (status === "CLOSED") {
+    return {
+      acknowledgedByAdminUserId: adminUserId,
+      acknowledgedAt: timestamp,
+      closedAt: timestamp,
+    };
+  }
+
+  return {
+    acknowledgedByAdminUserId: adminUserId,
+    acknowledgedAt: timestamp,
+    closedAt: null,
+  };
+}
+
+function deriveStatusStateForUpdate(currentIncident, nextStatus, adminUserId, timestamp) {
+  if (nextStatus === "OPEN") {
+    return {
+      acknowledgedByAdminUserId: null,
+      acknowledgedAt: null,
+      closedAt: null,
+    };
+  }
+
+  if (nextStatus === "ACKNOWLEDGED") {
+    return {
+      acknowledgedByAdminUserId: adminUserId,
+      acknowledgedAt: currentIncident.acknowledgedAt || timestamp,
+      closedAt: null,
+    };
+  }
+
+  return {
+    acknowledgedByAdminUserId:
+      currentIncident.acknowledgedByAdminUserId || adminUserId,
+    acknowledgedAt: currentIncident.acknowledgedAt || timestamp,
+    closedAt: timestamp,
+  };
+}
+
+async function resolveIncidentBranch(client, payload) {
+  const branchId = toCleanText(payload?.branchId ?? payload?.branch_id);
+  const branchCode = toCleanText(payload?.branchCode ?? payload?.branch_code);
+
+  if (branchId) {
+    return resolveBranchById(client, branchId);
+  }
+  if (branchCode) {
+    return resolveBranchByCode(client, branchCode);
+  }
+  throw httpError(400, "branchId or branchCode is required");
+}
+
+async function resolveIncidentProductSnapshot(client, productId) {
+  const result = await client.query(
+    `
+      SELECT
+        id,
+        product_code AS "productCode",
+        trade_name AS "tradeName"
+      FROM products
+      WHERE id = $1::uuid
+      LIMIT 1
+    `,
+    [productId]
+  );
+
+  const product = result.rows[0];
+  if (!product) {
+    throw httpError(404, `Product not found: ${productId}`);
+  }
+
+  return product;
+}
+
+async function resolveIncidentLotSnapshot(client, productId, lotId) {
+  if (!lotId) return null;
+
+  const result = await client.query(
+    `
+      SELECT
+        id,
+        product_id AS "productId",
+        lot_no AS "lotNo",
+        exp_date::text AS "expDate"
+      FROM product_lots
+      WHERE id = $1::uuid
+        AND product_id = $2::uuid
+      LIMIT 1
+    `,
+    [lotId, productId]
+  );
+
+  const lot = result.rows[0];
+  if (!lot) {
+    throw httpError(404, `Product lot not found: ${lotId}`);
+  }
+
+  return lot;
+}
+
+async function resolveIncidentUnitSnapshot(client, productId, unitLevelId) {
+  if (!unitLevelId) return null;
+
+  const result = await client.query(
+    `
+      SELECT
+        pul.id,
+        pul.product_id AS "productId",
+        COALESCE(
+          NULLIF(TRIM(pul.display_name), ''),
+          NULLIF(ut.symbol, ''),
+          ut.code,
+          pul.code,
+          'base'
+        ) AS "unitLabel"
+      FROM product_unit_levels pul
+      LEFT JOIN unit_types ut ON ut.id = pul.unit_type_id
+      WHERE pul.id = $1::uuid
+        AND pul.product_id = $2::uuid
+      LIMIT 1
+    `,
+    [unitLevelId, productId]
+  );
+
+  const unitLevel = result.rows[0];
+  if (!unitLevel) {
+    throw httpError(404, `Product unit level not found: ${unitLevelId}`);
+  }
+
+  return unitLevel;
+}
+
+async function getIncidentDetailById(db, incidentId) {
+  const headerResult = await db.query(
+    `
+      SELECT
+        ir.id,
+        ir.running_no AS "runningNo",
+        ir.incident_code AS "incidentCode",
+        ir.incident_type AS "incidentType",
+        ir.incident_reason AS "incidentReason",
+        ir.incident_description AS "incidentDescription",
+        ir.branch_id AS "branchId",
+        ir.branch_code_snapshot AS "branchCode",
+        ir.branch_name_snapshot AS "branchName",
+        ir.reporter_user_id AS "reporterUserId",
+        COALESCE(NULLIF(TRIM(reporter.full_name), ''), reporter.username, 'unknown') AS "reporterName",
+        reporter.username AS "reporterUsername",
+        ir.acknowledged_by_admin_user_id AS "acknowledgedByAdminUserId",
+        COALESCE(NULLIF(TRIM(ack_admin.full_name), ''), ack_admin.username, '') AS "acknowledgedByAdminName",
+        ack_admin.username AS "acknowledgedByAdminUsername",
+        ir.happened_at AS "happenedAt",
+        ir.reported_at AS "reportedAt",
+        ir.acknowledged_at AS "acknowledgedAt",
+        ir.closed_at AS "closedAt",
+        ir.status,
+        ir.smartcard_session_id AS "smartcardSessionId",
+        ir.dispense_attempt_id AS "dispenseAttemptId",
+        ir.note_text AS "noteText",
+        ir.created_at AS "createdAt",
+        ir.updated_at AS "updatedAt"
+      FROM incident_reports ir
+      JOIN users reporter ON reporter.id = ir.reporter_user_id
+      LEFT JOIN users ack_admin ON ack_admin.id = ir.acknowledged_by_admin_user_id
+      WHERE ir.id = $1::uuid
+      LIMIT 1
+    `,
+    [incidentId]
+  );
+
+  const incident = headerResult.rows[0];
+  if (!incident) {
+    return null;
+  }
+
+  const itemsResult = await db.query(
+    `
+      SELECT
+        iri.id,
+        iri.line_no AS "lineNo",
+        iri.product_id AS "productId",
+        iri.lot_id AS "lotId",
+        iri.unit_level_id AS "unitLevelId",
+        iri.product_code_snapshot AS "productCodeSnapshot",
+        iri.product_name_snapshot AS "productNameSnapshot",
+        iri.lot_no_snapshot AS "lotNoSnapshot",
+        iri.exp_date_snapshot::text AS "expDateSnapshot",
+        iri.qty,
+        iri.unit_label_snapshot AS "unitLabelSnapshot",
+        iri.note_text AS "noteText"
+      FROM incident_report_items iri
+      WHERE iri.incident_report_id = $1::uuid
+      ORDER BY iri.line_no ASC, iri.created_at ASC
+    `,
+    [incidentId]
+  );
+
+  return {
+    ...incident,
+    items: itemsResult.rows.map((row) => ({
+      ...row,
+      qty: Number(row.qty),
+    })),
+  };
+}
+
+export async function createIncidentReport(req, res) {
+  const reporterUserId = toCleanText(req.user?.id);
+  if (!reporterUserId || !isUuid(reporterUserId)) {
+    throw httpError(401, "Authentication required");
+  }
+
+  const incidentType = normalizeRequiredText(req.body?.incidentType ?? req.body?.incident_type, 80, "incidentType");
+  const incidentReason = normalizeRequiredText(
+    req.body?.incidentReason ?? req.body?.incident_reason,
+    160,
+    "incidentReason"
+  );
+  const incidentDescription = normalizeRequiredText(
+    req.body?.incidentDescription ?? req.body?.incident_description,
+    4000,
+    "incidentDescription"
+  );
+  const happenedAt = toIsoTimestamp(req.body?.happenedAt ?? req.body?.happened_at);
+  const status = normalizeIncidentStatus(req.body?.status, { defaultValue: "ACKNOWLEDGED" });
+  const noteText = normalizeOptionalText(req.body?.note ?? req.body?.noteText ?? req.body?.note_text, 4000, "note");
+  const smartcardSessionId = normalizeOptionalText(
+    req.body?.smartcardSessionId ?? req.body?.smartcard_session_id,
+    120,
+    "smartcardSessionId"
+  );
+  const dispenseAttemptId = normalizeOptionalText(
+    req.body?.dispenseAttemptId ?? req.body?.dispense_attempt_id,
+    120,
+    "dispenseAttemptId"
+  );
+  const rawItems = Array.isArray(req.body?.items) ? req.body.items : [];
+  const normalizedItems = rawItems.map((item, index) => normalizeIncidentItemInput(item, index));
+
+  const createdIncident = await withTransaction(async (client) => {
+    const branch = await resolveIncidentBranch(client, req.body);
+    const nowIso = new Date().toISOString();
+    const statusState = deriveStatusStateForCreate(status, reporterUserId, nowIso);
+    const sequenceResult = await client.query(
+      `SELECT nextval('incident_report_running_no_seq') AS running_no`
+    );
+    const runningNo = Number(sequenceResult.rows[0]?.running_no || 0);
+    if (!Number.isFinite(runningNo) || runningNo <= 0) {
+      throw httpError(500, "Unable to allocate incident running number");
+    }
+    const incidentCode = buildIncidentCode(runningNo);
+
+    const headerResult = await client.query(
+      `
+        INSERT INTO incident_reports (
+          running_no,
+          incident_code,
+          incident_type,
+          incident_reason,
+          incident_description,
+          branch_id,
+          branch_code_snapshot,
+          branch_name_snapshot,
+          reporter_user_id,
+          acknowledged_by_admin_user_id,
+          happened_at,
+          reported_at,
+          acknowledged_at,
+          closed_at,
+          status,
+          smartcard_session_id,
+          dispense_attempt_id,
+          note_text,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6::uuid,
+          $7,
+          $8,
+          $9::uuid,
+          $10::uuid,
+          $11::timestamptz,
+          now(),
+          $12::timestamptz,
+          $13::timestamptz,
+          $14,
+          $15,
+          $16,
+          $17,
+          now(),
+          now()
+        )
+        RETURNING id
+      `,
+      [
+        runningNo,
+        incidentCode,
+        incidentType,
+        incidentReason,
+        incidentDescription,
+        branch.id,
+        branch.code,
+        branch.name,
+        reporterUserId,
+        statusState.acknowledgedByAdminUserId,
+        happenedAt,
+        statusState.acknowledgedAt,
+        statusState.closedAt,
+        status,
+        smartcardSessionId,
+        dispenseAttemptId,
+        noteText,
+      ]
+    );
+
+    const incidentId = headerResult.rows[0].id;
+
+    for (const [index, item] of normalizedItems.entries()) {
+      const product = await resolveIncidentProductSnapshot(client, item.productId);
+      const lot = await resolveIncidentLotSnapshot(client, item.productId, item.lotId);
+      const unitLevel = await resolveIncidentUnitSnapshot(client, item.productId, item.unitLevelId);
+
+      await client.query(
+        `
+          INSERT INTO incident_report_items (
+            incident_report_id,
+            line_no,
+            product_id,
+            lot_id,
+            unit_level_id,
+            product_code_snapshot,
+            product_name_snapshot,
+            lot_no_snapshot,
+            exp_date_snapshot,
+            qty,
+            unit_label_snapshot,
+            note_text,
+            created_at
+          )
+          VALUES (
+            $1::uuid,
+            $2,
+            $3::uuid,
+            $4::uuid,
+            $5::uuid,
+            $6,
+            $7,
+            $8,
+            $9::date,
+            $10,
+            $11,
+            $12,
+            now()
+          )
+        `,
+        [
+          incidentId,
+          index + 1,
+          item.productId,
+          lot?.id || null,
+          unitLevel?.id || null,
+          toCleanText(product.productCode) || null,
+          toCleanText(product.tradeName) || "-",
+          lot?.lotNo || item.lotNoSnapshot || null,
+          lot?.expDate || item.expDateSnapshot || null,
+          item.qty,
+          unitLevel?.unitLabel || item.unitLabel || null,
+          item.note,
+        ]
+      );
+    }
+
+    const detail = await getIncidentDetailById(client, incidentId);
+    if (!detail) {
+      throw httpError(500, "Incident report was created but could not be loaded");
+    }
+    return detail;
+  });
+
+  return res.status(201).json({
+    ok: true,
+    incident: createdIncident,
+  });
+}
+
+export async function listIncidentReports(req, res) {
+  const fromDate = normalizeIncidentDateFilterStart(req.query.fromDate ?? req.query.from_date);
+  const toDateExclusive = normalizeIncidentDateFilterEndExclusive(req.query.toDate ?? req.query.to_date);
+  const branchCode = normalizeOptionalText(req.query.branchCode ?? req.query.branch_code, 30, "branchCode");
+  const incidentType = normalizeOptionalText(req.query.incidentType ?? req.query.incident_type, 80, "incidentType");
+  const status = normalizeIncidentStatus(req.query.status, { allowEmpty: true });
+  const limit = normalizeListLimit(req.query.limit);
+
+  const params = [];
+  const where = [];
+
+  if (fromDate) {
+    params.push(fromDate);
+    where.push(`ir.happened_at >= $${params.length}::timestamptz`);
+  }
+  if (toDateExclusive) {
+    params.push(toDateExclusive);
+    where.push(`ir.happened_at < $${params.length}::timestamptz`);
+  }
+  if (branchCode) {
+    params.push(branchCode);
+    where.push(`ir.branch_code_snapshot = $${params.length}`);
+  }
+  if (incidentType) {
+    params.push(incidentType);
+    where.push(`ir.incident_type = $${params.length}`);
+  }
+  if (status) {
+    params.push(status);
+    where.push(`ir.status = $${params.length}`);
+  }
+
+  params.push(limit);
+  const result = await query(
+    `
+      SELECT
+        ir.id,
+        ir.incident_code AS "incidentCode",
+        ir.incident_type AS "incidentType",
+        ir.incident_reason AS "incidentReason",
+        ir.incident_description AS "incidentDescription",
+        ir.branch_code_snapshot AS "branchCode",
+        ir.branch_name_snapshot AS "branchName",
+        ir.happened_at AS "happenedAt",
+        ir.reported_at AS "reportedAt",
+        ir.status,
+        COALESCE(NULLIF(TRIM(reporter.full_name), ''), reporter.username, 'unknown') AS "reporterName",
+        reporter.username AS "reporterUsername",
+        COALESCE(item_count.item_count, 0) AS "itemCount"
+      FROM incident_reports ir
+      JOIN users reporter ON reporter.id = ir.reporter_user_id
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS item_count
+        FROM incident_report_items iri
+        WHERE iri.incident_report_id = ir.id
+      ) item_count ON true
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY ir.happened_at DESC, ir.running_no DESC
+      LIMIT $${params.length}
+    `,
+    params
+  );
+
+  return res.json({
+    items: result.rows.map((row) => ({
+      ...row,
+      itemCount: Number(row.itemCount || 0),
+    })),
+  });
+}
+
+export async function getIncidentReportById(req, res) {
+  const incidentId = toCleanText(req.params.id);
+  if (!incidentId || !isUuid(incidentId)) {
+    throw httpError(400, "incident id must be a valid UUID");
+  }
+
+  const incident = await getIncidentDetailById({ query }, incidentId);
+  if (!incident) {
+    throw httpError(404, "Incident report not found");
+  }
+
+  return res.json({
+    incident,
+  });
+}
+
+export async function updateIncidentReportStatus(req, res) {
+  const incidentId = toCleanText(req.params.id);
+  const adminUserId = toCleanText(req.user?.id);
+  if (!incidentId || !isUuid(incidentId)) {
+    throw httpError(400, "incident id must be a valid UUID");
+  }
+  if (!adminUserId || !isUuid(adminUserId)) {
+    throw httpError(401, "Authentication required");
+  }
+
+  const nextStatus = normalizeIncidentStatus(req.body?.status, { defaultValue: "ACKNOWLEDGED" });
+
+  const updatedIncident = await withTransaction(async (client) => {
+    const existing = await getIncidentDetailById(client, incidentId);
+    if (!existing) {
+      throw httpError(404, "Incident report not found");
+    }
+
+    const timestamp = new Date().toISOString();
+    const statusState = deriveStatusStateForUpdate(existing, nextStatus, adminUserId, timestamp);
+
+    await client.query(
+      `
+        UPDATE incident_reports
+        SET status = $2,
+            acknowledged_by_admin_user_id = $3::uuid,
+            acknowledged_at = $4::timestamptz,
+            closed_at = $5::timestamptz,
+            updated_at = now()
+        WHERE id = $1::uuid
+      `,
+      [
+        incidentId,
+        nextStatus,
+        statusState.acknowledgedByAdminUserId,
+        statusState.acknowledgedAt,
+        statusState.closedAt,
+      ]
+    );
+
+    const detail = await getIncidentDetailById(client, incidentId);
+    if (!detail) {
+      throw httpError(500, "Incident report was updated but could not be loaded");
+    }
+    return detail;
+  });
+
+  return res.json({
+    ok: true,
+    incident: updatedIncident,
+  });
+}

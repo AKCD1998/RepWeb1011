@@ -10,6 +10,7 @@ import {
   getProductsSnapshot,
   getProductsVersion,
   listProducts,
+  updateProductLotMetadata,
   updateProductLotWhitelist,
   updateProduct,
 } from "../controllers/productsController.js";
@@ -38,6 +39,12 @@ router.put(
   verifyToken,
   requireRole("ADMIN"),
   asyncHandler(updateProductLotWhitelist)
+);
+router.put(
+  "/:id/lots/:lotId/metadata",
+  verifyToken,
+  requireRole("ADMIN"),
+  asyncHandler(updateProductLotMetadata)
 );
 router.delete("/:id", verifyToken, requireRole("ADMIN"), asyncHandler(deleteProduct));
 

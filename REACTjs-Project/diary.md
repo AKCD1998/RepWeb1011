@@ -1170,3 +1170,166 @@ Start with Deliver line-model refactor to support multiple rows for the same pro
   - legacy lots have no mapping yet
   - transfer/dispense flows may also need lot-aware unit filtering later
   - historical packaging rows must not be overwritten in place
+
+## 2026-04-07 14:48:04 +07:00 - Fixed locale-dependent EXP input + added admin incident flow for dispense and lot metadata edits
+- Historical note:
+  - the dispense-side admin incident override described in this entry was later removed the same day
+  - final direction is recorded in the later entries:
+    - `2026-04-07 15:57:10 +07:00 - Re-scoped Deliver to Policy A (smartcard-only finalize, no patient substitution)`
+    - `2026-04-07 17:07:57 +07:00 - Added admin-only Incident Report layer separate from dispense`
+- Goals addressed:
+  - force EXP entry in Receiving to follow `dd/mm/yyyy` regardless of browser/OS locale
+  - add admin-only incident logging for dispense cases where smartcard data was not captured
+  - add admin-only lot metadata edit flow (`lotNo`, `mfgDate`, `expDate`) with mandatory incident-style reason
+- DB / backend:
+  - added migration:
+    - `migrations/0019_dispense_incidents_and_lot_edit_audits.sql`
+  - new additive audit tables:
+    - `dispense_incident_reports`
+    - `product_lot_edit_audits`
+  - `server/controllers/dispenseController.js`
+    - rejects branch-user dispense when `patient.pid` is missing
+    - allows admin override only when an incident report is attached
+    - inserts structured incident rows into `dispense_incident_reports`
+    - exposes incident metadata in dispense history queries
+  - `server/controllers/productsController.js`
+    - added admin endpoint to update lot metadata with required reason
+    - logs before/after values into `product_lot_edit_audits`
+    - extends lot-whitelist payload with `mfgDate`, latest edit reason/time/editor metadata
+  - `server/routes/productsRoutes.js`
+    - added `PUT /api/products/:id/lots/:lotId/metadata`
+  - `server/controllers/inventoryController.js`
+    - date-only parsing now accepts explicit `dd/mm/yyyy` safely instead of relying on machine locale parsing
+  - new shared server utility:
+    - `server/utils/dateOnly.js`
+- Frontend:
+  - `src/pages/Receiving.jsx`
+    - replaced native `type="date"` EXP input with text input + `dd/mm/yyyy` placeholder
+    - client-side normalization now parses `dd/mm/yyyy` explicitly and keeps display consistent across locales
+  - `src/pages/Deliver.jsx`
+    - tracks whether smartcard data was actually captured during the current transaction
+    - non-admin users are blocked from confirming without smartcard-derived patient identification
+    - added admin incident mode with required explanation textarea
+    - confirm dialog now summarizes smartcard status and incident report text
+  - `src/pages/Products.jsx`
+    - added admin lot metadata editor under the existing lot-management section
+    - uses `dd/mm/yyyy` fields for `mfgDate` and `expDate`
+    - shows latest lot-edit audit reason/editor/time
+  - `src/pages/PatientPurchaseHistory.jsx`
+    - shows incident report details in history rows / expanded detail panel
+  - `src/lib/api.js`
+    - normalizes date-only payloads before calling backend
+    - added `productsApi.updateLotMetadata(...)`
+  - new shared client utility:
+    - `src/lib/dateOnly.js`
+- Verification:
+  - `npm run check:server` -> pass
+  - `npm run build` -> pass
+- Deploy / migration note:
+  - this note is superseded by the later entries above
+  - current active migrations are:
+    - `migrations/0019_product_lot_edit_audits.sql`
+    - `migrations/0020_admin_incident_reports.sql`
+- Suggested manual QA after deploy:
+  - [ ] Receiving: type `07/04/2027` on machines with different locale settings and confirm the saved lot resolves correctly
+  - [ ] Deliver as pharmacist: try to confirm without smartcard and verify the UI blocks the transaction
+  - [ ] Deliver as admin: use `รายงานเหตุผิดปกติ` to open the separate incident-only modal and confirm that it does not finalize dispense
+  - [ ] Products edit mode: change `lotNo` / `mfgDate` / `expDate`, save with reason, reload, and verify latest audit summary updates
+
+## 2026-04-07 15:57:10 +07:00 - Re-scoped Deliver to Policy A (smartcard-only finalize, no patient substitution)
+- Reason for the re-scope:
+  - dispense rows must keep a real patient identity from smartcard data
+  - admin accountability must not silently become a fake patient record
+  - chosen direction is Policy A: no card = no finalize dispense
+- Backend / DB:
+  - `server/controllers/dispenseController.js`
+    - removed the admin-override dispense path
+    - every finalized dispense now requires both `patient.pid` and `patient.fullName`
+    - response/history no longer expose dispense-incident metadata
+  - migration cleanup:
+    - renamed `migrations/0019_dispense_incidents_and_lot_edit_audits.sql`
+      to `migrations/0019_product_lot_edit_audits.sql`
+    - `0019` now contains only `product_lot_edit_audits`
+    - no new dispense-side schema is required for Policy A
+- Frontend:
+  - `src/pages/Deliver.jsx`
+    - recipient block is now read-only and populated from smartcard only
+    - removed Admin incident mode / incident payload from finalize flow
+    - all users, including admin, are blocked from confirming if smartcard data or PID is missing
+  - `src/pages/Deliver.css`
+    - replaced admin-incident styling with neutral smartcard-policy messaging
+  - `src/pages/PatientPurchaseHistory.jsx`
+    - removed dispense-incident presentation because finalized dispense no longer carries that side-channel
+- Operational consequence:
+  - this keeps the existing patient/dispense schema intact
+  - tradeoff accepted: if smartcard reader/bridge is unavailable, the branch cannot finalize dispense from this page
+
+## 2026-04-07 17:07:57 +07:00 - Added admin-only Incident Report layer separate from dispense
+- Goal:
+  - create an admin-only incident logging flow that is explicitly separate from dispense, patient creation, and stock movement
+  - keep Policy A intact: no smartcard = no finalize dispense
+- DB / backend:
+  - added migration:
+    - `migrations/0020_admin_incident_reports.sql`
+  - new tables:
+    - `incident_reports`
+    - `incident_report_items`
+  - schema notes:
+    - incidents have their own running number / `incident_code`
+    - branch snapshot is stored on the incident row
+    - product/lot/unit snapshots are stored on item rows so history remains readable even if master data changes later
+    - no nullable / FK changes were made to `patients`, `dispense_headers`, or `stock_movements`
+  - new controller:
+    - `server/controllers/adminIncidentsController.js`
+  - new admin APIs under `/api/admin/incidents`:
+    - `POST /api/admin/incidents`
+    - `GET /api/admin/incidents`
+    - `GET /api/admin/incidents/:id`
+    - `PATCH /api/admin/incidents/:id/status`
+  - security:
+    - all incident APIs are protected by `verifyToken` + `requireRole("ADMIN")`
+  - validation behavior:
+    - incidents save without patient and without dispense
+    - item rows are optional
+    - if item rows are present, `qty` must be a positive number
+- Frontend:
+  - added reusable modal:
+    - `src/components/AdminIncidentModal.jsx`
+    - `src/components/AdminIncidentModal.css`
+  - added admin page:
+    - `src/pages/AdminIncidentReports.jsx`
+    - `src/pages/AdminIncidentReports.css`
+  - routing / navigation:
+    - `src/App.jsx` adds `/admin/incidents` behind `RequireAdmin`
+    - `src/components/Sidebar.jsx` adds an admin-only navigation entry
+  - API client:
+    - `src/lib/api.js` now exposes incident list/detail/create/status methods on `adminApi`
+    - `src/lib/adminIncidents.js` centralizes status/type/reason options and frontend format helpers
+  - Deliver integration:
+    - `src/pages/Deliver.jsx` adds an admin-only button `รายงานเหตุผิดปกติ`
+    - this button only opens the incident modal with prefilled context from the current Deliver screen
+    - it does not finalize dispense, create patient, or alter stock
+- Intentionally not changed:
+  - no dispense fallback path was restored
+  - no patient placeholder / `TEMP-*` path was added
+  - no stock movement logic was modified
+  - no branch-user incident reporting flow was added yet
+- Follow-up / phase 2 suggestion:
+  - allow branch users to submit `OPEN` incidents while keeping admin acknowledgement / closure as a separate step
+  - add list pagination / metrics if incident volume grows
+
+## 2026-04-07 17:25:29 +07:00 - Applied latest additive migrations to the active PostgreSQL database
+- Applied against the backend runtime database configured in `server/.env`
+- Commands executed:
+  - `psql --dbname "$DATABASE_URL" --file migrations/0019_product_lot_edit_audits.sql`
+  - `psql --dbname "$DATABASE_URL" --file migrations/0020_admin_incident_reports.sql`
+- Result:
+  - `0019` applied successfully
+  - `0020` applied successfully
+  - verified tables now exist:
+    - `product_lot_edit_audits`
+    - `incident_reports`
+    - `incident_report_items`
+- Notes:
+  - these migrations are additive only and do not change `patients`, `dispense_headers`, or `stock_movements`
+  - the `incident_report_running_no_seq` sequence is present and ready for first incident creation

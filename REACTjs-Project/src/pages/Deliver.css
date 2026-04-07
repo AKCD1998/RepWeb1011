@@ -294,6 +294,25 @@
   color: #bbf7d0;
 }
 
+.pos-smartcard-policy {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.pos-smartcard-policy__title {
+  font-weight: 600;
+}
+
+.pos-smartcard-policy__status {
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(226, 232, 240, 0.86);
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -360,6 +379,18 @@
 
 .pos-search-btn:hover {
   background: linear-gradient(180deg, #eff6ff 0%, #bfdbfe 100%);
+}
+
+.pos-incident-trigger {
+  margin-top: 10px;
+  background: linear-gradient(180deg, #fff7ed 0%, #fed7aa 100%);
+  border: 1px solid rgba(180, 83, 9, 0.35);
+  color: #7c2d12;
+  font-weight: 700;
+}
+
+.pos-incident-trigger:hover {
+  background: linear-gradient(180deg, #ffedd5 0%, #fdba74 100%);
 }
 
 .btn:disabled {

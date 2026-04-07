@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatDateOnlyDisplay, normalizeDateOnlyInput } from "../lib/dateOnly";
 import { productsApi } from "../lib/api";
 import "./Products.css";
 
@@ -268,7 +269,9 @@ function normalizeLotWhitelistPayload(payload) {
       .map((row) => ({
         id: String(row?.id || "").trim(),
         lotNo: String(row?.lotNo || row?.lot_no || "").trim(),
+        mfgDate: String(row?.mfgDate || row?.mfg_date || "").trim(),
         expDate: String(row?.expDate || row?.exp_date || "").trim(),
+        manufacturerName: String(row?.manufacturerName || row?.manufacturer_name || "").trim(),
         hasWhitelist: Boolean(row?.hasWhitelist ?? row?.has_whitelist),
         allowedUnitLevelIds: Array.isArray(row?.allowedUnitLevelIds)
           ? [...new Set(row.allowedUnitLevelIds.map((value) => String(value || "").trim()).filter(Boolean))]
@@ -277,6 +280,12 @@ function normalizeLotWhitelistPayload(payload) {
         invalidUnitLevelIds: Array.isArray(row?.invalidUnitLevelIds)
           ? [...new Set(row.invalidUnitLevelIds.map((value) => String(value || "").trim()).filter(Boolean))]
           : [],
+        latestEditReason: String(row?.latestEditReason || row?.latest_edit_reason || "").trim(),
+        latestEditedAt: row?.latestEditedAt || row?.latest_edited_at || null,
+        latestEditedByName: String(row?.latestEditedByName || row?.latest_edited_by_name || "").trim(),
+        latestEditedByUsername: String(
+          row?.latestEditedByUsername || row?.latest_edited_by_username || ""
+        ).trim(),
       }))
       .filter((row) => row.id),
   };
@@ -295,6 +304,32 @@ function createLotWhitelistDraft(lot) {
         ? defaultUnitLevelId
         : "",
   };
+}
+
+function createLotMetadataDraft(lot) {
+  return {
+    lotNo: String(lot?.lotNo || "").trim(),
+    mfgDate: formatDateOnlyDisplay(lot?.mfgDate || ""),
+    expDate: formatDateOnlyDisplay(lot?.expDate || ""),
+    reason: "",
+  };
+}
+
+function formatDateTimeDisplay(value) {
+  const text = String(value || "").trim();
+  if (!text) return "-";
+
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) {
+    return text.replace("T", " ");
+  }
+
+  const day = String(parsed.getDate()).padStart(2, "0");
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const year = parsed.getFullYear();
+  const hours = String(parsed.getHours()).padStart(2, "0");
+  const minutes = String(parsed.getMinutes()).padStart(2, "0");
+  return `${day}/${month}/${year} ${hours}:${minutes}`;
 }
 
 export default function Products() {
@@ -330,10 +365,16 @@ export default function Products() {
     allowedUnitLevelIds: [],
     defaultUnitLevelId: "",
   }));
+  const [lotMetadataDraft, setLotMetadataDraft] = useState(() =>
+    createLotMetadataDraft(null)
+  );
   const [isLoadingLotWhitelists, setIsLoadingLotWhitelists] = useState(false);
   const [isSavingLotWhitelist, setIsSavingLotWhitelist] = useState(false);
+  const [isSavingLotMetadata, setIsSavingLotMetadata] = useState(false);
   const [lotWhitelistError, setLotWhitelistError] = useState("");
   const [lotWhitelistStatus, setLotWhitelistStatus] = useState("");
+  const [lotMetadataError, setLotMetadataError] = useState("");
+  const [lotMetadataStatus, setLotMetadataStatus] = useState("");
   const customGenericInputRef = useRef(null);
   const activeIngredientsCacheRef = useRef(new Map());
   const ingredientUnitsCacheRef = useRef(new Map());
@@ -363,10 +404,14 @@ export default function Products() {
       allowedUnitLevelIds: [],
       defaultUnitLevelId: "",
     });
+    setLotMetadataDraft(createLotMetadataDraft(null));
     setLotWhitelistError("");
     setLotWhitelistStatus("");
+    setLotMetadataError("");
+    setLotMetadataStatus("");
     setIsLoadingLotWhitelists(false);
     setIsSavingLotWhitelist(false);
+    setIsSavingLotMetadata(false);
   }, []);
 
   const loadLotWhitelists = useCallback(
@@ -686,6 +731,9 @@ export default function Products() {
     setLotWhitelistDraft(createLotWhitelistDraft(selectedLotWhitelistLot));
     setLotWhitelistStatus("");
     setLotWhitelistError("");
+    setLotMetadataDraft(createLotMetadataDraft(selectedLotWhitelistLot));
+    setLotMetadataStatus("");
+    setLotMetadataError("");
   }, [selectedLotWhitelistLot]);
 
   const handleGenericSelectionChange = (event) => {
@@ -1038,6 +1086,66 @@ export default function Products() {
       setLotWhitelistError(normalizeApiError(error));
     } finally {
       setIsSavingLotWhitelist(false);
+    }
+  };
+
+  const handleLotMetadataFieldChange = (field, value) => {
+    setLotMetadataDraft((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+    setLotMetadataError("");
+    setLotMetadataStatus("");
+  };
+
+  const handleLotMetadataReset = () => {
+    setLotMetadataDraft(createLotMetadataDraft(selectedLotWhitelistLot));
+    setLotMetadataError("");
+    setLotMetadataStatus("");
+  };
+
+  const handleLotMetadataSave = async () => {
+    if (!editingId) {
+      setLotMetadataError("กรุณาเลือกสินค้าแบบแก้ไขก่อนจัดการ lot metadata");
+      return;
+    }
+    if (!selectedLotWhitelistLot?.id) {
+      setLotMetadataError("กรุณาเลือก lot ที่ต้องการแก้ไข");
+      return;
+    }
+    if (!lotMetadataDraft.lotNo.trim()) {
+      setLotMetadataError("กรุณาระบุ lot number");
+      return;
+    }
+    if (!normalizeDateOnlyInput(lotMetadataDraft.expDate)) {
+      setLotMetadataError("กรุณาระบุวันหมดอายุเป็น dd/mm/yyyy");
+      return;
+    }
+    if (lotMetadataDraft.mfgDate && !normalizeDateOnlyInput(lotMetadataDraft.mfgDate)) {
+      setLotMetadataError("วันผลิตต้องอยู่ในรูปแบบ dd/mm/yyyy");
+      return;
+    }
+    if (!lotMetadataDraft.reason.trim()) {
+      setLotMetadataError("กรุณากรอกเหตุผล/incident report สำหรับการแก้ไข lot");
+      return;
+    }
+
+    setIsSavingLotMetadata(true);
+    setLotMetadataError("");
+    setLotMetadataStatus("");
+    try {
+      await productsApi.updateLotMetadata(editingId, selectedLotWhitelistLot.id, {
+        lotNo: lotMetadataDraft.lotNo,
+        mfgDate: lotMetadataDraft.mfgDate,
+        expDate: lotMetadataDraft.expDate,
+        reason: lotMetadataDraft.reason,
+      });
+      await loadLotWhitelists(editingId);
+      setLotMetadataStatus("บันทึกการแก้ไข lot metadata แล้ว");
+    } catch (error) {
+      setLotMetadataError(normalizeApiError(error));
+    } finally {
+      setIsSavingLotMetadata(false);
     }
   };
 
@@ -1630,11 +1738,11 @@ export default function Products() {
                   <select
                     value={selectedLotWhitelistLotId}
                     onChange={(event) => setSelectedLotWhitelistLotId(event.target.value)}
-                    disabled={isSavingLotWhitelist}
+                    disabled={isSavingLotWhitelist || isSavingLotMetadata}
                   >
                     {lotWhitelistData.lots.map((lot) => (
                       <option key={lot.id} value={lot.id}>
-                        {`${lot.lotNo || "-"} • exp ${lot.expDate || "-"}${
+                        {`${lot.lotNo || "-"} • exp ${formatDateOnlyDisplay(lot.expDate) || "-"}${
                           lot.hasWhitelist ? " • มี whitelist" : " • fallback"
                         }`}
                       </option>
@@ -1655,8 +1763,12 @@ export default function Products() {
                       <div>{selectedLotWhitelistLot.lotNo || "-"}</div>
                     </div>
                     <div>
+                      <strong>MFG</strong>
+                      <div>{formatDateOnlyDisplay(selectedLotWhitelistLot.mfgDate) || "-"}</div>
+                    </div>
+                    <div>
                       <strong>Exp</strong>
-                      <div>{selectedLotWhitelistLot.expDate || "-"}</div>
+                      <div>{formatDateOnlyDisplay(selectedLotWhitelistLot.expDate) || "-"}</div>
                     </div>
                     <div>
                       <strong>สถานะ</strong>
@@ -1665,6 +1777,117 @@ export default function Products() {
                           ? "มี lot whitelist"
                           : "ยังใช้ fallback ระดับสินค้า"}
                       </div>
+                    </div>
+                  </div>
+
+                  <div className="products-lot-metadata">
+                    <div className="products-lot-metadata__header">
+                      <div>
+                        <h3>Lot Metadata Edit Mode</h3>
+                        <p>
+                          แก้เลข lot / วันผลิต / วันหมดอายุ พร้อมบันทึกเหตุผลแบบ incident report
+                        </p>
+                      </div>
+                      <div className="products-lot-metadata__latest">
+                        <strong>แก้ไขล่าสุด</strong>
+                        <span>
+                          {selectedLotWhitelistLot.latestEditedAt
+                            ? `${formatDateTimeDisplay(
+                                selectedLotWhitelistLot.latestEditedAt
+                              )} โดย ${
+                                selectedLotWhitelistLot.latestEditedByName ||
+                                selectedLotWhitelistLot.latestEditedByUsername ||
+                                "-"
+                              }`
+                            : "ยังไม่มีประวัติการแก้ไข lot นี้"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="products-lot-metadata__grid">
+                      <label>
+                        เลข lot
+                        <input
+                          type="text"
+                          value={lotMetadataDraft.lotNo}
+                          onChange={(event) =>
+                            handleLotMetadataFieldChange("lotNo", event.target.value)
+                          }
+                          disabled={isSavingLotMetadata}
+                        />
+                      </label>
+                      <label>
+                        วันผลิต (dd/mm/yyyy)
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="เช่น 07/04/2026"
+                          value={lotMetadataDraft.mfgDate}
+                          onChange={(event) =>
+                            handleLotMetadataFieldChange("mfgDate", event.target.value)
+                          }
+                          disabled={isSavingLotMetadata}
+                        />
+                      </label>
+                      <label>
+                        วันหมดอายุ (dd/mm/yyyy)
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="เช่น 07/04/2027"
+                          value={lotMetadataDraft.expDate}
+                          onChange={(event) =>
+                            handleLotMetadataFieldChange("expDate", event.target.value)
+                          }
+                          disabled={isSavingLotMetadata}
+                        />
+                      </label>
+                    </div>
+
+                    <label className="products-lot-metadata__reason">
+                      เหตุผล / Incident Report
+                      <textarea
+                        rows={3}
+                        placeholder="อธิบายว่าแก้อะไร เพราะอะไร และพบความคลาดเคลื่อนจากจุดใด"
+                        value={lotMetadataDraft.reason}
+                        onChange={(event) =>
+                          handleLotMetadataFieldChange("reason", event.target.value)
+                        }
+                        disabled={isSavingLotMetadata}
+                      />
+                    </label>
+
+                    {selectedLotWhitelistLot.latestEditReason ? (
+                      <div className="products-lot-metadata__history">
+                        <strong>เหตุผลล่าสุด</strong>
+                        <p>{selectedLotWhitelistLot.latestEditReason}</p>
+                      </div>
+                    ) : null}
+
+                    {lotMetadataError ? (
+                      <div className="products-alert error">{lotMetadataError}</div>
+                    ) : null}
+                    {lotMetadataStatus ? (
+                      <div className="products-alert success">{lotMetadataStatus}</div>
+                    ) : null}
+
+                    <div className="products-lot-metadata__actions">
+                      <button
+                        type="button"
+                        className="products-btn"
+                        onClick={handleLotMetadataSave}
+                        disabled={isSavingLotMetadata}
+                      >
+                        {isSavingLotMetadata ? "กำลังบันทึก..." : "บันทึก lot metadata"}
+                      </button>
+                      <button
+                        type="button"
+                        className="products-btn secondary"
+                        onClick={handleLotMetadataReset}
+                        disabled={isSavingLotMetadata}
+                      >
+                        คืนค่าฟอร์ม
+                      </button>
                     </div>
                   </div>
 
