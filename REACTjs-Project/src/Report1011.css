@@ -661,7 +661,41 @@ button:not(:disabled):hover {
 }
 
 .organic-report-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-areas:
+    "branch group date-from date-to"
+    "product product product product";
   align-items: end;
+}
+
+.organic-report-grid .field-row {
+  min-width: 0;
+  margin-top: 0;
+}
+
+.organic-report-grid .field-row > :is(input, select) {
+  width: 100%;
+  min-width: 0;
+}
+
+.organic-report-grid__row--branch {
+  grid-area: branch;
+}
+
+.organic-report-grid__row--group {
+  grid-area: group;
+}
+
+.organic-report-grid__row--date-from {
+  grid-area: date-from;
+}
+
+.organic-report-grid__row--date-to {
+  grid-area: date-to;
+}
+
+.organic-report-grid__row--product {
+  grid-area: product;
 }
 
 .organic-report-card__hint,
@@ -679,6 +713,11 @@ button:not(:disabled):hover {
 .organic-report-card__meta {
   display: grid;
   gap: 4px;
+}
+
+.organic-report-card__hint span,
+.organic-report-card__meta span {
+  overflow-wrap: anywhere;
 }
 
 .organic-report-card__summary {
@@ -903,6 +942,26 @@ button:not(:disabled):hover {
 
   .page-line {
     grid-template-columns: 1fr;
+  }
+
+  .organic-report-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "branch group"
+      "date-from date-to"
+      "product product";
+  }
+}
+
+@media (max-width: 640px) {
+  .organic-report-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "branch"
+      "group"
+      "date-from"
+      "date-to"
+      "product";
   }
 }
 

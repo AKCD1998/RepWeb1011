@@ -1387,3 +1387,14 @@ Start with Deliver line-model refactor to support multiple rows for the same pro
   - optional lot picker for Card B
   - richer CSV/export columns if regulatory workflow wants pharmacist/accountability columns in the document itself
   - dedicated backend endpoint for “available lots with real dispense rows” to tighten the Card B filter UX further
+
+## 2026-04-07 19:28:00 +07:00 - Cleaned organic report note rendering
+- Adjusted `server/controllers/organicReportsController.js`
+- Purpose:
+  - prevent internal metadata tags and smartcard recipient profile blocks from appearing in the document `หมายเหตุ` column for Card B
+- What is filtered out at report-render/export time:
+  - tags like `[reportType=...]`, `[source=...]`, `[lotNo=...]`
+  - recipient profile blocks such as `ชื่อผู้รับมอบยา`, `เลขประจำตัวประชาชน`, `ชื่อภาษาอังกฤษ`, `วันเกิด`, `เพศ`, `ที่อยู่`
+- Important:
+  - this does not modify stored dispense data
+  - it only sanitizes what the organic report displays / exports

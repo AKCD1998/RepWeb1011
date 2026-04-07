@@ -246,7 +246,11 @@ export default function OrganicReportCard({ onPrint }) {
         </p>
 
         <div className="form-grid organic-report-grid">
-          <FieldRow label="สาขา" htmlFor="organic-branch">
+          <FieldRow
+            label="สาขา"
+            htmlFor="organic-branch"
+            className="organic-report-grid__row organic-report-grid__row--branch"
+          >
             {isAdmin ? (
               <select
                 id="organic-branch"
@@ -266,7 +270,11 @@ export default function OrganicReportCard({ onPrint }) {
             )}
           </FieldRow>
 
-          <FieldRow label="กลุ่มรายงาน" htmlFor="organic-report-group">
+          <FieldRow
+            label="กลุ่มรายงาน"
+            htmlFor="organic-report-group"
+            className="organic-report-grid__row organic-report-grid__row--group"
+          >
             <select
               id="organic-report-group"
               value={form.reportGroupCode}
@@ -282,7 +290,11 @@ export default function OrganicReportCard({ onPrint }) {
             </select>
           </FieldRow>
 
-          <FieldRow label="สินค้า" htmlFor="organic-product">
+          <FieldRow
+            label="สินค้า"
+            htmlFor="organic-product"
+            className="organic-report-grid__row organic-report-grid__row--product"
+          >
             <select
               id="organic-product"
               value={form.productId}
@@ -304,7 +316,11 @@ export default function OrganicReportCard({ onPrint }) {
             </select>
           </FieldRow>
 
-          <FieldRow label="จากวันที่ขาย" htmlFor="organic-date-from">
+          <FieldRow
+            label="จากวันที่ขาย"
+            htmlFor="organic-date-from"
+            className="organic-report-grid__row organic-report-grid__row--date-from"
+          >
             <input
               id="organic-date-from"
               type="date"
@@ -313,7 +329,11 @@ export default function OrganicReportCard({ onPrint }) {
             />
           </FieldRow>
 
-          <FieldRow label="ถึงวันที่ขาย" htmlFor="organic-date-to">
+          <FieldRow
+            label="ถึงวันที่ขาย"
+            htmlFor="organic-date-to"
+            className="organic-report-grid__row organic-report-grid__row--date-to"
+          >
             <input
               id="organic-date-to"
               type="date"

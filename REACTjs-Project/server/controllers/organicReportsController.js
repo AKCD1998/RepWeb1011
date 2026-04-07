@@ -64,8 +64,54 @@ function formatQuantityText(quantity, unitLabel) {
   return `${formatted} ${safeUnitLabel}`;
 }
 
+const REPORT_METADATA_TAG_PATTERN =
+  /\[(?:[^\]]*?(?:reportType|source|lotNo)=[^\]]*?)\]/gi;
+
+const RECIPIENT_PROFILE_LABELS = [
+  "ชื่อผู้รับมอบยา",
+  "เลขประจำตัวประชาชน",
+  "ชื่อภาษาอังกฤษ",
+  "วันเกิด",
+  "เพศ",
+  "ที่อยู่",
+];
+
+const RECIPIENT_PROFILE_PATTERN = new RegExp(
+  `(?:${RECIPIENT_PROFILE_LABELS.join("|")})\\s*:\\s*[\\s\\S]*?(?=(?:${RECIPIENT_PROFILE_LABELS.join(
+    "|"
+  )})\\s*:|$)`,
+  "g"
+);
+
+function normalizeInlineWhitespace(value) {
+  return toCleanText(value).replace(/\s+/g, " ");
+}
+
+function sanitizeReportNoteText(value) {
+  let text = toCleanText(value);
+  if (!text) return "";
+
+  text = text.replace(REPORT_METADATA_TAG_PATTERN, " ");
+  text = text.replace(RECIPIENT_PROFILE_PATTERN, " ");
+
+  const parts = text
+    .split("|")
+    .map((part) => normalizeInlineWhitespace(part))
+    .filter(Boolean);
+
+  return parts.join(" | ");
+}
+
 function combineNotes(...values) {
-  return values.map((value) => toCleanText(value)).filter(Boolean).join(" | ");
+  const unique = [];
+
+  for (const value of values) {
+    const cleaned = sanitizeReportNoteText(value);
+    if (!cleaned || unique.includes(cleaned)) continue;
+    unique.push(cleaned);
+  }
+
+  return unique.join(" | ");
 }
 
 async function resolveAccessibleBranch(requestedBranchCode, user) {
