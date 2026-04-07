@@ -1,0 +1,370 @@
+import { query } from "../db/pool.js";
+import { httpError } from "../utils/httpError.js";
+
+function toCleanText(value) {
+  return String(value || "").trim();
+}
+
+function normalizeRole(value) {
+  return toCleanText(value).toUpperCase();
+}
+
+function isDateOnlyToken(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
+}
+
+function normalizeDateFilter(value, label) {
+  const text = toCleanText(value);
+  if (!text) return null;
+
+  if (isDateOnlyToken(text)) {
+    const parsed = new Date(`${text}T00:00:00.000Z`);
+    if (Number.isNaN(parsed.getTime())) {
+      throw httpError(400, `Invalid ${label}`);
+    }
+    return {
+      value: text,
+      type: "date",
+    };
+  }
+
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) {
+    throw httpError(400, `Invalid ${label}`);
+  }
+
+  return {
+    value: parsed.toISOString(),
+    type: "timestamp",
+  };
+}
+
+function buildReportTitle(reportGroupCode) {
+  const normalizedCode = toCleanText(reportGroupCode).toUpperCase();
+  if (normalizedCode === "KY10") {
+    return "บัญชีการขายยาควบคุมพิเศษ เฉพาะรายการยาที่เลขาธิการคณะกรรมการอาหารและยากำหนด";
+  }
+  return "บัญชีการขายยาอันตราย เฉพาะรายการยาที่เลขาธิการคณะกรรมการอาหารและยากำหนด";
+}
+
+function formatQuantityText(quantity, unitLabel) {
+  const numeric = Number(quantity);
+  const safeUnitLabel = toCleanText(unitLabel) || "unit";
+  if (!Number.isFinite(numeric)) {
+    return safeUnitLabel;
+  }
+
+  const whole = Math.abs(numeric - Math.trunc(numeric)) < 0.0001;
+  const formatted = whole
+    ? Math.trunc(numeric).toLocaleString("th-TH")
+    : numeric.toLocaleString("th-TH", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 4,
+      });
+  return `${formatted} ${safeUnitLabel}`;
+}
+
+function combineNotes(...values) {
+  return values.map((value) => toCleanText(value)).filter(Boolean).join(" | ");
+}
+
+async function resolveAccessibleBranch(requestedBranchCode, user) {
+  const role = normalizeRole(user?.role);
+  const normalizedRequestedBranchCode = toCleanText(requestedBranchCode);
+
+  if (role === "ADMIN") {
+    if (!normalizedRequestedBranchCode) {
+      throw httpError(400, "branchCode is required");
+    }
+
+    const result = await query(
+      `
+        SELECT
+          id,
+          code,
+          name
+        FROM locations
+        WHERE code = $1
+          AND location_type = 'BRANCH'
+          AND is_active = true
+        LIMIT 1
+      `,
+      [normalizedRequestedBranchCode]
+    );
+
+    const branch = result.rows[0];
+    if (!branch) {
+      throw httpError(404, "Branch not found");
+    }
+    return branch;
+  }
+
+  const locationId = toCleanText(user?.location_id);
+  if (!locationId) {
+    throw httpError(403, "Branch-scoped access requires location_id");
+  }
+
+  const result = await query(
+    `
+      SELECT
+        id,
+        code,
+        name
+      FROM locations
+      WHERE id = $1::uuid
+        AND location_type = 'BRANCH'
+        AND is_active = true
+      LIMIT 1
+    `,
+    [locationId]
+  );
+
+  const branch = result.rows[0];
+  if (!branch) {
+    throw httpError(403, "User branch is not found");
+  }
+
+  if (normalizedRequestedBranchCode && normalizedRequestedBranchCode !== branch.code) {
+    throw httpError(403, "Branch access denied");
+  }
+
+  return branch;
+}
+
+async function getProductMeta(productId) {
+  const result = await query(
+    `
+      SELECT
+        p.id AS "productId",
+        p.product_code AS "productCode",
+        p.trade_name AS "tradeName",
+        mloc.name AS "manufacturerName",
+        COALESCE(NULLIF(trim(sellable_pul.display_name), ''), sellable_pul.code, '-') AS "packageSize"
+      FROM products p
+      LEFT JOIN locations mloc ON mloc.id = p.manufacturer_location_id
+      LEFT JOIN LATERAL (
+        SELECT
+          pul.display_name,
+          pul.code
+        FROM product_unit_levels pul
+        WHERE pul.product_id = p.id
+        ORDER BY pul.is_sellable DESC, pul.is_base DESC, pul.sort_order ASC, pul.created_at ASC
+        LIMIT 1
+      ) sellable_pul ON true
+      WHERE p.id = $1::uuid
+      LIMIT 1
+    `,
+    [productId]
+  );
+
+  const product = result.rows[0];
+  if (!product) {
+    throw httpError(404, "Product not found");
+  }
+
+  return product;
+}
+
+export async function getOrganicDispenseLedgerReport(req, res) {
+  const branchCode = toCleanText(req.query.branchCode || req.query.branch_code);
+  const productId = toCleanText(req.query.productId || req.query.product_id);
+  const reportGroupCode = toCleanText(req.query.reportGroupCode || req.query.report_group_code).toUpperCase();
+  const lotId = toCleanText(req.query.lotId || req.query.lot_id);
+  const dateFrom = normalizeDateFilter(req.query.dateFrom || req.query.date_from, "dateFrom");
+  const dateTo = normalizeDateFilter(req.query.dateTo || req.query.date_to, "dateTo");
+
+  if (!productId) {
+    throw httpError(400, "productId is required");
+  }
+
+  const branch = await resolveAccessibleBranch(branchCode, req.user);
+  const product = await getProductMeta(productId);
+
+  const params = [branch.id, productId];
+  const where = ["dh.branch_id = $1::uuid", "dl.product_id = $2::uuid"];
+
+  if (lotId) {
+    params.push(lotId);
+    where.push(`dl.lot_id = $${params.length}::uuid`);
+  }
+
+  if (dateFrom) {
+    params.push(dateFrom.value);
+    where.push(
+      dateFrom.type === "date"
+        ? `dh.dispensed_at >= $${params.length}::date`
+        : `dh.dispensed_at >= $${params.length}::timestamptz`
+    );
+  }
+
+  if (dateTo) {
+    params.push(dateTo.value);
+    where.push(
+      dateTo.type === "date"
+        ? `dh.dispensed_at < ($${params.length}::date + interval '1 day')`
+        : `dh.dispensed_at < $${params.length}::timestamptz`
+    );
+  }
+
+  const dispenseResult = await query(
+    `
+      SELECT
+        dh.dispensed_at AS "dispensedAt",
+        pa.pid,
+        pa.full_name AS "patientName",
+        COALESCE(ph.full_name, ph.username, '') AS "pharmacistName",
+        dl.quantity,
+        COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit') AS "unitLabel",
+        pl.id AS "lotId",
+        pl.lot_no AS "lotNo",
+        dl.note_text AS "lineNote",
+        dh.note_text AS "headerNote"
+      FROM dispense_headers dh
+      JOIN patients pa ON pa.id = dh.patient_id
+      LEFT JOIN users ph ON ph.id = dh.pharmacist_user_id
+      JOIN dispense_lines dl ON dl.header_id = dh.id
+      JOIN product_unit_levels pul ON pul.id = dl.unit_level_id
+      LEFT JOIN product_lots pl ON pl.id = dl.lot_id
+      WHERE ${where.join(" AND ")}
+      ORDER BY COALESCE(pl.lot_no, '') ASC, dh.dispensed_at ASC, dh.id ASC, dl.line_no ASC
+    `,
+    params
+  );
+
+  const dispenseRows = Array.isArray(dispenseResult.rows) ? dispenseResult.rows : [];
+  const lotIds = [...new Set(dispenseRows.map((row) => toCleanText(row.lotId)).filter(Boolean))];
+
+  const receiveSummaryByLotId = new Map();
+
+  if (lotIds.length) {
+    const receiveParams = [branch.id, productId, lotIds];
+
+    const receiveMetaResult = await query(
+      `
+        SELECT
+          sm.lot_id AS "lotId",
+          MIN(COALESCE(sm.corrected_occurred_at, sm.occurred_at)) AS "receivedAt",
+          STRING_AGG(
+            DISTINCT COALESCE(NULLIF(trim(from_l.name), ''), NULLIF(trim(from_l.code), ''), '-'),
+            ', '
+          ) AS "sourceName"
+        FROM stock_movements sm
+        LEFT JOIN locations from_l ON from_l.id = sm.from_location_id
+        WHERE sm.movement_type IN ('RECEIVE', 'TRANSFER_IN')
+          AND sm.to_location_id = $1::uuid
+          AND sm.product_id = $2::uuid
+          AND sm.lot_id = ANY($3::uuid[])
+        GROUP BY sm.lot_id
+      `,
+      receiveParams
+    );
+
+    const receiveQtyResult = await query(
+      `
+        SELECT
+          lot_totals."lotId",
+          STRING_AGG(
+            lot_totals."quantityText",
+            ' + '
+            ORDER BY lot_totals."unitLabel"
+          ) AS "receivedQuantityText"
+        FROM (
+          SELECT
+            sm.lot_id AS "lotId",
+            COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit') AS "unitLabel",
+            CASE
+              WHEN SUM(sm.quantity) = TRUNC(SUM(sm.quantity))
+                THEN TRIM(TO_CHAR(SUM(sm.quantity), 'FM999999999999990'))
+              ELSE TRIM(TO_CHAR(SUM(sm.quantity), 'FM999999999999990.####'))
+            END
+            || ' '
+            || COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit') AS "quantityText"
+          FROM stock_movements sm
+          JOIN product_unit_levels pul ON pul.id = sm.unit_level_id
+          WHERE sm.movement_type IN ('RECEIVE', 'TRANSFER_IN')
+            AND sm.to_location_id = $1::uuid
+            AND sm.product_id = $2::uuid
+            AND sm.lot_id = ANY($3::uuid[])
+          GROUP BY sm.lot_id, COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit')
+        ) lot_totals
+        GROUP BY lot_totals."lotId"
+      `,
+      receiveParams
+    );
+
+    for (const row of receiveMetaResult.rows) {
+      receiveSummaryByLotId.set(toCleanText(row.lotId), {
+        receivedAt: row.receivedAt || null,
+        sourceName: toCleanText(row.sourceName) || "-",
+        receivedQuantityText: "-",
+      });
+    }
+
+    for (const row of receiveQtyResult.rows) {
+      const key = toCleanText(row.lotId);
+      const current = receiveSummaryByLotId.get(key) || {
+        receivedAt: null,
+        sourceName: "-",
+        receivedQuantityText: "-",
+      };
+      current.receivedQuantityText = toCleanText(row.receivedQuantityText) || "-";
+      receiveSummaryByLotId.set(key, current);
+    }
+  }
+
+  const pagesByLotKey = new Map();
+
+  for (const row of dispenseRows) {
+    const normalizedLotId = toCleanText(row.lotId);
+    const lotKey = normalizedLotId || "__UNSPECIFIED_LOT__";
+    const lotSummary = receiveSummaryByLotId.get(normalizedLotId) || null;
+    const existingPage = pagesByLotKey.get(lotKey);
+
+    if (!existingPage) {
+      pagesByLotKey.set(lotKey, {
+        lot: {
+          id: normalizedLotId,
+          batch: toCleanText(row.lotNo) || "ไม่ระบุ lot",
+          date: lotSummary?.receivedAt || null,
+          receivedQuantityText: lotSummary?.receivedQuantityText || "-",
+          sourceName: lotSummary?.sourceName || "-",
+        },
+        rows: [],
+      });
+    }
+
+    pagesByLotKey.get(lotKey).rows.push({
+      date: row.dispensedAt,
+      qty: Number(row.quantity || 0),
+      qtyText: formatQuantityText(row.quantity, row.unitLabel),
+      unitLabel: toCleanText(row.unitLabel) || "unit",
+      name: toCleanText(row.patientName) || "-",
+      pid: toCleanText(row.pid) || "-",
+      pharmacistName: toCleanText(row.pharmacistName) || "",
+      note: combineNotes(row.lineNote, row.headerNote),
+    });
+  }
+
+  const pages = [...pagesByLotKey.values()].sort((left, right) => {
+    const leftTime = left?.lot?.date ? new Date(left.lot.date).getTime() : Number.MAX_SAFE_INTEGER;
+    const rightTime = right?.lot?.date ? new Date(right.lot.date).getTime() : Number.MAX_SAFE_INTEGER;
+    if (leftTime !== rightTime) return leftTime - rightTime;
+    return String(left?.lot?.batch || "").localeCompare(String(right?.lot?.batch || ""), "th");
+  });
+
+  return res.json({
+    meta: {
+      reportTitle: buildReportTitle(reportGroupCode),
+      reportGroupCode: reportGroupCode || null,
+      branchCode: toCleanText(branch.code),
+      branchNameOnly: toCleanText(branch.name) || "-",
+      branchLabel: `${toCleanText(branch.code) || "-"} : ${toCleanText(branch.name) || "-"}`,
+      productId: toCleanText(product.productId),
+      productCode: toCleanText(product.productCode),
+      product: toCleanText(product.tradeName) || "-",
+      packSize: toCleanText(product.packageSize) || "-",
+      maker: toCleanText(product.manufacturerName) || "-",
+    },
+    pages,
+  });
+}

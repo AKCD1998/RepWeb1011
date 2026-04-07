@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import ActionButtonsBar from "./components/report1011/ActionButtonsBar";
 import LotReceiveCard from "./components/report1011/LotReceiveCard";
+import OrganicReportCard from "./components/report1011/OrganicReportCard";
 import Report1011Header from "./components/report1011/Report1011Header";
 import ReportPreview from "./components/report1011/ReportPreview";
 import ReportTypeSelectCard from "./components/report1011/ReportTypeSelectCard";
@@ -43,7 +44,13 @@ export default function Report1011Page() {
   const [lastReportMeta, setLastReportMeta] = useState(null);
   const [lotWarning, setLotWarning] = useState(null);
 
-  const { productOptions, inferredMaker, parsedProduct } = useReport1011Products({
+  const {
+    productOptions,
+    inferredMaker,
+    parsedProduct,
+    isLoadingProducts,
+    productsError,
+  } = useReport1011Products({
     reportType,
     productName,
   });
@@ -85,6 +92,13 @@ export default function Report1011Page() {
   useEffect(() => {
     fetchPatients();
   }, [fetchPatients]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof document === "undefined") return;
+      document.body.removeAttribute("data-report-print-target");
+    };
+  }, []);
 
   const canBuild = useMemo(() => {
     const hasBasics = branchId && reportType && productName;
@@ -238,7 +252,31 @@ export default function Report1011Page() {
     URL.revokeObjectURL(url);
   };
 
-  const handlePrint = () => window.print();
+  const runTargetedPrint = useCallback((target) => {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+
+    const body = document.body;
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      body.removeAttribute("data-report-print-target");
+      window.removeEventListener("afterprint", cleanup);
+    };
+
+    body.setAttribute("data-report-print-target", target);
+    window.addEventListener("afterprint", cleanup);
+    window.print();
+    window.setTimeout(cleanup, 1000);
+  }, []);
+
+  const handlePrint = useCallback(() => {
+    runTargetedPrint("manual");
+  }, [runTargetedPrint]);
+
+  const handleOrganicPrint = useCallback(() => {
+    runTargetedPrint("organic");
+  }, [runTargetedPrint]);
 
   const previewMeta = useMemo(() => {
     if (lastReportMeta) return lastReportMeta;
@@ -267,6 +305,8 @@ export default function Report1011Page() {
             productName={productName}
             onProductChange={setProductName}
             productOptions={productOptions}
+            productsLoading={isLoadingProducts}
+            productsError={productsError}
             sku={sku}
             isSkuEditing={isSkuEditing}
             onSkuChange={setSku}
@@ -301,7 +341,8 @@ export default function Report1011Page() {
             </p>
           </div>
         ) : null}
-        <ReportPreview pages={pages} meta={previewMeta} />
+        <ReportPreview pages={pages} meta={previewMeta} printTarget="manual" />
+        <OrganicReportCard onPrint={handleOrganicPrint} />
       </main>
       <ActionButtonsBar
         canBuild={canBuild}

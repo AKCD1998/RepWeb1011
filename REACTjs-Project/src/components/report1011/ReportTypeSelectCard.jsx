@@ -11,6 +11,8 @@ export default function ReportTypeSelectCard({
   productName,
   onProductChange,
   productOptions,
+  productsLoading,
+  productsError,
   sku,
   isSkuEditing,
   onSkuChange,
@@ -57,10 +59,16 @@ export default function ReportTypeSelectCard({
             id="productName"
             value={productName}
             onChange={(event) => onProductChange(event.target.value)}
-            disabled={!productOptions.length}
+            disabled={!reportType || productsLoading || !productOptions.length}
           >
             <option value="" disabled>
-              {productOptions.length ? "เลือกสินค้า" : "— ไม่มีรายการ —"}
+              {!reportType
+                ? "เลือกประเภทรายงานก่อน"
+                : productsLoading
+                  ? "กำลังโหลดรายการสินค้า..."
+                  : productOptions.length
+                    ? "เลือกสินค้า"
+                    : "— ไม่มีรายการ —"}
             </option>
             {productOptions.map((option) => (
               <option key={option} value={option}>
@@ -70,6 +78,8 @@ export default function ReportTypeSelectCard({
           </select>
         </FieldRow>
       </div>
+
+      {productsError ? <div className="patients-status">{productsError}</div> : null}
 
       <div className="field-row">
         <label htmlFor="sku">ได้มาจาก</label>

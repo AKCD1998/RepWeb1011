@@ -1333,3 +1333,57 @@ Start with Deliver line-model refactor to support multiple rows for the same pro
 - Notes:
   - these migrations are additive only and do not change `patients`, `dispense_headers`, or `stock_movements`
   - the `incident_report_running_no_seq` sequence is present and ready for first incident creation
+
+## 2026-04-07 18:09:00 +07:00 - Switched report product lookup to the shared product catalog
+- Goal:
+  - make the report page read product names and manufacturer/importer data from the same `/api/products` source used by `Products.jsx`
+  - keep report build / print / export behavior unchanged
+- Files changed:
+  - `src/hooks/useReport1011Products.js`
+  - `src/Report1011Page.jsx`
+  - `src/components/report1011/ReportTypeSelectCard.jsx`
+- Behavior:
+  - product options now load from `productsApi.list("")`
+  - options are filtered by each product row's `reportGroupCodes` so the selected `reportType` still controls what appears
+  - the selected product still produces the same `tradeName : packageSize` value shape expected by the existing report builder
+  - manufacturer/importer now comes from the selected product row instead of the old static map
+- Intentionally not changed:
+  - `src/lib/report1011/buildReport.js`
+  - CSV export / print logic
+  - static report type option list
+
+## 2026-04-07 19:10:00 +07:00 - Added Card B for organic report generation from real dispense + movement data
+- Goal:
+  - keep the existing synthetic/manual report generator untouched
+  - add a second report card that builds the same style of document from real system transactions
+  - do not touch `Receiving.jsx` make-data behavior
+- Backend:
+  - added `server/controllers/organicReportsController.js`
+  - added `GET /api/reports/organic-dispense-ledger` in `server/routes/reportingRoutes.js`
+  - access model:
+    - `ADMIN` can request any branch by `branchCode`
+    - non-admin users are forced to their own branch via `location_id`
+  - data source:
+    - dispense rows come from `dispense_headers + dispense_lines + patients`
+    - lot/source/received metadata comes from `stock_movements`
+    - receive-side lookup includes both `RECEIVE` and `TRANSFER_IN` so branch stock that arrived by transfer is still represented
+- Frontend:
+  - added `src/components/report1011/OrganicReportCard.jsx`
+  - added `src/components/report1011/OrganicReportPreview.jsx`
+  - added `src/lib/report1011/exportOrganicCsv.js`
+  - added `reportsApi.organicDispenseLedger(...)` in `src/lib/api.js`
+  - updated `src/Report1011Page.jsx` to render Card B under the existing generator
+  - updated `src/components/report1011/ReportPreview.jsx` and `src/Report1011.css` so manual preview and organic preview can be printed separately without printing both at once
+- Existing generator safety:
+  - the old synthetic generator remains in place
+  - `src/lib/report1011/buildReport.js` was not modified
+  - `Receiving.jsx` was not touched
+- Small related fix:
+  - `src/hooks/useReport1011Products.js` now maps legacy `r10_* / r11_*` template types back to legal groups `KY10 / KY11` when filtering products from the shared catalog
+- Verification:
+  - `npm run check:server` passed
+  - `npm run build` passed
+- Remaining follow-up ideas:
+  - optional lot picker for Card B
+  - richer CSV/export columns if regulatory workflow wants pharmacist/accountability columns in the document itself
+  - dedicated backend endpoint for “available lots with real dispense rows” to tighten the Card B filter UX further

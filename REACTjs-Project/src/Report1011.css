@@ -650,6 +650,63 @@ button:not(:disabled):hover {
   transform: translateY(-1px);
 }
 
+.organic-report-card {
+  margin-top: 40px;
+}
+
+.organic-report-card__intro {
+  margin: 0 0 18px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.organic-report-grid {
+  align-items: end;
+}
+
+.organic-report-card__hint,
+.organic-report-card__summary,
+.organic-report-card__empty,
+.organic-report-card__meta {
+  margin-top: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-soft) 82%, var(--panel));
+  padding: 12px 14px;
+}
+
+.organic-report-card__hint,
+.organic-report-card__meta {
+  display: grid;
+  gap: 4px;
+}
+
+.organic-report-card__summary {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.organic-report-card__empty {
+  color: var(--muted);
+}
+
+.organic-report-card__actions {
+  margin-top: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.organic-report-card__meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.organic-report-warning {
+  margin-top: 16px;
+}
+
 /*
   Results table palette centralization:
   - Overrides mixed table colors from src/pages/Receiving.css (.results-card/.pos-table/.row/badges).
@@ -862,12 +919,15 @@ button:not(:disabled):hover {
     visibility: hidden;
   }
 
-  .report-preview,
-  .report-preview * {
+  body[data-report-print-target="manual"] .report-preview[data-print-target="manual"],
+  body[data-report-print-target="manual"] .report-preview[data-print-target="manual"] *,
+  body[data-report-print-target="organic"] .report-preview[data-print-target="organic"],
+  body[data-report-print-target="organic"] .report-preview[data-print-target="organic"] * {
     visibility: visible;
   }
 
-  .report-preview {
+  body[data-report-print-target="manual"] .report-preview[data-print-target="manual"],
+  body[data-report-print-target="organic"] .report-preview[data-print-target="organic"] {
     position: absolute;
     inset: 0;
     margin: 0;
@@ -891,7 +951,8 @@ button:not(:disabled):hover {
     border-radius: 0;
   }
 
-  .report-preview {
+  body[data-report-print-target="manual"] .report-preview[data-print-target="manual"],
+  body[data-report-print-target="organic"] .report-preview[data-print-target="organic"] {
     gap: 0;
   }
 }

@@ -1,26 +1,19 @@
-﻿import { fmtThai } from "../../lib/report1011/utils";
+import { fmtThai } from "../../lib/report1011/utils";
 
 const ROWS_PER_PAGE = 10;
-
-function buildPackSize(meta, lot) {
-  if (meta.packSize) {
-    return meta.packSize;
-  }
-  const strips = lot?.strips || 0;
-  return `1 กล่อง × ${strips.toLocaleString("th-TH")} แผง × 10 เม็ด`;
-}
 
 function PageSheet({ meta, lot, rows }) {
   return (
     <section className="page">
       <div className="page-head">
         <h2 className="page-title">
-          บัญชีการขายยาอันตราย เฉพาะรายการยาที่เลขาธิการคณะกรรมการอาหารและยากำหนด
+          {meta?.reportTitle ||
+            "บัญชีการขายยาอันตราย เฉพาะรายการยาที่เลขาธิการคณะกรรมการอาหารและยากำหนด"}
         </h2>
 
         <div className="page-branch">
           <span>
-            <b>ศิริชัยเภสัช สาขา:</b> {meta.branchNameOnly || "-"}
+            <b>ศิริชัยเภสัช สาขา:</b> {meta?.branchNameOnly || "-"}
           </span>
         </div>
         <div className="page-branch-note">(ชื่อสถานที่ขายยา)</div>
@@ -28,22 +21,22 @@ function PageSheet({ meta, lot, rows }) {
         <div className="page-line">
           <span className="page-line-item">
             <b>ชื่อยา</b>
-            <span>{meta.product || "-"}</span>
+            <span>{meta?.product || "-"}</span>
           </span>
           <span className="page-line-item">
             <b>ขนาดบรรจุ</b>
-            <span>{buildPackSize(meta, lot)}</span>
+            <span>{meta?.packSize || "-"}</span>
           </span>
           <span className="page-line-item">
             <b>จำนวนที่รับ</b>
-            <span>{(lot?.boxes || 0).toLocaleString("th-TH")} กล่อง</span>
+            <span>{lot?.receivedQuantityText || "-"}</span>
           </span>
         </div>
 
         <div className="page-line">
           <span className="page-line-item">
             <b>ชื่อผู้ผลิต/ผู้นำเข้า</b>
-            <span>{meta.maker || "-"}</span>
+            <span>{meta?.maker || "-"}</span>
           </span>
           <span className="page-line-item">
             <b>เลขครั้งที่ผลิต</b>
@@ -58,7 +51,7 @@ function PageSheet({ meta, lot, rows }) {
         <div className="page-line">
           <span className="page-line-item">
             <b>ได้มาจาก</b>
-            <span>{meta.sku || "-"}</span>
+            <span>{lot?.sourceName || "-"}</span>
           </span>
         </div>
       </div>
@@ -68,7 +61,7 @@ function PageSheet({ meta, lot, rows }) {
           <tr>
             <th>ลำดับที่</th>
             <th>วัน เดือน ปี ที่ขาย</th>
-            <th>จำนวน / ปริมาณ ที่ขาย (กล่อง)</th>
+            <th>จำนวน / ปริมาณ ที่ขาย</th>
             <th>ชื่อ-สกุล ผู้ซื้อ</th>
             <th>เลขบัตรประชาชน</th>
             <th>ลายมือชื่อ เภสัชกร</th>
@@ -77,10 +70,10 @@ function PageSheet({ meta, lot, rows }) {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={`${row.seq}-${row.pid}`}>
+            <tr key={`${row.seq}-${row.pid}-${row.date}`}>
               <td>{row.seq}</td>
               <td>{row.date}</td>
-              <td className="right">{row.qty.toLocaleString("th-TH")}</td>
+              <td className="right">{row.qtyText}</td>
               <td className="left">{row.name}</td>
               <td>{row.pid}</td>
               <td />
@@ -106,19 +99,20 @@ function PageSheet({ meta, lot, rows }) {
   );
 }
 
-export default function ReportPreview({ pages, meta, printTarget = "manual" }) {
-  if (!pages.length || !meta) {
+export default function OrganicReportPreview({ pages, meta, printTarget = "organic" }) {
+  if (!Array.isArray(pages) || !pages.length || !meta) {
     return null;
   }
 
   return (
-    <section className="report-preview" data-print-target={printTarget}>
-      <h2 className="report-preview-title no-print">ตัวอย่างรายงาน</h2>
+    <section className="report-preview organic-report-preview" data-print-target={printTarget}>
+      <h2 className="report-preview-title no-print">ตัวอย่างรายงานจากข้อมูลจริง</h2>
       {pages.map((page, pageIndex) => {
         const chunks = [];
         for (let i = 0; i < page.rows.length; i += ROWS_PER_PAGE) {
           chunks.push(page.rows.slice(i, i + ROWS_PER_PAGE));
         }
+
         return chunks.map((rows, chunkIndex) => (
           <PageSheet
             key={`${pageIndex}-${chunkIndex}`}
