@@ -49,7 +49,8 @@ function buildReportTitle(reportGroupCode) {
 
 function formatQuantityText(quantity, unitLabel) {
   const numeric = Number(quantity);
-  const safeUnitLabel = toCleanText(unitLabel) || "unit";
+  const safeUnitLabel =
+    extractPackagingContainerLabel(unitLabel) || toCleanText(unitLabel) || "unit";
   if (!Number.isFinite(numeric)) {
     return safeUnitLabel;
   }

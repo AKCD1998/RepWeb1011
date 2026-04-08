@@ -36,6 +36,7 @@ export const postCatalogFixMigrations = [
   "0008_fix_movement_unit_level_refs.sql",
   "0011_fix_ic003358_prednisolone_unit_levels.sql",
   "0014_fix_batch_blister_base_unit_levels.sql",
+  "0021_repair_corrupted_packaging_display_names.sql",
 ];
 
 function fileIfExists(filePath) {
