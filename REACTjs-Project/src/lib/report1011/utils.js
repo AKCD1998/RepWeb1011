@@ -1,4 +1,59 @@
-﻿export const stripBOM = (text) => String(text || "").replace(/^\uFEFF/, "");
+export const stripBOM = (text) => String(text || "").replace(/^\uFEFF/, "");
+
+const REPORT_LOCATION_NAME_MAP = new Map([
+  ["HEADOFFICE", "สำนักงานใหญ่ บริษัท เอสซี กรุ๊ป(1989) จำกัด"],
+  ["HEAD OFFICE", "สำนักงานใหญ่ บริษัท เอสซี กรุ๊ป(1989) จำกัด"],
+  ["OFFICE_MAIN", "สำนักงานใหญ่ บริษัท เอสซี กรุ๊ป(1989) จำกัด"],
+  ["001", "สาขาตลาดแม่กลอง"],
+  ["BRANCH001", "สาขาตลาดแม่กลอง"],
+  ["BRANCH 001", "สาขาตลาดแม่กลอง"],
+  ["ตลาดแม่กลอง", "สาขาตลาดแม่กลอง"],
+  ["สาขาตลาดแม่กลอง", "สาขาตลาดแม่กลอง"],
+  ["003", "สาขาวัดช่องลม"],
+  ["BRANCH003", "สาขาวัดช่องลม"],
+  ["BRANCH 003", "สาขาวัดช่องลม"],
+  ["วัดช่องลม", "สาขาวัดช่องลม"],
+  ["สาขาวัดช่องลม", "สาขาวัดช่องลม"],
+  ["004", "สาขาตลาดบางน้อย"],
+  ["BRANCH004", "สาขาตลาดบางน้อย"],
+  ["BRANCH 004", "สาขาตลาดบางน้อย"],
+  ["ตลาดบางน้อย", "สาขาตลาดบางน้อย"],
+  ["สาขาตลาดบางน้อย", "สาขาตลาดบางน้อย"],
+]);
+
+const normalizeLocationLookupKey = (value) => String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
+
+const compactLocationLookupKey = (value) =>
+  normalizeLocationLookupKey(value).replace(/[\s_-]+/g, "");
+
+export const formatReportLocationName = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+
+  const mapped =
+    REPORT_LOCATION_NAME_MAP.get(normalizeLocationLookupKey(text)) ||
+    REPORT_LOCATION_NAME_MAP.get(compactLocationLookupKey(text));
+
+  if (mapped) return mapped;
+
+  const branchCodeMatch = text.match(/\b(001|003|004)\b/);
+  if (branchCodeMatch?.[1]) {
+    return REPORT_LOCATION_NAME_MAP.get(branchCodeMatch[1]) || text;
+  }
+
+  return text;
+};
+
+export const formatReportLocationList = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+
+  return text
+    .split(/\s*,\s*/u)
+    .map((part) => formatReportLocationName(part))
+    .filter(Boolean)
+    .join(", ");
+};
 
 export const fmtThai = (date) => {
   try {

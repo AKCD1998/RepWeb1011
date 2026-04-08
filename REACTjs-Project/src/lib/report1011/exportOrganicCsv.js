@@ -1,3 +1,5 @@
+import { formatReportLocationList, formatReportLocationName } from "./utils";
+
 const toCSV = (rows) => {
   const bom = "\uFEFF";
   const esc = (value) => {
@@ -60,13 +62,13 @@ export function buildOrganicReportCsv({ pages, meta }) {
         lot?.batch || "",
         fmtDateForCsv(lot?.date),
         lot?.receivedQuantityText || "",
-        lot?.sourceName || "",
+        formatReportLocationList(lot?.sourceName) || "",
         meta?.product || "",
         meta?.productCode || "",
         meta?.packSize || "",
         meta?.maker || "",
         meta?.branchCode || "",
-        meta?.branchNameOnly || "",
+        formatReportLocationName(meta?.branchCode || meta?.branchNameOnly) || "",
         meta?.reportGroupCode || "",
       ]);
     }

@@ -1,4 +1,6 @@
-﻿const toCSV = (rows) => {
+import { formatReportLocationName } from "./utils";
+
+const toCSV = (rows) => {
   const bom = "\uFEFF";
   const esc = (value) => {
     const text = String(value ?? "");
@@ -56,7 +58,7 @@ export const buildReportCsv = ({ pages, meta }) => {
         meta.product || "",
         meta.sku || "",
         meta.maker || "",
-        meta.branchNameOnly || "-",
+        formatReportLocationName(meta.branchCode || meta.branchNameOnly) || "-",
       ]);
     }
   }

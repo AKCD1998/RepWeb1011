@@ -1,8 +1,11 @@
-import { fmtThai } from "../../lib/report1011/utils";
+import { fmtThai, formatReportLocationList, formatReportLocationName } from "../../lib/report1011/utils";
 
 const ROWS_PER_PAGE = 10;
 
 function PageSheet({ meta, lot, rows }) {
+  const branchName = formatReportLocationName(meta?.branchCode || meta?.branchNameOnly) || "-";
+  const sourceName = formatReportLocationList(lot?.sourceName) || "-";
+
   return (
     <section className="page">
       <div className="page-head">
@@ -13,7 +16,7 @@ function PageSheet({ meta, lot, rows }) {
 
         <div className="page-branch">
           <span>
-            <b>ศิริชัยเภสัช สาขา:</b> {meta?.branchNameOnly || "-"}
+            <b>ศิริชัยเภสัช สาขา:</b> {branchName}
           </span>
         </div>
         <div className="page-branch-note">(ชื่อสถานที่ขายยา)</div>
@@ -51,7 +54,7 @@ function PageSheet({ meta, lot, rows }) {
         <div className="page-line">
           <span className="page-line-item">
             <b>ได้มาจาก</b>
-            <span>{lot?.sourceName || "-"}</span>
+            <span>{sourceName}</span>
           </span>
         </div>
       </div>
