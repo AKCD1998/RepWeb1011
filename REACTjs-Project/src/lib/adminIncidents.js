@@ -22,6 +22,12 @@ export const ADMIN_INCIDENT_REASON_OPTIONS = [
   { value: "OTHER", label: "Other" },
 ];
 
+export const ADMIN_INCIDENT_RESOLUTION_ACTION_OPTIONS = [
+  { value: "RETROSPECTIVE_DISPENSE", label: "สร้าง dispense ย้อนหลังและตัด stock" },
+  { value: "STOCK_OUT", label: "ตัด stock อย่างเดียว (-)" },
+  { value: "STOCK_IN", label: "เพิ่ม stock อย่างเดียว (+)" },
+];
+
 function toCleanText(value) {
   return String(value ?? "").trim();
 }
@@ -39,6 +45,15 @@ export function getAdminIncidentTypeLabel(type) {
 export function getAdminIncidentReasonLabel(reason) {
   const normalized = toCleanText(reason).toUpperCase();
   return ADMIN_INCIDENT_REASON_OPTIONS.find((option) => option.value === normalized)?.label || normalized || "-";
+}
+
+export function getAdminIncidentResolutionActionLabel(actionType) {
+  const normalized = toCleanText(actionType).toUpperCase();
+  return (
+    ADMIN_INCIDENT_RESOLUTION_ACTION_OPTIONS.find((option) => option.value === normalized)?.label ||
+    normalized ||
+    "-"
+  );
 }
 
 export function formatAdminIncidentDateTime(value) {

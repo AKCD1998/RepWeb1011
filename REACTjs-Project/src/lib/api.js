@@ -104,6 +104,91 @@ function buildMovementWriteRequestPayload(payload = {}) {
   return requestPayload;
 }
 
+function buildIncidentItemsPayload(items = []) {
+  return Array.isArray(items)
+    ? items.map((item) => ({
+        productId: String(item?.productId ?? item?.product_id ?? "").trim(),
+        lotId: String(item?.lotId ?? item?.lot_id ?? "").trim() || null,
+        qty: Number(item?.qty),
+        unitLevelId: String(item?.unitLevelId ?? item?.unit_level_id ?? "").trim() || null,
+        unitLabel: String(
+          item?.unitLabel ?? item?.unit_label ?? item?.unitLabelSnapshot ?? item?.unit_label_snapshot ?? ""
+        ).trim() || null,
+        lotNoSnapshot: String(
+          item?.lotNoSnapshot ?? item?.lot_no_snapshot ?? item?.lotNo ?? item?.lot_no ?? ""
+        ).trim() || null,
+        expDateSnapshot:
+          normalizeDateOnlyInput(item?.expDateSnapshot ?? item?.exp_date_snapshot) || null,
+        note: String(item?.note ?? item?.noteText ?? item?.note_text ?? "").trim() || null,
+      }))
+    : [];
+}
+
+function buildIncidentResolutionActionsPayload(actions = []) {
+  return Array.isArray(actions)
+    ? actions.map((action) => ({
+        actionType: String(action?.actionType ?? action?.action_type ?? "").trim().toUpperCase(),
+        productId: String(action?.productId ?? action?.product_id ?? "").trim(),
+        lotId: String(action?.lotId ?? action?.lot_id ?? "").trim() || null,
+        qty: Number(action?.qty),
+        unitLevelId: String(action?.unitLevelId ?? action?.unit_level_id ?? "").trim() || null,
+        unitLabel: String(
+          action?.unitLabel ?? action?.unit_label ?? action?.unitLabelSnapshot ?? action?.unit_label_snapshot ?? ""
+        ).trim() || null,
+        lotNoSnapshot: String(
+          action?.lotNoSnapshot ?? action?.lot_no_snapshot ?? action?.lotNo ?? action?.lot_no ?? ""
+        ).trim() || null,
+        expDateSnapshot:
+          normalizeDateOnlyInput(action?.expDateSnapshot ?? action?.exp_date_snapshot) || null,
+        note: String(action?.note ?? action?.noteText ?? action?.note_text ?? "").trim() || null,
+      }))
+    : [];
+}
+
+function buildIncidentResolutionPatientPayload(patient = {}) {
+  const source = patient && typeof patient === "object" ? patient : {};
+  const pid = String(source?.pid ?? "").trim();
+  const fullName = String(source?.fullName ?? source?.full_name ?? source?.name ?? "").trim();
+  const englishName = String(source?.englishName ?? source?.english_name ?? "").trim();
+  const birthDate =
+    normalizeDateOnlyInput(source?.birthDate ?? source?.birth_date) || null;
+  const sex = String(source?.sex ?? "").trim();
+  const cardIssuePlace = String(source?.cardIssuePlace ?? source?.card_issue_place ?? "").trim();
+  const cardIssuedDate =
+    normalizeDateOnlyInput(source?.cardIssuedDate ?? source?.card_issued_date) || null;
+  const cardExpiryDate =
+    normalizeDateOnlyInput(source?.cardExpiryDate ?? source?.card_expiry_date) || null;
+  const addressText = String(
+    source?.addressText ?? source?.address_text ?? source?.address_raw_text ?? ""
+  ).trim();
+
+  if (
+    !pid &&
+    !fullName &&
+    !englishName &&
+    !birthDate &&
+    !sex &&
+    !cardIssuePlace &&
+    !cardIssuedDate &&
+    !cardExpiryDate &&
+    !addressText
+  ) {
+    return undefined;
+  }
+
+  return {
+    pid: pid || undefined,
+    fullName: fullName || undefined,
+    englishName: englishName || undefined,
+    birthDate: birthDate || undefined,
+    sex: sex || undefined,
+    cardIssuePlace: cardIssuePlace || undefined,
+    cardIssuedDate: cardIssuedDate || undefined,
+    cardExpiryDate: cardExpiryDate || undefined,
+    addressText: addressText || undefined,
+  };
+}
+
 export const productsApi = {
   list(search = "") {
     const value = String(search || "").trim();
@@ -594,24 +679,13 @@ export const adminApi = {
     const dispenseAttemptId = String(
       payload?.dispenseAttemptId ?? payload?.dispense_attempt_id ?? ""
     ).trim();
-    const items = Array.isArray(payload?.items)
-      ? payload.items.map((item) => ({
-          productId: String(item?.productId ?? item?.product_id ?? "").trim(),
-          lotId: String(item?.lotId ?? item?.lot_id ?? "").trim() || null,
-          qty: Number(item?.qty),
-          unitLevelId: String(item?.unitLevelId ?? item?.unit_level_id ?? "").trim() || null,
-          unitLabel: String(
-            item?.unitLabel ?? item?.unit_label ?? item?.unitLabelSnapshot ?? item?.unit_label_snapshot ?? ""
-          ).trim() || null,
-          lotNoSnapshot: String(
-            item?.lotNoSnapshot ?? item?.lot_no_snapshot ?? item?.lotNo ?? item?.lot_no ?? ""
-          ).trim() || null,
-          expDateSnapshot: normalizeDateOnlyInput(
-            item?.expDateSnapshot ?? item?.exp_date_snapshot
-          ) || null,
-          note: String(item?.note ?? item?.noteText ?? item?.note_text ?? "").trim() || null,
-        }))
-      : [];
+    const items = buildIncidentItemsPayload(payload?.items);
+    const resolutionActions = buildIncidentResolutionActionsPayload(
+      payload?.resolutionActions ?? payload?.resolution_actions
+    );
+    const resolutionPatient = buildIncidentResolutionPatientPayload(
+      payload?.resolutionPatient ?? payload?.resolution_patient
+    );
 
     if (!incidentType) {
       throw new Error("incidentType is required");
@@ -644,6 +718,34 @@ export const adminApi = {
         smartcardSessionId: smartcardSessionId || undefined,
         dispenseAttemptId: dispenseAttemptId || undefined,
         items,
+        resolutionActions,
+        resolutionPatient,
+      },
+    });
+  },
+  applyIncidentResolution(id, payload = {}) {
+    const incidentId = String(id || "").trim();
+    if (!incidentId) {
+      throw new Error("incident id is required");
+    }
+
+    const resolutionActions = buildIncidentResolutionActionsPayload(
+      payload?.resolutionActions ?? payload?.resolution_actions
+    );
+    if (!resolutionActions.length) {
+      throw new Error("resolutionActions must contain at least one item");
+    }
+
+    const resolutionPatient = buildIncidentResolutionPatientPayload(
+      payload?.resolutionPatient ?? payload?.resolution_patient
+    );
+
+    return requestJson({
+      method: "POST",
+      url: `/api/admin/incidents/${encodeURIComponent(incidentId)}/resolution`,
+      data: {
+        resolutionActions,
+        resolutionPatient,
       },
     });
   },

@@ -30,6 +30,8 @@ export const preSeedMigrations = [
   "0016_product_unit_levels_is_active.sql",
   "0017_product_lot_allowed_unit_levels.sql",
   "0018_admin_sql_query_audits.sql",
+  "0020_admin_incident_reports.sql",
+  "0022_incident_report_resolution_actions.sql",
 ];
 
 export const postCatalogFixMigrations = [

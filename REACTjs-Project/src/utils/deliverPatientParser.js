@@ -140,11 +140,16 @@ function isFullNameLabel(label) {
   return label === "ชื่อ" || label.includes("ชื่อผู้รับมอบยา") || label.includes("ชื่อสกุล");
 }
 
+function isEnglishNameLabel(label) {
+  return label.includes("ชื่อภาษาอังกฤษ") || label.includes("englishname");
+}
+
 export function parseDeliverNotes(rawText) {
   const text = String(rawText || "");
   const patient = {
     pid: null,
     fullName: null,
+    englishName: null,
     birthDate: null,
     sex: null,
     cardIssuePlace: null,
@@ -167,6 +172,11 @@ export function parseDeliverNotes(rawText) {
     if (isPidLabel(label) && !patient.pid) {
       const normalizedPid = value.replace(/\s+/g, "");
       patient.pid = normalizedPid || null;
+      continue;
+    }
+
+    if (isEnglishNameLabel(label) && !patient.englishName) {
+      patient.englishName = value;
       continue;
     }
 

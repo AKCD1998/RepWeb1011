@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { executeSql } from "../controllers/adminController.js";
 import {
+  applyIncidentReportResolution,
   createIncidentReport,
   getIncidentReportById,
   listIncidentReports,
@@ -14,6 +15,12 @@ const router = Router();
 router.get("/incidents", verifyToken, requireRole("ADMIN"), asyncHandler(listIncidentReports));
 router.get("/incidents/:id", verifyToken, requireRole("ADMIN"), asyncHandler(getIncidentReportById));
 router.post("/incidents", verifyToken, requireRole("ADMIN"), asyncHandler(createIncidentReport));
+router.post(
+  "/incidents/:id/resolution",
+  verifyToken,
+  requireRole("ADMIN"),
+  asyncHandler(applyIncidentReportResolution)
+);
 router.patch(
   "/incidents/:id/status",
   verifyToken,

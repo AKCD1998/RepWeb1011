@@ -7,6 +7,7 @@ import {
   ADMIN_INCIDENT_TYPE_OPTIONS,
   formatAdminIncidentDateTime,
   getAdminIncidentReasonLabel,
+  getAdminIncidentResolutionActionLabel,
   getAdminIncidentStatusLabel,
   getAdminIncidentTypeLabel,
 } from "../lib/adminIncidents";
@@ -47,6 +48,7 @@ export default function AdminIncidentReports() {
   const [statusDraft, setStatusDraft] = useState("");
   const [isSavingStatus, setIsSavingStatus] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isResolveModalOpen, setIsResolveModalOpen] = useState(false);
   const [pageSuccess, setPageSuccess] = useState("");
 
   const adminLabel = useMemo(
@@ -218,6 +220,29 @@ export default function AdminIncidentReports() {
     }
   }
 
+  async function handleIncidentResolved(incident) {
+    const incidentId = toCleanText(incident?.id);
+    setPageSuccess(
+      `บันทึก corrective action สำเร็จ (${toCleanText(incident?.incidentCode) || incidentId || "-"})`
+    );
+    if (incidentId) {
+      setSelectedIncidentId(incidentId);
+      setSelectedIncident(incident);
+      setStatusDraft(toCleanText(incident?.status).toUpperCase());
+    }
+  }
+
+  function buildResolveSeed(incident) {
+    return {
+      ...incident,
+      resolutionActions: [],
+      defaultResolutionActionType:
+        toCleanText(incident?.incidentReason).toUpperCase() === "DISPENSE_BEFORE_SMARTCARD"
+          ? "RETROSPECTIVE_DISPENSE"
+          : "STOCK_OUT",
+    };
+  }
+
   return (
     <section className="admin-incident-page">
       <header className="admin-incident-page__header">
@@ -225,8 +250,9 @@ export default function AdminIncidentReports() {
           <p className="admin-incident-page__eyebrow">Admin Governance</p>
           <h1>Incident Reports</h1>
           <p>
-            ระบบนี้ใช้เก็บเหตุผิดปกติแยกจาก dispense โดยเด็ดขาด เพื่อรองรับ audit,
-            accountability และการตามงานย้อนหลังโดยไม่แตะ patient หรือ stock ledger
+            ระบบนี้ใช้เก็บเหตุผิดปกติสำหรับ audit และการตามงานย้อนหลัง
+            และสามารถผูก corrective actions แบบ stock correction หรือ retrospective dispense
+            กลับเข้ากับ incident เดียวกันได้
           </p>
         </div>
         <div className="admin-incident-page__session-card">
@@ -385,7 +411,7 @@ export default function AdminIncidentReports() {
           <div className="admin-incident-page__card-header">
             <div>
               <h2>Incident Detail</h2>
-              <p>ดู metadata, item snapshots และอัปเดตสถานะของ incident</p>
+              <p>ดู metadata, item snapshots, corrective actions และอัปเดตสถานะของ incident</p>
             </div>
           </div>
 
@@ -473,6 +499,13 @@ export default function AdminIncidentReports() {
               <section className="admin-incident-page__detail-block">
                 <div className="admin-incident-page__detail-block-header">
                   <h3>Status update</h3>
+                  <button
+                    type="button"
+                    className="admin-incident-page__secondary"
+                    onClick={() => setIsResolveModalOpen(true)}
+                  >
+                    ทำ corrective action
+                  </button>
                 </div>
                 <div className="admin-incident-page__status-editor">
                   <select value={statusDraft} onChange={(event) => setStatusDraft(event.target.value)} disabled={isSavingStatus}>
@@ -535,6 +568,80 @@ export default function AdminIncidentReports() {
                   </div>
                 )}
               </section>
+
+              <section className="admin-incident-page__detail-block">
+                <h3>Resolution actions</h3>
+                {Array.isArray(selectedIncident?.resolutionActions) &&
+                selectedIncident.resolutionActions.length ? (
+                  <div className="admin-incident-page__table-wrap">
+                    <table className="admin-incident-page__table admin-incident-page__table--detail">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Action</th>
+                          <th>Product</th>
+                          <th>Lot snapshot</th>
+                          <th>Qty</th>
+                          <th>Unit</th>
+                          <th>Applied</th>
+                          <th>Reference</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedIncident.resolutionActions.map((action) => (
+                          <tr key={toCleanText(action?.id) || action?.lineNo}>
+                            <td>{Number(action?.lineNo || 0)}</td>
+                            <td>{getAdminIncidentResolutionActionLabel(action?.actionType)}</td>
+                            <td>
+                              <div className="admin-incident-page__product-cell">
+                                <strong>{toCleanText(action?.productNameSnapshot) || "-"}</strong>
+                                <span>{toCleanText(action?.productCodeSnapshot) || "-"}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <div className="admin-incident-page__product-cell">
+                                <strong>{toCleanText(action?.lotNoSnapshot) || "-"}</strong>
+                                <span>{toCleanText(action?.expDateSnapshot) || "-"}</span>
+                              </div>
+                            </td>
+                            <td>{Number(action?.qty || 0)}</td>
+                            <td>{toCleanText(action?.unitLabelSnapshot) || "-"}</td>
+                            <td>{formatAdminIncidentDateTime(action?.appliedAt)}</td>
+                            <td>
+                              <div className="admin-incident-page__product-cell">
+                                <strong>{toCleanText(action?.appliedStockMovementId) || "-"}</strong>
+                                <span>
+                                  {[
+                                    toCleanText(action?.appliedDispenseHeaderId)
+                                      ? `dispenseHeader=${toCleanText(action?.appliedDispenseHeaderId)}`
+                                      : "",
+                                    toCleanText(action?.appliedDispenseLineId)
+                                      ? `dispenseLine=${toCleanText(action?.appliedDispenseLineId)}`
+                                      : "",
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" / ") || "-"}
+                                </span>
+                                <span>
+                                  {toCleanText(action?.patientFullNameSnapshot)
+                                    ? `${toCleanText(action?.patientFullNameSnapshot)} (${toCleanText(
+                                        action?.patientPidSnapshot
+                                      ) || "-"})`
+                                    : toCleanText(action?.noteText) || "-"}
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="admin-incident-page__state admin-incident-page__state--compact">
+                    incident นี้ยังไม่มี corrective actions ที่ apply แล้ว
+                  </div>
+                )}
+              </section>
             </div>
           ) : (
             <div className="admin-incident-page__state">ไม่พบรายละเอียด incident ที่เลือก</div>
@@ -546,6 +653,19 @@ export default function AdminIncidentReports() {
         open={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onCreated={(incident) => void handleIncidentCreated(incident)}
+      />
+
+      <AdminIncidentModal
+        open={isResolveModalOpen}
+        mode="resolve"
+        incidentId={selectedIncidentId}
+        title="ทำ Corrective Action จาก Incident"
+        initialValues={buildResolveSeed(selectedIncident || {})}
+        onClose={() => setIsResolveModalOpen(false)}
+        onResolved={(incident) => {
+          setIsResolveModalOpen(false);
+          void handleIncidentResolved(incident);
+        }}
       />
     </section>
   );

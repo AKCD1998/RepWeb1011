@@ -1213,7 +1213,13 @@ export default function Deliver() {
   );
 
   const handleOpenIncidentModal = useCallback(() => {
-    const recipientName = toCleanText(parsedNotes?.patient?.fullName);
+    const patient = parsedNotes?.patient || {};
+    const recipientName = toCleanText(patient?.fullName);
+    const hasPatientIdentity =
+      Boolean(toCleanText(patient?.pid)) && Boolean(recipientName);
+    const defaultResolutionActionType = hasPatientIdentity
+      ? "RETROSPECTIVE_DISPENSE"
+      : "STOCK_OUT";
     const incidentType = hasCapturedSmartcardData ? "PROCESS_DEVIATION" : "SMARTCARD_EXCEPTION";
     const incidentReason = hasCapturedSmartcardData
       ? "STAFF_PROCESS_MISSED"
@@ -1244,13 +1250,35 @@ export default function Deliver() {
         qty: Number(item?.qty || 0),
         unitLabel: toCleanText(item?.unit),
       })),
+      defaultResolutionActionType,
+      resolutionActions: items.map((item) => ({
+        actionType: defaultResolutionActionType,
+        productId: toCleanText(item?.id),
+        lotId: toCleanText(item?.lotId),
+        lotNoSnapshot: toCleanText(item?.lotNo),
+        expDateSnapshot: toCleanText(item?.lotExpDate),
+        qty: Number(item?.qty || 0),
+        unitLabel: toCleanText(item?.unit),
+        note: `สร้าง corrective action จากหน้า Deliver (${selectedReportType || "-"})`,
+      })),
+      resolutionPatient: {
+        pid: toCleanText(patient?.pid),
+        fullName: recipientName,
+        englishName: toCleanText(patient?.englishName),
+        birthDate: patient?.birthDate || "",
+        sex: patient?.sex || "",
+        cardIssuePlace: toCleanText(patient?.cardIssuePlace),
+        cardIssuedDate: patient?.cardIssuedDate || "",
+        cardExpiryDate: patient?.cardExpiryDate || "",
+        addressText: toCleanText(patient?.addressText),
+      },
     });
     setIsIncidentModalOpen(true);
   }, [
     effectiveBranchCode,
     hasCapturedSmartcardData,
     items,
-    parsedNotes?.patient?.fullName,
+    parsedNotes,
     selectedBranchLabel,
     selectedReportType,
   ]);

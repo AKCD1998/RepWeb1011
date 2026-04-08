@@ -7,10 +7,16 @@ import {
   toIsoTimestamp,
   toPositiveNumeric,
 } from "./helpers.js";
+import {
+  applyIncidentResolutionActions,
+  normalizeIncidentResolutionActionInput,
+  normalizeIncidentResolutionPatientInput,
+} from "./incidentResolutionHelpers.js";
 
 const INCIDENT_STATUSES = new Set(["OPEN", "ACKNOWLEDGED", "CLOSED"]);
 const DEFAULT_LIST_LIMIT = 100;
 const MAX_LIST_LIMIT = 500;
+let hasIncidentResolutionActionsTableCache = null;
 
 function toCleanText(value) {
   return String(value ?? "").trim();
@@ -76,6 +82,29 @@ function normalizeIncidentDateFilterEndExclusive(value) {
   return bangkokStart.toISOString();
 }
 
+async function hasIncidentResolutionActionsTable(client) {
+  if (hasIncidentResolutionActionsTableCache === true) {
+    return true;
+  }
+
+  const result = await client.query(
+    `
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = 'incident_report_resolution_actions'
+      LIMIT 1
+    `
+  );
+
+  if (result.rows[0]) {
+    hasIncidentResolutionActionsTableCache = true;
+    return true;
+  }
+
+  return false;
+}
+
 function normalizeIncidentItemInput(item, index) {
   const rowLabel = `items[${index}]`;
   const productId = toCleanText(item?.productId ?? item?.product_id);
@@ -117,6 +146,22 @@ function normalizeIncidentItemInput(item, index) {
     lotNoSnapshot,
     expDateSnapshot,
     note,
+  };
+}
+
+function normalizeIncidentResolutionPayload(body = {}) {
+  const rawActions = Array.isArray(body?.resolutionActions ?? body?.resolution_actions)
+    ? body.resolutionActions ?? body.resolution_actions
+    : [];
+
+  return {
+    resolutionActions: rawActions.map((action, index) =>
+      normalizeIncidentResolutionActionInput(action, index)
+    ),
+    resolutionPatient: normalizeIncidentResolutionPatientInput(
+      body?.resolutionPatient ?? body?.resolution_patient,
+      { allowEmpty: true }
+    ),
   };
 }
 
@@ -331,9 +376,57 @@ async function getIncidentDetailById(db, incidentId) {
     [incidentId]
   );
 
+  const resolutionActionsResult =
+    (await hasIncidentResolutionActionsTable(db))
+      ? await db.query(
+          `
+            SELECT
+              irra.id,
+              irra.line_no AS "lineNo",
+              irra.action_type AS "actionType",
+              irra.product_id AS "productId",
+              irra.lot_id AS "lotId",
+              irra.unit_level_id AS "unitLevelId",
+              irra.product_code_snapshot AS "productCodeSnapshot",
+              irra.product_name_snapshot AS "productNameSnapshot",
+              irra.lot_no_snapshot AS "lotNoSnapshot",
+              irra.exp_date_snapshot::text AS "expDateSnapshot",
+              irra.qty,
+              irra.unit_label_snapshot AS "unitLabelSnapshot",
+              irra.note_text AS "noteText",
+              irra.patient_pid_snapshot AS "patientPidSnapshot",
+              irra.patient_full_name_snapshot AS "patientFullNameSnapshot",
+              irra.patient_english_name_snapshot AS "patientEnglishNameSnapshot",
+              irra.patient_birth_date_snapshot::text AS "patientBirthDateSnapshot",
+              irra.patient_sex_snapshot AS "patientSexSnapshot",
+              irra.patient_card_issue_place_snapshot AS "patientCardIssuePlaceSnapshot",
+              irra.patient_card_issued_date_snapshot::text AS "patientCardIssuedDateSnapshot",
+              irra.patient_card_expiry_date_snapshot::text AS "patientCardExpiryDateSnapshot",
+              irra.patient_address_text_snapshot AS "patientAddressTextSnapshot",
+              irra.applied_stock_movement_id AS "appliedStockMovementId",
+              irra.applied_dispense_header_id AS "appliedDispenseHeaderId",
+              irra.applied_dispense_line_id AS "appliedDispenseLineId",
+              irra.applied_by_user_id AS "appliedByUserId",
+              COALESCE(NULLIF(TRIM(applier.full_name), ''), applier.username, '') AS "appliedByName",
+              applier.username AS "appliedByUsername",
+              irra.applied_at AS "appliedAt",
+              irra.created_at AS "createdAt"
+            FROM incident_report_resolution_actions irra
+            LEFT JOIN users applier ON applier.id = irra.applied_by_user_id
+            WHERE irra.incident_report_id = $1::uuid
+            ORDER BY irra.line_no ASC, irra.created_at ASC
+          `,
+          [incidentId]
+        )
+      : { rows: [] };
+
   return {
     ...incident,
     items: itemsResult.rows.map((row) => ({
+      ...row,
+      qty: Number(row.qty),
+    })),
+    resolutionActions: resolutionActionsResult.rows.map((row) => ({
       ...row,
       qty: Number(row.qty),
     })),
@@ -372,8 +465,13 @@ export async function createIncidentReport(req, res) {
   );
   const rawItems = Array.isArray(req.body?.items) ? req.body.items : [];
   const normalizedItems = rawItems.map((item, index) => normalizeIncidentItemInput(item, index));
+  const { resolutionActions, resolutionPatient } = normalizeIncidentResolutionPayload(req.body);
 
   const createdIncident = await withTransaction(async (client) => {
+    if (resolutionActions.length && !(await hasIncidentResolutionActionsTable(client))) {
+      throw httpError(503, "incident resolution actions table is not deployed yet; run migration 0022 first");
+    }
+
     const branch = await resolveIncidentBranch(client, req.body);
     const nowIso = new Date().toISOString();
     const statusState = deriveStatusStateForCreate(status, reporterUserId, nowIso);
@@ -512,6 +610,26 @@ export async function createIncidentReport(req, res) {
       );
     }
 
+    if (resolutionActions.length) {
+      const incidentSeed = {
+        id: incidentId,
+        incidentCode,
+        branchId: branch.id,
+        branchCode: branch.code,
+        branchName: branch.name,
+        happenedAt,
+        noteText,
+        resolutionActions: [],
+      };
+
+      await applyIncidentResolutionActions(client, {
+        incident: incidentSeed,
+        resolutionActions,
+        resolutionPatient,
+        appliedByUserId: reporterUserId,
+      });
+    }
+
     const detail = await getIncidentDetailById(client, incidentId);
     if (!detail) {
       throw httpError(500, "Incident report was created but could not be loaded");
@@ -609,6 +727,51 @@ export async function getIncidentReportById(req, res) {
 
   return res.json({
     incident,
+  });
+}
+
+export async function applyIncidentReportResolution(req, res) {
+  const incidentId = toCleanText(req.params.id);
+  const adminUserId = toCleanText(req.user?.id);
+  if (!incidentId || !isUuid(incidentId)) {
+    throw httpError(400, "incident id must be a valid UUID");
+  }
+  if (!adminUserId || !isUuid(adminUserId)) {
+    throw httpError(401, "Authentication required");
+  }
+
+  const { resolutionActions, resolutionPatient } = normalizeIncidentResolutionPayload(req.body);
+  if (!resolutionActions.length) {
+    throw httpError(400, "resolutionActions must contain at least one item");
+  }
+
+  const updatedIncident = await withTransaction(async (client) => {
+    if (!(await hasIncidentResolutionActionsTable(client))) {
+      throw httpError(503, "incident resolution actions table is not deployed yet; run migration 0022 first");
+    }
+
+    const existing = await getIncidentDetailById(client, incidentId);
+    if (!existing) {
+      throw httpError(404, "Incident report not found");
+    }
+
+    await applyIncidentResolutionActions(client, {
+      incident: existing,
+      resolutionActions,
+      resolutionPatient,
+      appliedByUserId: adminUserId,
+    });
+
+    const detail = await getIncidentDetailById(client, incidentId);
+    if (!detail) {
+      throw httpError(500, "Incident resolution was applied but could not be loaded");
+    }
+    return detail;
+  });
+
+  return res.json({
+    ok: true,
+    incident: updatedIncident,
   });
 }
 
