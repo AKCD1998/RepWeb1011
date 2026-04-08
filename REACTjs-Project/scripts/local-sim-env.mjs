@@ -11,6 +11,8 @@ export const projectRoot = path.resolve(__dirname, "..");
 export const serverRoot = path.join(projectRoot, "server");
 export const migrationsRoot = path.join(projectRoot, "migrations");
 export const defaultLocalDatabaseName = "rx1011_local";
+export const standardLocalSimulationHost = "localhost";
+export const standardLocalSimulationPort = 55433;
 
 export const referenceOnlyMigrations = ["0003_ky1011_example_queries.sql"];
 
@@ -30,7 +32,9 @@ export const preSeedMigrations = [
   "0016_product_unit_levels_is_active.sql",
   "0017_product_lot_allowed_unit_levels.sql",
   "0018_admin_sql_query_audits.sql",
+  "0019_product_lot_edit_audits.sql",
   "0020_admin_incident_reports.sql",
+  "0021_product_report_receive_unit_levels.sql",
   "0022_incident_report_resolution_actions.sql",
 ];
 
@@ -91,25 +95,64 @@ function normalizeDatabaseUrl(rawUrl) {
   return new URL(text).toString();
 }
 
+function isLoopbackHost(hostname) {
+  const normalized = cleanText(hostname).toLowerCase();
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
+}
+
+function parseDatabaseTarget(databaseUrl) {
+  const parsed = new URL(databaseUrl);
+  const host = cleanText(parsed.hostname);
+  return {
+    host,
+    port: parseInteger(parsed.port, 5432),
+    database: decodeURIComponent(parsed.pathname.replace(/^\//, "") || ""),
+    isLoopback: isLoopbackHost(host),
+  };
+}
+
+function assertLocalSimulationDatabaseUrl(databaseUrl) {
+  const target = parseDatabaseTarget(databaseUrl);
+  if (!isLoopbackHost(target.host)) {
+    throw new Error(
+      `Local simulation scripts only support a loopback PostgreSQL target. Refusing DATABASE_URL host "${target.host}" because Render/live databases are not allowed here.`
+    );
+  }
+  return target;
+}
+
+function collectSimulationWarnings(target) {
+  const warnings = [];
+
+  if (target.port !== standardLocalSimulationPort) {
+    warnings.push(
+      `Non-standard local PostgreSQL port detected (${target.host}:${target.port}). The repo standard local-simulation endpoint is ${standardLocalSimulationHost}:${standardLocalSimulationPort}; localhost:5433 is legacy-local-5433 and the older Docker port localhost:55432 is not part of the default workflow.`
+    );
+  }
+
+  if (target.database && target.database !== defaultLocalDatabaseName) {
+    warnings.push(
+      `Non-standard local database name detected (${target.database}). The repo standard for local simulation is ${defaultLocalDatabaseName}.`
+    );
+  }
+
+  return warnings;
+}
+
 export function quoteIdentifier(identifier) {
   return `"${String(identifier ?? "").replace(/"/g, '""')}"`;
 }
 
 export function loadSimulationEnv({ requireDatabase = true } = {}) {
-  const lockedKeys = new Set(Object.keys(process.env));
-  const rootEnv = fileIfExists(path.join(projectRoot, ".env"));
-  const serverEnv = fileIfExists(path.join(serverRoot, ".env"));
   const rootSimEnv = fileIfExists(path.join(projectRoot, ".env.local-simulation"));
   const serverSimEnv = fileIfExists(path.join(serverRoot, ".env.local-simulation"));
 
   const loadedFiles = [];
-  if (loadDotenvFile(rootEnv, { lockedKeys })) loadedFiles.push(rootEnv);
-  if (loadDotenvFile(serverEnv, { override: true, lockedKeys })) loadedFiles.push(serverEnv);
-  if (loadDotenvFile(rootSimEnv, { override: true, lockedKeys })) loadedFiles.push(rootSimEnv);
-  if (loadDotenvFile(serverSimEnv, { override: true, lockedKeys })) loadedFiles.push(serverSimEnv);
+  if (loadDotenvFile(rootSimEnv, { override: true })) loadedFiles.push(rootSimEnv);
+  if (loadDotenvFile(serverSimEnv, { override: true })) loadedFiles.push(serverSimEnv);
 
-  const pgHost = cleanText(process.env.PGHOST || "localhost");
-  const pgPort = parseInteger(process.env.PGPORT, 5432);
+  const pgHost = cleanText(process.env.PGHOST || standardLocalSimulationHost);
+  const pgPort = parseInteger(process.env.PGPORT, standardLocalSimulationPort);
   const pgUser = cleanText(process.env.PGUSER || "");
   const pgPassword = String(process.env.PGPASSWORD ?? "");
   const pgDatabase = cleanText(process.env.PGDATABASE || defaultLocalDatabaseName);
@@ -132,15 +175,23 @@ export function loadSimulationEnv({ requireDatabase = true } = {}) {
   process.env.PGUSER = pgUser;
   process.env.PGPASSWORD = pgPassword;
   process.env.PGDATABASE = pgDatabase;
+  process.env.RX1011_ENV_PROFILE = "local-simulation";
+  if (serverSimEnv || rootSimEnv) {
+    process.env.RX1011_SERVER_ENV_FILE = serverSimEnv || rootSimEnv;
+  }
 
   if (requireDatabase && !databaseUrl) {
     throw new Error(
-      "DATABASE_URL is not configured. Copy server/.env.local-simulation.example or server/.env.example and set local PostgreSQL connection values first."
+      "DATABASE_URL is not configured. Copy server/.env.local-simulation.example and set local PostgreSQL connection values first."
     );
   }
 
+  const target = databaseUrl ? assertLocalSimulationDatabaseUrl(databaseUrl) : null;
+  const warnings = target ? collectSimulationWarnings(target) : [];
+
   return {
     databaseUrl,
+    databaseTarget: target,
     pgConfig: {
       host: pgHost,
       port: pgPort,
@@ -151,6 +202,7 @@ export function loadSimulationEnv({ requireDatabase = true } = {}) {
     },
     envFiles: loadedFiles,
     simulationOverrideFiles: [rootSimEnv, serverSimEnv].filter(Boolean),
+    warnings,
   };
 }
 
@@ -197,7 +249,7 @@ export async function runPsqlFile({ databaseUrl, fileName }) {
 
 export async function applyMigrationPlan({ databaseUrl, fileNames, label }) {
   for (const fileName of fileNames) {
-    console.log(`[db:local:migrate] ${label}: ${fileName}`);
+    console.log(`[db:local-sim:migrate] ${label}: ${fileName}`);
     await runPsqlFile({ databaseUrl, fileName });
   }
 }

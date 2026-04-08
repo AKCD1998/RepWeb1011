@@ -7,7 +7,7 @@ import {
 } from "./local-sim-env.mjs";
 
 async function main() {
-  const { databaseUrl, envFiles } = loadSimulationEnv();
+  const { databaseUrl, envFiles, warnings } = loadSimulationEnv();
   const parsed = new URL(databaseUrl);
   const targetDatabaseName = decodeURIComponent(parsed.pathname.replace(/^\//, "") || "");
   if (!targetDatabaseName) {
@@ -29,20 +29,23 @@ async function main() {
     );
 
     if (existsResult.rows[0]) {
-      console.log(`[db:local:init] database already exists: ${targetDatabaseName}`);
+      console.log(`[db:local-sim:init] database already exists: ${targetDatabaseName}`);
     } else {
-      console.log(`[db:local:init] creating database: ${targetDatabaseName}`);
+      console.log(`[db:local-sim:init] creating database: ${targetDatabaseName}`);
       await adminPool.query(`CREATE DATABASE ${quoteIdentifier(targetDatabaseName)}`);
     }
 
-    console.log(`[db:local:init] env files: ${formatEnvFiles(envFiles)}`);
-    console.log(`[db:local:init] connection: ${databaseUrl}`);
+    console.log(`[db:local-sim:init] env files: ${formatEnvFiles(envFiles)}`);
+    console.log(`[db:local-sim:init] connection: ${databaseUrl}`);
+    for (const warning of warnings) {
+      console.warn(`[db:local-sim:init] WARNING: ${warning}`);
+    }
   } finally {
     await adminPool.end();
   }
 }
 
 main().catch((error) => {
-  console.error(`[db:local:init] ${error.message}`);
+  console.error(`[db:local-sim:init] ${error.message}`);
   process.exit(1);
 });

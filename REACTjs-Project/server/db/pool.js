@@ -1,5 +1,8 @@
 import { Pool } from "pg";
 
+// Each runtime process talks to exactly one PostgreSQL database via DATABASE_URL.
+// Render's DATABASE_URL is the canonical live source of truth; local simulation
+// scripts inject a separate localhost DATABASE_URL before the server starts.
 const connectionString = process.env.DATABASE_URL;
 
 function shouldUseSsl(url) {

@@ -10,11 +10,15 @@ import {
 async function main() {
   const args = new Set(process.argv.slice(2));
   const includePostCatalogFixes = args.has("--include-post-catalog-fixes");
-  const { databaseUrl, envFiles } = loadSimulationEnv();
+  const { databaseUrl, envFiles, warnings } = loadSimulationEnv();
 
-  console.log(`[db:local:migrate] env files: ${formatEnvFiles(envFiles)}`);
+  console.log(`[db:local-sim:migrate] env files: ${formatEnvFiles(envFiles)}`);
+  console.log(`[db:local-sim:migrate] connection: ${databaseUrl}`);
+  for (const warning of warnings) {
+    console.warn(`[db:local-sim:migrate] WARNING: ${warning}`);
+  }
   console.log(
-    `[db:local:migrate] skipped reference-only files: ${referenceOnlyMigrations.join(", ")}`
+    `[db:local-sim:migrate] skipped reference-only files: ${referenceOnlyMigrations.join(", ")}`
   );
 
   await applyMigrationPlan({
@@ -31,7 +35,7 @@ async function main() {
     });
   } else {
     console.log(
-      `[db:local:migrate] deferred data-fix migrations until seed: ${postCatalogFixMigrations.join(
+      `[db:local-sim:migrate] deferred data-fix migrations until seed: ${postCatalogFixMigrations.join(
         ", "
       )}`
     );
@@ -39,6 +43,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(`[db:local:migrate] ${error.message}`);
+  console.error(`[db:local-sim:migrate] ${error.message}`);
   process.exit(1);
 });

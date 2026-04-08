@@ -1251,8 +1251,12 @@ async function seedAdminAudits(client, refs) {
 }
 
 async function main() {
-  const { databaseUrl, envFiles } = loadSimulationEnv();
-  console.log(`[db:local:seed] env files: ${formatEnvFiles(envFiles)}`);
+  const { databaseUrl, envFiles, warnings } = loadSimulationEnv();
+  console.log(`[db:local-sim:seed] env files: ${formatEnvFiles(envFiles)}`);
+  console.log(`[db:local-sim:seed] connection: ${databaseUrl}`);
+  for (const warning of warnings) {
+    console.warn(`[db:local-sim:seed] WARNING: ${warning}`);
+  }
 
   const pool = new Pool({ connectionString: databaseUrl });
 
@@ -1343,7 +1347,7 @@ async function main() {
     );
     const row = summary.rows[0] || {};
     console.log(
-      `[db:local:seed] completed: products=${row.products || 0}, lots=${row.lots || 0}, stockMovements=${row.stock_movements || 0}, transfers=${row.transfer_requests || 0}, dispenses=${row.dispense_headers || 0}, patients=${row.patients || 0}`
+      `[db:local-sim:seed] completed: products=${row.products || 0}, lots=${row.lots || 0}, stockMovements=${row.stock_movements || 0}, transfers=${row.transfer_requests || 0}, dispenses=${row.dispense_headers || 0}, patients=${row.patients || 0}`
     );
   } finally {
     await pool.end();
@@ -1351,6 +1355,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(`[db:local:seed] ${error.message}`);
+  console.error(`[db:local-sim:seed] ${error.message}`);
   process.exit(1);
 });

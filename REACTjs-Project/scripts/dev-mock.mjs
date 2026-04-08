@@ -16,16 +16,20 @@ function runChild(command, args, env) {
 }
 
 async function main() {
-  const { envFiles } = loadSimulationEnv();
+  const { databaseUrl, envFiles, warnings } = loadSimulationEnv();
   const sharedEnv = {
     ...process.env,
   };
 
-  console.log(`[dev:mock] env files: ${formatEnvFiles(envFiles)}`);
+  console.log(`[dev:local-sim] env files: ${formatEnvFiles(envFiles)}`);
+  console.log(`[dev:local-sim] database target: ${databaseUrl}`);
+  for (const warning of warnings) {
+    console.warn(`[dev:local-sim] WARNING: ${warning}`);
+  }
   console.log(
-    `[dev:mock] starting backend on ${sharedEnv.PORT || 5050} and Vite on ${
+    `[dev:local-sim] starting backend on ${sharedEnv.PORT || 5050} and Vite on ${
       sharedEnv.VITE_PORT || 5173
-    }`
+    } (local simulation only)`
   );
 
   const backend = runChild(process.execPath, [path.join(projectRoot, "server", "index.js")], sharedEnv);
@@ -50,6 +54,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(`[dev:mock] ${error.message}`);
+  console.error(`[dev:local-sim] ${error.message}`);
   process.exit(1);
 });

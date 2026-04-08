@@ -12,7 +12,12 @@ const projectRoot = path.join(__dirname, "..");
 
 const serverEnvPath = path.join(__dirname, ".env");
 const rootEnvPath = path.join(projectRoot, ".env");
-const envPath = fs.existsSync(serverEnvPath) ? serverEnvPath : rootEnvPath;
+const explicitEnvPath = process.env.RX1011_SERVER_ENV_FILE
+  ? path.resolve(projectRoot, process.env.RX1011_SERVER_ENV_FILE)
+  : "";
+const envPath =
+  (explicitEnvPath && fs.existsSync(explicitEnvPath) && explicitEnvPath) ||
+  (fs.existsSync(serverEnvPath) ? serverEnvPath : rootEnvPath);
 dotenv.config({ path: envPath });
 
 const { healthCheck, hasDatabase, query } = await import("./db/pool.js");

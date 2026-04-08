@@ -1,8 +1,19 @@
 # Rx1011 Local Development
 
+## 0) DB Quick Answers
+
+| Question | Use this |
+|---|---|
+| What DB should I use for local dev? | `local-simulation` at `localhost:55433/rx1011_local` |
+| What DB should I use for live/prod/staging? | `render-live` via `DATABASE_URL` |
+| Which DB should receive migrations during testing? | `local-simulation` |
+| Which DB should never be confused with production? | `local-simulation`, `legacy-local-5433`, and any stale `55432` setup |
+
+See also: [docs/local-db-standardization-20260408.md](/C:/Users/scgro/Desktop/Webapp%20training%20project/Rx1011/REACTjs-Project/docs/local-db-standardization-20260408.md)
+
 ## 1) Environment files
 
-### Backend (`server/.env`)
+### Backend live/prod/staging (`server/.env`)
 Copy `server/.env.example` to `server/.env` and set:
 
 ```env
@@ -13,8 +24,31 @@ JWT_SECRET=change-me
 ```
 
 Notes:
+- Backend runtime uses exactly one PostgreSQL connection target via `DATABASE_URL`.
+- `server/.env` is the `render-live` backend env shape. On Render, `DATABASE_URL` is the canonical live source of truth.
 - Backend loads env from `server/.env` first.
 - If `server/.env` does not exist, backend falls back to project root `.env`.
+- Do not reuse `server/.env` for local simulation.
+
+### Backend local simulation (`server/.env.local-simulation`)
+Copy `server/.env.local-simulation.example` to `server/.env.local-simulation`.
+
+Repo standard `local-simulation` target:
+
+```env
+DATABASE_URL=postgresql://rx1011:rx1011@localhost:55433/rx1011_local
+PGHOST=localhost
+PGPORT=55433
+PGUSER=rx1011
+PGPASSWORD=rx1011
+PGDATABASE=rx1011_local
+```
+
+Notes:
+- `server/.env.local-simulation` is the standard local-dev profile.
+- Local simulation scripts refuse non-loopback `DATABASE_URL` values so they cannot silently hit Render/live PostgreSQL.
+- `localhost:5433` is `legacy-local-5433`, not part of the default workflow.
+- any old `localhost:55432` setup is stale/legacy and should not be treated as the current local default.
 
 ### Frontend (`.env`)
 Copy `.env.example` to `.env`:
@@ -58,28 +92,71 @@ npm run dev:full
 - Health check: `GET http://localhost:5050/api/health`
 - Route example with hash router: `http://localhost:5173/#/deliver`
 
-## 4) Database migrations (PostgreSQL)
-
-Apply migrations in order:
+Standard `local-simulation` path:
 
 ```bash
-psql "$DATABASE_URL" -f migrations/0001_ky1011_schema.sql
-psql "$DATABASE_URL" -f migrations/0002_ky1011_seed_reference.sql
-psql "$DATABASE_URL" -f migrations/0004_ky1011_report_groups.sql
-psql "$DATABASE_URL" -f migrations/0005_auth_fields.sql
-psql "$DATABASE_URL" -f migrations/0006_auth_revoked_tokens.sql
-psql "$DATABASE_URL" -f migrations/0007_unit_level_code_stability.sql
-psql "$DATABASE_URL" -f migrations/0008_fix_movement_unit_level_refs.sql
-psql "$DATABASE_URL" -f migrations/0009_stock_movements_quantity_base_ssot.sql
-psql "$DATABASE_URL" -f migrations/0010_seed_login_usernames_refresh.sql
-psql "$DATABASE_URL" -f migrations/0011_fix_ic003358_prednisolone_unit_levels.sql
-psql "$DATABASE_URL" -f migrations/0012_stock_movement_occurred_at_corrections.sql
-psql "$DATABASE_URL" -f migrations/0013_backfill_stock_movement_occurred_at_from_created_at.sql
-psql "$DATABASE_URL" -f migrations/0014_fix_batch_blister_base_unit_levels.sql
+cp .env.local-simulation.example .env.local-simulation
+cp server/.env.local-simulation.example server/.env.local-simulation
+docker compose -f docker-compose.local.yml up -d
+npm run db:local-sim:bootstrap
+npm run dev:local-sim
+```
+
+Notes:
+- `npm run dev:local-sim` is the standard local DB workflow.
+- `npm run dev:mock` remains as a backward-compatible alias.
+- `npm run db:local:*` remains as a backward-compatible alias for the new `db:local-sim:*` names.
+
+## 4) Database strategy and migrations
+
+Canonical database strategy:
+- `render-live` = Render PostgreSQL via `DATABASE_URL`
+- `local-simulation` = `localhost:55433/rx1011_local` for dev/test only
+- `legacy-local-5433` = non-standard local PostgreSQL, optional/manual only
+- old `55432` Docker setups = legacy and not part of the default workflow
+
+Local testing and development:
+- Prefer the local scripts instead of manual SQL ordering:
+
+```bash
+npm run db:local-sim:bootstrap
 ```
 
 Important:
 - `migrations/0003_ky1011_example_queries.sql` is a reference/query snippet file (contains placeholders like `:product_id`), not a migration to execute directly.
+- The repo contains duplicate numbers such as `0010_*` and `0021_*`, so migration ordering must stay explicit.
+- Local simulation scripts apply a curated order and keep post-catalog fix migrations separate from empty-database-safe schema migrations.
+- The repo does not have a migration history table such as `schema_migrations`. Migration state is inferred from the live schema itself, not from stored migration bookkeeping.
+
+Manual production/live migration policy:
+- Do not auto-run migrations from Render.
+- Review the target migration, then run it manually against the live `DATABASE_URL`.
+- As of `2026-04-08`, Render live still needs `migrations/0022_incident_report_resolution_actions.sql`.
+- Use the production status/apply helpers for reviewed one-off migrations:
+
+```bash
+npm run db:prod:status:0022
+npm run db:prod:apply:0022 -- --execute --allow-remote
+```
+
+- These helpers do not fake migration tracking. They only support migrations with explicit schema probes, and currently `0022_incident_report_resolution_actions.sql` is the reviewed production case.
+- For a read-only object-level schema comparison between `render-live` and `local-simulation`, run:
+
+```bash
+npm run db:schema:diff:render-vs-localsim
+```
+
+- PowerShell example:
+
+```powershell
+psql $env:DATABASE_URL --set ON_ERROR_STOP=1 --file migrations/0022_incident_report_resolution_actions.sql
+```
+
+- Bash example:
+
+```bash
+psql "$DATABASE_URL" --set ON_ERROR_STOP=1 --file migrations/0022_incident_report_resolution_actions.sql
+```
 
 Seed login accounts after applying the auth migrations:
 - `admin`
@@ -123,6 +200,7 @@ Render backend deployment:
 - Auto-deploy is handled by Render using `autoDeployTrigger: checksPass`
 - Keep Render `Pre-Deploy Command` empty for now
 - Do not configure `RENDER_DEPLOY_HOOK_URL` when using Render auto-deploy for this service
+- Render PostgreSQL remains the only live database source of truth for the deployed app
 - Recommended Render environment variables:
   - `DATABASE_URL`
   - `JWT_SECRET`
@@ -130,7 +208,8 @@ Render backend deployment:
 
 Database migrations:
 - Migrations remain manual in this setup. Do not auto-run them from Render yet.
-- Follow the ordered commands in section `4) Database migrations (PostgreSQL)`.
+- Follow the policy and commands in section `4) Database strategy and migrations`.
+- For the current Render incident corrective-action rollout, see [docs/render-migration-0022-runbook-20260408.md](/C:/Users/scgro/Desktop/Webapp%20training%20project/Rx1011/REACTjs-Project/docs/render-migration-0022-runbook-20260408.md).
 - `migrations/0003_ky1011_example_queries.sql` must never be auto-run.
 - The repo currently contains both `0010_active_ingredients_name_en_uppercase_guard.sql` and `0010_seed_login_usernames_refresh.sql`.
   Treat that duplicate numbering as a known risk for future migration automation until it is intentionally resolved.
