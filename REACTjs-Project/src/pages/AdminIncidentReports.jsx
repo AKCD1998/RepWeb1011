@@ -486,12 +486,12 @@ export default function AdminIncidentReports() {
                 </div>
               </div>
 
-              <section className="admin-incident-page__detail-block">
+              <section className="admin-incident-page__detail-block admin-incident-page__detail-block--items">
                 <h3>Description</h3>
                 <p>{toCleanText(selectedIncident?.incidentDescription) || "-"}</p>
               </section>
 
-              <section className="admin-incident-page__detail-block">
+              <section className="admin-incident-page__detail-block admin-incident-page__detail-block--resolution">
                 <h3>Note / reference</h3>
                 <p>{toCleanText(selectedIncident?.noteText) || "-"}</p>
               </section>

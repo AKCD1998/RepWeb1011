@@ -117,13 +117,13 @@
 .admin-incident-page__status-editor select {
   width: 100%;
   box-sizing: border-box;
-  padding: 11px 12px;
+  padding: 1px 12px;
   border-radius: 14px;
   border: 1px solid var(--incident-input-border);
   background: var(--incident-input-bg);
   font: inherit;
   color: var(--incident-text-strong);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 1px #ffffff0d;
 }
 
 .admin-incident-page__filters input::placeholder {
