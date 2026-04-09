@@ -237,6 +237,10 @@ async function resolveResolutionUnitSnapshot(client, { productId, unitLevelId, u
       `
         SELECT
           pul.id,
+          pul.code,
+          pul.display_name,
+          pul.unit_key,
+          ut.code AS "unitTypeCode",
           COALESCE(
             NULLIF(TRIM(pul.display_name), ''),
             NULLIF(TRIM(ut.symbol), ''),
@@ -263,6 +267,10 @@ async function resolveResolutionUnitSnapshot(client, { productId, unitLevelId, u
     `
       SELECT
         pul.id,
+        pul.code,
+        pul.display_name,
+        pul.unit_key,
+        ut.code AS "unitTypeCode",
         COALESCE(
           NULLIF(TRIM(pul.display_name), ''),
           NULLIF(TRIM(ut.symbol), ''),
