@@ -1804,6 +1804,8 @@ export async function getMovements(req, res) {
       SELECT
         sm.id,
         sm.movement_type AS "movementType",
+        sm.source_ref_type AS "sourceRefType",
+        sm.source_ref_id AS "sourceRefId",
         ${effectiveOccurredAtSql} AS "occurredAt",
         sm.occurred_at AS "originalOccurredAt",
         sm.corrected_occurred_at AS "correctedOccurredAt",

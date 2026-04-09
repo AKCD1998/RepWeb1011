@@ -26,6 +26,7 @@ const MOVEMENT_TYPE_LABEL = {
 
 const SUPPORTED_TABLE_TYPES = new Set(["RECEIVE", "TRANSFER_OUT", "TRANSFER_IN", "DISPENSE"]);
 const PRODUCT_SEARCH_LIMIT = 20;
+const INCIDENT_SOURCE_REF_TYPE = "INCIDENT_REPORT";
 const BANGKOK_TIME_ZONE = "Asia/Bangkok";
 const BANGKOK_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-GB", {
   timeZone: BANGKOK_TIME_ZONE,
@@ -293,6 +294,7 @@ function mapMovementRecord(row) {
   const originalOccurredAtRaw = toCleanText(row?.originalOccurredAt || row?.occurredAt);
   const correctedOccurredAtRaw = toCleanText(row?.correctedOccurredAt);
   const correctionEditedAtRaw = toCleanText(row?.occurredAtCorrectedAt);
+  const sourceRefType = toCleanText(row?.sourceRefType || row?.source_ref_type).toUpperCase();
   return {
     id: row?.id || `row-${Math.random().toString(36).slice(2)}`,
     occurredAt: formatOccurredAtDisplay(occurredAtRaw),
@@ -305,6 +307,8 @@ function mapMovementRecord(row) {
     productCode: row?.productCode || "-",
     lotNo: row?.lotNo || "-",
     movementType: String(row?.movementType || "").toUpperCase(),
+    sourceRefType,
+    sourceRefId: toCleanText(row?.sourceRefId || row?.source_ref_id),
     qtyValue: Number.isFinite(parsedQuantity) ? parsedQuantity : 0,
     qtyBaseValue: Number.isFinite(parsedQuantityBase) ? parsedQuantityBase : null,
     unit: String(row?.unitLabel || row?.unit || "").trim(),
@@ -323,11 +327,28 @@ function isPositiveMovement(movementType) {
   return movementType === "RECEIVE" || movementType === "TRANSFER_IN";
 }
 
-function getMovementTypeClass(movementType) {
+function isCorrectiveDispenseMovement(movement) {
+  return (
+    String(movement?.movementType || "").toUpperCase() === "DISPENSE" &&
+    String(movement?.sourceRefType || "").toUpperCase() === INCIDENT_SOURCE_REF_TYPE
+  );
+}
+
+function getMovementTypeClass(movement) {
+  const movementType = String(movement?.movementType || "").toUpperCase();
   if (movementType === "RECEIVE") return "movement-type-receive";
   if (movementType === "TRANSFER_OUT") return "movement-type-transfer";
+  if (isCorrectiveDispenseMovement(movement)) return "movement-type-dispense-corrective";
   if (movementType === "DISPENSE") return "movement-type-dispense";
   return "movement-type-unknown";
+}
+
+function getMovementTypeTitle(movement) {
+  const label = MOVEMENT_TYPE_LABEL[movement?.movementType] || movement?.movementType || "-";
+  if (isCorrectiveDispenseMovement(movement)) {
+    return `${label}\nสร้างจาก incident corrective action`;
+  }
+  return label;
 }
 
 function getDeltaClass(movementType) {
@@ -1801,7 +1822,10 @@ export default function Receiving() {
                   <div>{movement?.productCode || "-"}</div>
                   <div>{movement?.lotNo || "-"}</div>
                   <div>
-                    <span className={`movement-type-badge ${getMovementTypeClass(movement?.movementType)}`}>
+                    <span
+                      className={`movement-type-badge ${getMovementTypeClass(movement)}`}
+                      title={getMovementTypeTitle(movement)}
+                    >
                       {MOVEMENT_TYPE_LABEL[movement?.movementType] || movement?.movementType || "-"}
                     </span>
                   </div>
