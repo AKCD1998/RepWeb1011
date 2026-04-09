@@ -102,14 +102,13 @@ function PageSheet({ meta, lot, rows }) {
   );
 }
 
-export default function OrganicReportPreview({ pages, meta, printTarget = "organic" }) {
+export function OrganicReportPages({ pages, meta }) {
   if (!Array.isArray(pages) || !pages.length || !meta) {
     return null;
   }
 
   return (
-    <section className="report-preview organic-report-preview" data-print-target={printTarget}>
-      <h2 className="report-preview-title no-print">ตัวอย่างรายงานจากข้อมูลจริง</h2>
+    <>
       {pages.map((page, pageIndex) => {
         const chunks = [];
         for (let i = 0; i < page.rows.length; i += ROWS_PER_PAGE) {
@@ -129,6 +128,19 @@ export default function OrganicReportPreview({ pages, meta, printTarget = "organ
           />
         ));
       })}
+    </>
+  );
+}
+
+export default function OrganicReportPreview({ pages, meta, printTarget = "organic" }) {
+  if (!Array.isArray(pages) || !pages.length || !meta) {
+    return null;
+  }
+
+  return (
+    <section className="report-preview organic-report-preview" data-print-target={printTarget}>
+      <h2 className="report-preview-title no-print">ตัวอย่างรายงานจากข้อมูลจริง</h2>
+      <OrganicReportPages pages={pages} meta={meta} />
     </section>
   );
 }

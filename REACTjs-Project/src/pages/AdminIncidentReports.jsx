@@ -486,12 +486,12 @@ export default function AdminIncidentReports() {
                 </div>
               </div>
 
-              <section className="admin-incident-page__detail-block admin-incident-page__detail-block--items">
+              <section className="admin-incident-page__detail-block">
                 <h3>Description</h3>
                 <p>{toCleanText(selectedIncident?.incidentDescription) || "-"}</p>
               </section>
 
-              <section className="admin-incident-page__detail-block admin-incident-page__detail-block--resolution">
+              <section className="admin-incident-page__detail-block">
                 <h3>Note / reference</h3>
                 <p>{toCleanText(selectedIncident?.noteText) || "-"}</p>
               </section>
@@ -526,7 +526,7 @@ export default function AdminIncidentReports() {
                 </div>
               </section>
 
-              <section className="admin-incident-page__detail-block">
+              <section className="admin-incident-page__detail-block admin-incident-page__detail-block--items">
                 <h3>Related items</h3>
                 {Array.isArray(selectedIncident?.items) && selectedIncident.items.length ? (
                   <div className="admin-incident-page__table-wrap">
@@ -569,7 +569,7 @@ export default function AdminIncidentReports() {
                 )}
               </section>
 
-              <section className="admin-incident-page__detail-block">
+              <section className="admin-incident-page__detail-block admin-incident-page__detail-block--resolution">
                 <h3>Resolution actions</h3>
                 {Array.isArray(selectedIncident?.resolutionActions) &&
                 selectedIncident.resolutionActions.length ? (

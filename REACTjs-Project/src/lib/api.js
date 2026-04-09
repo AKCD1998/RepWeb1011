@@ -621,6 +621,32 @@ export const reportsApi = {
       params,
     });
   },
+  organicDispenseLedgerActivityProducts(filters = {}) {
+    const params = {};
+    const branchCode = String(filters?.branchCode || "").trim();
+    const reportGroupCode = String(filters?.reportGroupCode || "").trim().toUpperCase();
+    const dateFrom = String(filters?.dateFrom || "").trim();
+    const dateTo = String(filters?.dateTo || "").trim();
+
+    if (branchCode) {
+      params.branchCode = branchCode;
+    }
+    if (reportGroupCode) {
+      params.reportGroupCode = reportGroupCode;
+    }
+    if (dateFrom) {
+      params.dateFrom = dateFrom;
+    }
+    if (dateTo) {
+      params.dateTo = dateTo;
+    }
+
+    return requestJson({
+      method: "GET",
+      url: "/api/reports/organic-dispense-ledger/activity-products",
+      params,
+    });
+  },
 };
 
 export const adminApi = {
