@@ -262,6 +262,121 @@ async function getProductMeta(productId) {
   return product;
 }
 
+export async function getOrganicDispenseLedgerActivityProducts(req, res) {
+  const branchCode = toCleanText(req.query.branchCode || req.query.branch_code);
+  const reportGroupCode = toCleanText(req.query.reportGroupCode || req.query.report_group_code).toUpperCase();
+  const dateFrom = normalizeDateFilter(req.query.dateFrom || req.query.date_from, "dateFrom");
+  const dateTo = normalizeDateFilter(req.query.dateTo || req.query.date_to, "dateTo");
+
+  if (!reportGroupCode) {
+    throw httpError(400, "reportGroupCode is required");
+  }
+
+  const branch = await resolveAccessibleBranch(branchCode, req.user);
+  const params = [branch.id, reportGroupCode];
+  const where = [
+    "dh.branch_id = $1::uuid",
+    `
+      EXISTS (
+        SELECT 1
+        FROM product_report_groups prg
+        JOIN report_groups rg ON rg.id = prg.report_group_id
+        WHERE prg.product_id = dl.product_id
+          AND rg.code = $2
+          AND rg.is_active = true
+          AND prg.effective_from <= dh.dispensed_at::date
+          AND (prg.effective_to IS NULL OR prg.effective_to >= dh.dispensed_at::date)
+      )
+    `,
+  ];
+
+  if (dateFrom) {
+    params.push(dateFrom.value);
+    where.push(
+      dateFrom.type === "date"
+        ? `dh.dispensed_at >= $${params.length}::date`
+        : `dh.dispensed_at >= $${params.length}::timestamptz`
+    );
+  }
+
+  if (dateTo) {
+    params.push(dateTo.value);
+    where.push(
+      dateTo.type === "date"
+        ? `dh.dispensed_at < ($${params.length}::date + interval '1 day')`
+        : `dh.dispensed_at < $${params.length}::timestamptz`
+    );
+  }
+
+  const result = await query(
+    `
+      SELECT
+        p.id::text AS id,
+        p.id::text AS "productId",
+        p.product_code AS "productCode",
+        p.trade_name AS "tradeName",
+        COALESCE(
+          NULLIF(trim(report_pul.display_name), ''),
+          NULLIF(trim(sellable_pul.display_name), ''),
+          sellable_pul.code,
+          '-'
+        ) AS "packageSize",
+        COALESCE(
+          NULLIF(trim(report_pul.display_name), ''),
+          NULLIF(trim(sellable_pul.display_name), ''),
+          sellable_pul.code,
+          '-'
+        ) AS "reportReceiveUnitLabel",
+        COUNT(DISTINCT dl.id)::int AS "activityCount",
+        COUNT(DISTINCT dl.lot_id) FILTER (WHERE dl.lot_id IS NOT NULL)::int AS "lotCount",
+        MIN(dh.dispensed_at) AS "firstDispensedAt",
+        MAX(dh.dispensed_at) AS "lastDispensedAt"
+      FROM dispense_headers dh
+      JOIN dispense_lines dl ON dl.header_id = dh.id
+      JOIN products p ON p.id = dl.product_id
+      LEFT JOIN LATERAL (
+        SELECT
+          pul.display_name,
+          pul.code
+        FROM product_unit_levels pul
+        WHERE pul.id = p.report_receive_unit_level_id
+        LIMIT 1
+      ) report_pul ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          pul.display_name,
+          pul.code
+        FROM product_unit_levels pul
+        WHERE pul.product_id = p.id
+        ORDER BY pul.is_sellable DESC, pul.is_base DESC, pul.sort_order ASC, pul.created_at ASC
+        LIMIT 1
+      ) sellable_pul ON true
+      WHERE ${where.join(" AND ")}
+      GROUP BY
+        p.id,
+        p.product_code,
+        p.trade_name,
+        report_pul.display_name,
+        report_pul.code,
+        sellable_pul.display_name,
+        sellable_pul.code
+      ORDER BY p.trade_name ASC, p.product_code ASC
+    `,
+    params
+  );
+
+  return res.json({
+    items: result.rows.map((row) => ({
+      ...row,
+      branchCode: toCleanText(branch.code),
+      branchName: toCleanText(branch.name) || "-",
+      reportGroupCode,
+      activityCount: Number(row.activityCount || 0),
+      lotCount: Number(row.lotCount || 0),
+    })),
+  });
+}
+
 export async function getOrganicDispenseLedgerReport(req, res) {
   const branchCode = toCleanText(req.query.branchCode || req.query.branch_code);
   const productId = toCleanText(req.query.productId || req.query.product_id);
