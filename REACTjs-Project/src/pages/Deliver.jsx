@@ -78,18 +78,44 @@ function normalizeReportGroupCodes(value) {
 
 function normalizeDeliverSearchProductRow(row) {
   const quantityBase = Number(row?.quantityBase ?? row?.quantity_base ?? 0);
+  const reportGroupCodes = normalizeReportGroupCodes(row?.reportGroupCodes ?? row?.report_group_codes);
+  const genericName = toCleanText(row?.genericName ?? row?.generic_name);
+  const activeIngredientText = toCleanText(
+    row?.activeIngredientText ?? row?.active_ingredient_text
+  );
+  const productCode = getProductCodeValue(row);
+  const barcode = toCleanText(row?.barcode);
+  const name = toCleanText(row?.tradeName ?? row?.productName ?? row?.name) || "-";
   return {
     id: toCleanText(row?.id ?? row?.productId ?? row?.product_id),
-    productCode: getProductCodeValue(row),
-    companyCode: getProductCodeValue(row),
-    name: toCleanText(row?.tradeName ?? row?.productName ?? row?.name) || "-",
-    barcode: toCleanText(row?.barcode),
+    productCode,
+    companyCode: productCode,
+    name,
+    barcode,
+    genericName,
+    activeIngredientText,
     price: Number(row?.price ?? 0),
     unit: toCleanText(row?.unitLabel ?? row?.unit ?? row?.baseUnitLabel),
     baseUnitLabel: toCleanText(row?.baseUnitLabel ?? row?.base_unit_label ?? row?.unit ?? row?.unitLabel),
     quantityBase: Number.isFinite(quantityBase) ? quantityBase : 0,
-    reportGroupCodes: normalizeReportGroupCodes(row?.reportGroupCodes ?? row?.report_group_codes),
+    reportGroupCodes,
+    searchText: [
+      productCode,
+      barcode,
+      name,
+      genericName,
+      activeIngredientText,
+      ...reportGroupCodes,
+    ]
+      .join(" ")
+      .toLowerCase(),
   };
+}
+
+function filterDeliverSearchProducts(products, searchTerm) {
+  const normalizedTerm = toCleanText(searchTerm).toLowerCase();
+  if (!normalizedTerm) return products;
+  return products.filter((product) => toCleanText(product?.searchText).includes(normalizedTerm));
 }
 
 function getDeliverSearchCategory(product) {
@@ -246,6 +272,8 @@ export default function Deliver() {
   const [deliverSearchLoadError, setDeliverSearchLoadError] = useState("");
   const [isLoadingDeliverSearchProducts, setIsLoadingDeliverSearchProducts] = useState(false);
   const [selectedDeliverSearchProductId, setSelectedDeliverSearchProductId] = useState("");
+  const [deliverSearchDraft, setDeliverSearchDraft] = useState("");
+  const [deliverSearchTerm, setDeliverSearchTerm] = useState("");
   const [smartcardStatus, setSmartcardStatus] = useState({
     tone: "info",
     message: "กำลังเริ่ม smartcard listener",
@@ -759,12 +787,16 @@ export default function Deliver() {
     setSubmitError("");
     setDeliverSearchLoadError("");
     setSelectedDeliverSearchProductId("");
+    setDeliverSearchDraft("");
+    setDeliverSearchTerm("");
     setIsProductSearchModalOpen(true);
   }, [effectiveBranchCode, isAdmin]);
 
   const handleCloseProductSearchModal = useCallback(() => {
     setIsProductSearchModalOpen(false);
     setSelectedDeliverSearchProductId("");
+    setDeliverSearchDraft("");
+    setDeliverSearchTerm("");
   }, []);
 
   const handleProductSearchModalBackdrop = useCallback((event) => {
@@ -773,10 +805,33 @@ export default function Deliver() {
     }
   }, [handleCloseProductSearchModal]);
 
+  const visibleDeliverSearchProducts = useMemo(
+    () => filterDeliverSearchProducts(deliverSearchProducts, deliverSearchTerm),
+    [deliverSearchProducts, deliverSearchTerm]
+  );
+
+  const handleCommitDeliverSearchTerm = useCallback(() => {
+    setDeliverSearchTerm(toCleanText(deliverSearchDraft));
+  }, [deliverSearchDraft]);
+
+  const handleDeliverSearchInputKeyDown = useCallback(
+    (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      handleCommitDeliverSearchTerm();
+    },
+    [handleCommitDeliverSearchTerm]
+  );
+
+  useEffect(() => {
+    if (!selectedDeliverSearchProductId) return;
+    if (visibleDeliverSearchProducts.some((product) => product.id === selectedDeliverSearchProductId)) return;
+    setSelectedDeliverSearchProductId("");
+  }, [selectedDeliverSearchProductId, visibleDeliverSearchProducts]);
+
   const selectedDeliverSearchProduct = useMemo(
-    () =>
-      deliverSearchProducts.find((product) => product.id === selectedDeliverSearchProductId) || null,
-    [deliverSearchProducts, selectedDeliverSearchProductId]
+    () => visibleDeliverSearchProducts.find((product) => product.id === selectedDeliverSearchProductId) || null,
+    [visibleDeliverSearchProducts, selectedDeliverSearchProductId]
   );
 
   const commitDeliverSearchSelection = useCallback(
@@ -1401,7 +1456,7 @@ export default function Deliver() {
                         ref={barcodeInputRef}
                         id="barcode-input-field"
                         type="text"
-                        placeholder="พิมพ์จำนวน -> กด 'คูณ (*)' หรือ PageDown -> สแกน/พิมพ์บาร์โค้ด แล้วกด Enter"
+                        placeholder="พิมพ์จำนวน -> กด 'คูณ (*)' หรือ PageDown -> สแกน/พิมพ์บาร์โค้ด/รหัสสินค้า IC แล้วกด Enter"
                         autoComplete="off"
                         onKeyDown={handleBarcodeKeyDown}
                       />
@@ -1687,9 +1742,31 @@ export default function Deliver() {
           <div className="pos-search-dialog" role="dialog" aria-modal="true" aria-labelledby="deliver-product-search-title">
             <div className="pos-search-header">
               <div>
-                <h2 className="pos-search-title" id="deliver-product-search-title">
-                  ค้นหายา
-                </h2>
+                <div className="pos-search-title-row">
+                  <h2 className="pos-search-title" id="deliver-product-search-title">
+                    ค้นหายา
+                  </h2>
+                  <div className="pos-search-controls">
+                    <input
+                      className="pos-search-input"
+                      type="search"
+                      value={deliverSearchDraft}
+                      onChange={(event) => setDeliverSearchDraft(event.target.value)}
+                      onKeyDown={handleDeliverSearchInputKeyDown}
+                      placeholder="บาร์โค้ด / IC / ชื่อยา / ตัวยาสำคัญ"
+                      disabled={isLoadingDeliverSearchProducts}
+                      aria-label="ค้นหายาด้วยบาร์โค้ด รหัสสินค้า ชื่อยา หรือตัวยาสำคัญ"
+                    />
+                    <button
+                      type="button"
+                      className="pos-search-submit-button"
+                      onClick={handleCommitDeliverSearchTerm}
+                      disabled={isLoadingDeliverSearchProducts}
+                    >
+                      ค้นหา
+                    </button>
+                  </div>
+                </div>
                 <p className="pos-search-body">
                   แสดงเฉพาะรายการ ขย.10 ทั้งหมด และรายการ ขย.11 ที่มีตัวยาสำคัญ TRAMADOL ของสาขา {selectedBranchLabel}
                 </p>
@@ -1711,8 +1788,8 @@ export default function Deliver() {
               <div className="pos-search-table-body">
                 {isLoadingDeliverSearchProducts ? (
                   <div className="pos-search-empty">กำลังโหลดรายการยา...</div>
-                ) : deliverSearchProducts.length ? (
-                  deliverSearchProducts.map((product) => {
+                ) : visibleDeliverSearchProducts.length ? (
+                  visibleDeliverSearchProducts.map((product) => {
                     const isSelected = product.id === selectedDeliverSearchProductId;
                     const category = getDeliverSearchCategory(product);
                     return (
@@ -1758,7 +1835,11 @@ export default function Deliver() {
                     );
                   })
                 ) : (
-                  <div className="pos-search-empty">ไม่พบรายการยาที่ตรงเงื่อนไขในสาขานี้</div>
+                  <div className="pos-search-empty">
+                    {deliverSearchProducts.length
+                      ? "ไม่พบรายการยาที่ตรงกับคำค้น"
+                      : "ไม่พบรายการยาที่ตรงเงื่อนไขในสาขานี้"}
+                  </div>
                 )}
               </div>
             </div>

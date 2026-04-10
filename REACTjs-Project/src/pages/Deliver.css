@@ -494,6 +494,67 @@
   margin: 0 0 8px;
 }
 
+.pos-search-title-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.pos-search-title-row .pos-search-title {
+  margin: 0;
+}
+
+.pos-search-controls {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-width: min(100%, 460px);
+}
+
+.pos-search-input {
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 8px;
+  color: #e2e8f0;
+  font-size: 14px;
+  min-width: 260px;
+  outline: none;
+  padding: 9px 11px;
+  width: min(48vw, 340px);
+}
+
+.pos-search-input:focus {
+  border-color: rgba(251, 146, 60, 0.88);
+  box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.18);
+}
+
+.pos-search-input::placeholder {
+  color: rgba(226, 232, 240, 0.52);
+}
+
+.pos-search-submit-button {
+  background: #f59e0b;
+  border: 1px solid #fbbf24;
+  border-radius: 8px;
+  color: #111827;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 800;
+  padding: 9px 16px;
+}
+
+.pos-search-submit-button:hover:not(:disabled) {
+  background: #fbbf24;
+}
+
+.pos-search-submit-button:disabled,
+.pos-search-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 .pos-confirm-body {
   font-size: 14px;
   line-height: 1.45;
@@ -624,6 +685,7 @@
   display: flex;
   gap: 10px;
   justify-content: flex-end;
+  margin-top: 10px;
 }
 
 .pos-confirm-actions .btn {
@@ -845,6 +907,16 @@
   .pos-search-dialog {
     padding: 16px;
     width: min(96vw, 980px);
+  }
+
+  .pos-search-controls {
+    min-width: 100%;
+    width: 100%;
+  }
+
+  .pos-search-input {
+    min-width: 0;
+    width: 100%;
   }
 
   .pos-search-table-head,

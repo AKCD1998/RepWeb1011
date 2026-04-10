@@ -38,6 +38,19 @@ async function idbGet(storeName, key) {
   });
 }
 
+async function idbGetAll(storeName) {
+  const db = await openCacheDb();
+  if (!db) return [];
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readonly");
+    const store = tx.objectStore(storeName);
+    const req = store.getAll();
+    req.onsuccess = () => resolve(Array.isArray(req.result) ? req.result : []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 async function idbPut(storeName, value) {
   const db = await openCacheDb();
   if (!db) return false;
@@ -87,6 +100,10 @@ function normalizeBarcode(input) {
   return trimmed.slice(-13);
 }
 
+function normalizeProductCode(input) {
+  return String(input || "").trim().toUpperCase();
+}
+
 function normalizeReportGroupCodes(value) {
   if (!Array.isArray(value)) return [];
   const unique = new Set();
@@ -99,11 +116,11 @@ function normalizeReportGroupCodes(value) {
 
 function normalizeProduct(data) {
   if (!data) return null;
-  const barcode = String(data.barcode || "").trim();
-  if (!barcode) return null;
   const companyCode = String(
     data.companyCode ?? data.productCode ?? data.product_code ?? data.company_code ?? ""
   ).trim();
+  const barcode = String(data.barcode || "").trim() || companyCode;
+  if (!barcode && !companyCode) return null;
 
   return {
     id: data.id ?? data.productId ?? data.product_id ?? "",
@@ -124,6 +141,37 @@ async function getCachedProduct(barcode) {
 
   const ls = lsGet(`pos_product_${barcode}`);
   return ls || null;
+}
+
+function isProductCodeMatch(product, productCode) {
+  const normalized = normalizeProductCode(productCode);
+  if (!normalized) return false;
+  return (
+    normalizeProductCode(product?.productCode) === normalized ||
+    normalizeProductCode(product?.companyCode) === normalized
+  );
+}
+
+async function getCachedProductByProductCode(productCode) {
+  const normalized = normalizeProductCode(productCode);
+  if (!normalized) return null;
+
+  const cachedRows = await idbGetAll("products");
+  const idbMatch = cachedRows.find((product) => isProductCodeMatch(product, normalized));
+  if (idbMatch) return idbMatch;
+
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key || !key.startsWith("pos_product_")) continue;
+      const product = lsGet(key);
+      if (isProductCodeMatch(product, normalized)) return product;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 async function setCachedProduct(product) {
@@ -191,6 +239,18 @@ function pickMatchedProductCandidate(candidates, seedProduct) {
   );
 }
 
+function pickExactLookupCandidate(candidates, input) {
+  if (!Array.isArray(candidates) || !candidates.length) return null;
+  const normalizedInput = String(input || "").trim();
+  const normalizedProductCode = normalizeProductCode(normalizedInput);
+
+  return (
+    candidates.find((item) => String(item?.barcode || "").trim() === normalizedInput) ||
+    candidates.find((item) => isProductCodeMatch(item, normalizedProductCode)) ||
+    null
+  );
+}
+
 async function fetchSnapshot() {
   const res = await fetch(`${API_BASE}/api/products/snapshot`);
   if (!res.ok) throw new Error("snapshot failed");
@@ -235,8 +295,9 @@ export async function syncSnapshot(options = {}) {
   return { updated: true, count: snapshot.length };
 }
 
-export async function productLookup(barcode) {
-  const normalized = normalizeBarcode(barcode);
+export async function productLookup(input) {
+  const rawInput = String(input || "").trim();
+  const normalized = normalizeBarcode(rawInput);
   if (!normalized) return null;
 
   const cached = await getCachedProduct(normalized);
@@ -263,11 +324,27 @@ export async function productLookup(barcode) {
     return cached;
   }
 
+  const cachedByProductCode = await getCachedProductByProductCode(rawInput);
+  if (cachedByProductCode) {
+    return cachedByProductCode;
+  }
+
   try {
     const fresh = await fetchProductFromServer(normalized);
     if (fresh) {
       await setCachedProduct(fresh);
       return fresh;
+    }
+  } catch {
+    return null;
+  }
+
+  try {
+    const candidates = await fetchProductsBySearch(rawInput);
+    const matched = pickExactLookupCandidate(candidates, rawInput);
+    if (matched) {
+      await setCachedProduct(matched);
+      return matched;
     }
   } catch {
     return null;

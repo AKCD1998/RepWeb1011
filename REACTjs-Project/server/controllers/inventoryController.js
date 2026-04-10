@@ -1456,6 +1456,8 @@ export async function getDeliverSearchProducts(req, res) {
         p.id AS "productId",
         p.product_code AS "productCode",
         p.trade_name AS "tradeName",
+        COALESCE(ingredient_names.generic_name, p.generic_name, '') AS "genericName",
+        COALESCE(ingredient_names.active_ingredient_text, '') AS "activeIngredientText",
         default_pul.barcode AS barcode,
         COALESCE(default_price.price, 0) AS price,
         COALESCE(
@@ -1472,6 +1474,18 @@ export async function getDeliverSearchProducts(req, res) {
       FROM stock_on_hand soh
       JOIN locations l ON l.id = soh.branch_id
       JOIN products p ON p.id = soh.product_id
+      LEFT JOIN LATERAL (
+        SELECT
+          string_agg(DISTINCT ai.name_en, ' ' ORDER BY ai.name_en) AS generic_name,
+          string_agg(
+            DISTINCT CONCAT_WS(' ', ai.code, ai.name_en, ai.name_th),
+            ' '
+            ORDER BY CONCAT_WS(' ', ai.code, ai.name_en, ai.name_th)
+          ) AS active_ingredient_text
+        FROM product_ingredients pi
+        JOIN active_ingredients ai ON ai.id = pi.active_ingredient_id
+        WHERE pi.product_id = p.id
+      ) ingredient_names ON true
       LEFT JOIN LATERAL (
         SELECT array_agg(rg.code ORDER BY rg.code) AS report_group_codes
         FROM product_report_groups prg
@@ -1570,6 +1584,8 @@ export async function getDeliverSearchProducts(req, res) {
         p.id,
         p.product_code,
         p.trade_name,
+        ingredient_names.generic_name,
+        ingredient_names.active_ingredient_text,
         default_pul.barcode,
         default_pul.display_name,
         default_pul.code,
@@ -1589,6 +1605,8 @@ export async function getDeliverSearchProducts(req, res) {
       productId: row.productId,
       productCode: row.productCode,
       tradeName: row.tradeName,
+      genericName: row.genericName || "",
+      activeIngredientText: row.activeIngredientText || "",
       barcode: row.barcode || "",
       price: Number(row.price || 0),
       unitLabel: row.unitLabel || row.baseUnitLabel || "",
