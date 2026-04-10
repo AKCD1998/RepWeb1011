@@ -20,7 +20,7 @@ export function PosScannerIcon() {
       stroke="currentColor"
       fill="none"
       strokeWidth="2"
-      viewBox="0 0 24 24"
+      viewBox="-4 -1 30 26"
       strokeLinecap="round"
       strokeLinejoin="round"
       width="1em"
@@ -30,8 +30,8 @@ export function PosScannerIcon() {
       <path d="M8.75 5.5h7.75A2.5 2.5 0 0 1 19 8v3.5a2.5 2.5 0 0 1-2.5 2.5h-4.4l1.18 5.23a1.15 1.15 0 0 1-1.69 1.24l-2.18-1.18a1.2 1.2 0 0 1-.59-.8L7.66 14H7.5A2.5 2.5 0 0 1 5 11.5V8a2.5 2.5 0 0 1 2.5-2.5Z" />
       <path d="m7.1 5.9 1.72 8.1" />
       <path d="M13.75 10.2h2.75" />
-      <path d="M3.9 9.2a3.5 3.5 0 0 0 0 3.6" />
-      <path d="M2.1 7.4a6.5 6.5 0 0 0 0 7.2" />
+      <path d="M2.4 9.2a3.5 3.5 0 0 0 0 3.6" />
+      <path d="M0.2 7.4a6.5 6.5 0 0 0 0 7.2" />
     </svg>
   );
 }
