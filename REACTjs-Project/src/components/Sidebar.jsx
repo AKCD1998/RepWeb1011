@@ -14,7 +14,7 @@ import {
 import { useOptionalAuth } from "../context/AuthContext";
 import { clearAuthStorage, logoutRequest } from "../lib/authApi";
 
-function PosScannerIcon() {
+export function PosScannerIcon() {
   return (
     <svg
       stroke="currentColor"
@@ -36,7 +36,7 @@ function PosScannerIcon() {
   );
 }
 
-const navItems = [
+export const navItems = [
   { to: "/", label: "หน้าหลัก", icon: FiHome, end: true },
   { to: "/reports", label: "หน้าเอกสารรายงาน", icon: FiFileText },
   { to: "/admin/incidents", label: "Incident Reports", icon: FiAlertTriangle, adminOnly: true },
