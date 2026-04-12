@@ -1,0 +1,13 @@
+{
+  "timeZone": "Asia/Bangkok",
+  "dependencies": {
+  },
+  "exceptionLogging": "STACKDRIVER",
+  "executionApi": {
+    "access": "MYSELF"
+  },
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/spreadsheets.readonly"
+  ],
+  "runtimeVersion": "V8"
+}

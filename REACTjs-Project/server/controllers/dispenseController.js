@@ -62,6 +62,16 @@ function normalizeDateFilter(value, label) {
   };
 }
 
+function normalizeOptionalTimestamp(value, label) {
+  const text = toCleanText(value);
+  if (!text) return null;
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) {
+    throw httpError(400, `Invalid ${label}`);
+  }
+  return parsed.toISOString();
+}
+
 function composeHeaderNote({ note, rawDeliverNotes, reportType, actionSource }) {
   const chunks = [];
   const mainNote = toCleanText(note);
@@ -138,6 +148,11 @@ export async function createDispense(req, res) {
   const pharmacistUserIdInput = req.user?.id || req.body?.pharmacistUserId || null;
   const reportType = toCleanText(req.body?.reportType).toUpperCase();
   const actionSource = toCleanText(req.body?.actionSource) || "DELIVER_PAGE_FINAL";
+  const requestedOccurredAt = normalizeOptionalTimestamp(
+    req.body?.occurredAt ?? req.body?.dispensedAt,
+    "occurredAt"
+  );
+  const occurredAt = actionSource === "DELIVER_PAGE_OFFLINE_SYNC" ? requestedOccurredAt : null;
   const note = composeHeaderNote({
     note: req.body?.note,
     rawDeliverNotes: req.body?.deliverNotesRaw,
@@ -172,12 +187,13 @@ export async function createDispense(req, res) {
           created_at,
           updated_at
         )
-        VALUES ($1, $2, $3, now(), $4, $3, now(), now())
-        RETURNING id
+        VALUES ($1, $2, $3, COALESCE($5::timestamptz, now()), $4, $3, now(), now())
+        RETURNING id, dispensed_at AS "dispensedAt"
       `,
-      [branch.id, patientId, pharmacistUserId, note]
+      [branch.id, patientId, pharmacistUserId, note, occurredAt]
     );
     const headerId = headerResult.rows[0].id;
+    const dispensedAt = headerResult.rows[0].dispensedAt;
 
     const insertedLines = [];
     let lineNo = 1;
@@ -257,7 +273,7 @@ export async function createDispense(req, res) {
             $7,
             'DISPENSE_HEADER',
             $8,
-            now(),
+            COALESCE($11::timestamptz, now()),
             $9,
             $10
           )
@@ -273,6 +289,7 @@ export async function createDispense(req, res) {
           headerId,
           pharmacistUserId,
           note,
+          occurredAt,
         ]
       );
 
@@ -302,6 +319,7 @@ export async function createDispense(req, res) {
       headerId,
       branchCode: branch.code,
       patientId,
+      dispensedAt,
       lineCount: insertedLines.length,
       lines: insertedLines,
       reportType: reportType || null,

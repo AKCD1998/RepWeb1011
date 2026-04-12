@@ -1,0 +1,16 @@
+{
+  "scriptId": "1G_ZEbmM-Zk6Psrb3wRLIPpDPJR9MfXx1BVL8uJWAv4vhpj05AqQOIJC9",
+  "rootDir": "scripts\\clasp-sheet-reader",
+  "scriptExtensions": [
+    ".js",
+    ".gs"
+  ],
+  "htmlExtensions": [
+    ".html"
+  ],
+  "jsonExtensions": [
+    ".json"
+  ],
+  "filePushOrder": [],
+  "skipSubdirectories": false
+}

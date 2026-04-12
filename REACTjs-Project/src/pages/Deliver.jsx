@@ -16,6 +16,12 @@ import {
   productLookup,
   syncSnapshot,
 } from "../utils/deliverCache";
+import {
+  listPendingDispenses,
+  removePendingDispense,
+  savePendingDispense,
+  updatePendingDispense,
+} from "../utils/pendingDispenseQueue";
 import "./Deliver.css";
 
 const toMoney = (value) => Number(value || 0).toFixed(2);
@@ -163,6 +169,71 @@ function resolveLotSelection(
   };
 }
 
+function normalizeLotOptionsForPending(options, selectedLot = {}) {
+  const seen = new Set();
+  const rows = [];
+
+  (Array.isArray(options) ? options : []).forEach((option) => {
+    const lotId = toCleanText(option?.lotId);
+    const lotNo = toCleanText(option?.lotNo);
+    const expDate = toCleanText(option?.expDate);
+    const key = lotId || `${lotNo}|${expDate}`;
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    rows.push({ lotId, lotNo, expDate });
+  });
+
+  const selectedLotId = toCleanText(selectedLot?.lotId);
+  const selectedLotNo = toCleanText(selectedLot?.lotNo);
+  const selectedExpDate = toCleanText(selectedLot?.expDate ?? selectedLot?.lotExpDate);
+  const selectedKey = selectedLotId || `${selectedLotNo}|${selectedExpDate}`;
+  if (selectedKey && !seen.has(selectedKey)) {
+    rows.push({
+      lotId: selectedLotId,
+      lotNo: selectedLotNo,
+      expDate: selectedExpDate,
+    });
+  }
+
+  return rows;
+}
+
+function isBrowserOnline() {
+  if (typeof navigator === "undefined") return true;
+  return navigator.onLine !== false;
+}
+
+function isNetworkLikeError(error) {
+  if (!isBrowserOnline()) return true;
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("network") ||
+    message.includes("failed to fetch") ||
+    message.includes("err_network") ||
+    message.includes("timeout") ||
+    message.includes("econn")
+  );
+}
+
+function clonePendingPayload(payload = {}) {
+  return {
+    ...payload,
+    patient: { ...(payload.patient || {}) },
+    lines: (Array.isArray(payload.lines) ? payload.lines : []).map((line) => ({
+      ...line,
+      lotOptions: normalizeLotOptionsForPending(line?.lotOptions, line),
+    })),
+  };
+}
+
+function buildPendingDraft(record) {
+  if (!record) return null;
+  return {
+    ...record,
+    payload: clonePendingPayload(record.payload || {}),
+  };
+}
+
 function buildLineNote(item, fallbackReportType = "") {
   const metadata = [];
   const reportType = toCleanText(item?.reportType || fallbackReportType).toUpperCase();
@@ -279,6 +350,14 @@ export default function Deliver() {
     message: "กำลังเริ่ม smartcard listener",
   });
   const [hasCapturedSmartcardData, setHasCapturedSmartcardData] = useState(false);
+  const [isOnline, setIsOnline] = useState(isBrowserOnline);
+  const [pendingDispenses, setPendingDispenses] = useState([]);
+  const [pendingLoadError, setPendingLoadError] = useState("");
+  const [isPendingModalOpen, setIsPendingModalOpen] = useState(false);
+  const [pendingReviewId, setPendingReviewId] = useState("");
+  const [pendingReviewDraft, setPendingReviewDraft] = useState(null);
+  const [pendingReviewError, setPendingReviewError] = useState("");
+  const [isSyncingPending, setIsSyncingPending] = useState(false);
   const barcodeInputRef = useRef(null);
   const lotOptionsCacheRef = useRef(new Map());
   const itemsRef = useRef([]);
@@ -288,6 +367,64 @@ export default function Deliver() {
   const lastSmartcardFillRef = useRef({ signature: "", at: 0 });
 
   const parsedNotes = useMemo(() => parseDeliverNotes(deliverNotes), [deliverNotes]);
+
+  const selectPendingReview = useCallback((record) => {
+    const draft = buildPendingDraft(record);
+    setPendingReviewDraft(draft);
+    setPendingReviewId(toCleanText(draft?.localTxnId));
+    setPendingReviewError("");
+  }, []);
+
+  const refreshPendingDispenses = useCallback(
+    async ({ openWhenOnline = false } = {}) => {
+      try {
+        const rows = await listPendingDispenses();
+        setPendingDispenses(rows);
+        setPendingLoadError("");
+
+        const currentId = pendingReviewId;
+        const currentRecord =
+          (currentId && rows.find((row) => row.localTxnId === currentId)) ||
+          rows[0] ||
+          null;
+
+        if (currentRecord) {
+          selectPendingReview(currentRecord);
+        } else {
+          setPendingReviewId("");
+          setPendingReviewDraft(null);
+        }
+
+        if (openWhenOnline && rows.length) {
+          setIsPendingModalOpen(true);
+        }
+
+        return rows;
+      } catch (error) {
+        setPendingLoadError(error?.message || "ไม่สามารถโหลดรายการค้างในเครื่องนี้ได้");
+        return [];
+      }
+    },
+    [pendingReviewId, selectPendingReview]
+  );
+
+  useEffect(() => {
+    const updateOnlineStatus = () => {
+      setIsOnline(isBrowserOnline());
+    };
+
+    updateOnlineStatus();
+    window.addEventListener("online", updateOnlineStatus);
+    window.addEventListener("offline", updateOnlineStatus);
+    return () => {
+      window.removeEventListener("online", updateOnlineStatus);
+      window.removeEventListener("offline", updateOnlineStatus);
+    };
+  }, []);
+
+  useEffect(() => {
+    void refreshPendingDispenses({ openWhenOnline: isOnline });
+  }, [isOnline, refreshPendingDispenses]);
 
   useEffect(() => {
     itemsRef.current = items;
@@ -991,6 +1128,62 @@ export default function Deliver() {
     [activeItemKey, lotOptions]
   );
 
+  const selectedBranchLabel = useMemo(() => {
+    if (!effectiveBranchCode) {
+      return isAdmin ? "-" : "ตามสิทธิ์ผู้ใช้";
+    }
+    const matched = branchOptions.find((branch) => branch.code === effectiveBranchCode);
+    if (!matched) return effectiveBranchCode;
+    return matched.name ? `${matched.code} : ${matched.name}` : matched.code;
+  }, [branchOptions, effectiveBranchCode, isAdmin]);
+
+  const resetDispenseForm = useCallback(() => {
+    setItems([]);
+    setPendingMultiplier(null);
+    setDeliverNotes("");
+    deliverNotesRef.current = "";
+    lastAutoFilledNotesRef.current = "";
+    lastSmartcardFillRef.current = { signature: "", at: 0 };
+    setHasCapturedSmartcardData(false);
+    setReportTypeOptions([]);
+    setSelectedReportType("");
+    setLotOptions([]);
+    setSelectedLotId("");
+    setSelectedBranchCode(userBranchCode);
+    setSelectedProductName("");
+    setActiveItemKey("");
+    if (barcodeInputRef.current) {
+      barcodeInputRef.current.value = "";
+      barcodeInputRef.current.focus();
+    }
+  }, [userBranchCode]);
+
+  const savePayloadAsPending = useCallback(
+    async (payload, reason = "OFFLINE") => {
+      const offlinePayload = clonePendingPayload({
+        ...payload,
+        actionSource: "DELIVER_PAGE_OFFLINE_PENDING",
+      });
+      const saved = await savePendingDispense({
+        payload: offlinePayload,
+        branchCode: toCleanText(payload?.branchCode),
+        branchLabel: selectedBranchLabel,
+        patient: { ...(payload?.patient || {}) },
+        deliverNotesRaw: toCleanText(payload?.deliverNotesRaw),
+        offlineReason: reason,
+        userSnapshot: {
+          id: toCleanText(user?.id),
+          username: toCleanText(user?.username),
+          fullName: toCleanText(user?.fullName || user?.full_name),
+          role: toCleanText(user?.role),
+        },
+      });
+      await refreshPendingDispenses();
+      return saved;
+    },
+    [refreshPendingDispenses, selectedBranchLabel, user]
+  );
+
   const buildDispensePayload = useCallback(() => {
     if (!items.length) {
       return {
@@ -1006,6 +1199,9 @@ export default function Deliver() {
       const productId = toCleanText(item?.id);
       const qty = Number(item?.qty);
       const unitLabel = toCleanText(item?.unit);
+      const productCode = toCleanText(
+        item?.productCode ?? item?.companyCode ?? item?.product_code ?? ""
+      );
       const rowLabel = `รายการที่ ${index + 1}`;
 
       if (!productId) {
@@ -1022,15 +1218,23 @@ export default function Deliver() {
       }
 
       const reportType = toCleanText(item?.reportType || selectedReportType).toUpperCase();
+      const lotCacheKey = buildLotCacheKey(productId, productCode, effectiveBranchCode);
+      const cachedLotOptions = lotCacheKey
+        ? lotOptionsCacheRef.current.get(lotCacheKey) || []
+        : [];
 
       lines.push({
         productId,
+        productName: toCleanText(item?.name),
+        productCode,
         qty,
         unitLabel,
         barcode: toCleanText(item?.barcode) || undefined,
         lotId: toCleanText(item?.lotId) || undefined,
         lotNo: toCleanText(item?.lotNo) || undefined,
         lotExpDate: toCleanText(item?.lotExpDate) || undefined,
+        lotOptions: normalizeLotOptionsForPending(cachedLotOptions, item),
+        price: Number(item?.price || 0),
         reportType: SUPPORTED_REPORT_TYPES.has(reportType) ? reportType : undefined,
         note: buildLineNote(item, reportType),
       });
@@ -1202,6 +1406,16 @@ export default function Deliver() {
     setSubmitError("");
 
     try {
+      if (!isOnline) {
+        const pending = await savePayloadAsPending(payload, "BROWSER_OFFLINE");
+        setSubmitSuccess(
+          `บันทึกรายการรอส่งเข้าระบบแล้ว (${pending.localTxnId}) เมื่อเชื่อมต่ออีกครั้งให้ตรวจสอบและยืนยันรายการค้าง`
+        );
+        setIsModalOpen(false);
+        resetDispenseForm();
+        return;
+      }
+
       const resolvedLines = await resolveDispenseLinesForSubmit(payload.lines);
       const response = await dispenseApi.create({
         ...payload,
@@ -1215,47 +1429,264 @@ export default function Deliver() {
 
       setSubmitSuccess(successMessage);
       setIsModalOpen(false);
-      setItems([]);
-      setPendingMultiplier(null);
-      setDeliverNotes("");
-      deliverNotesRef.current = "";
-      lastAutoFilledNotesRef.current = "";
-      lastSmartcardFillRef.current = { signature: "", at: 0 };
-      setHasCapturedSmartcardData(false);
-      setReportTypeOptions([]);
-      setSelectedReportType("");
-      setLotOptions([]);
-      setSelectedLotId("");
-      setSelectedBranchCode(userBranchCode);
-      setSelectedProductName("");
-      setActiveItemKey("");
-      if (barcodeInputRef.current) {
-        barcodeInputRef.current.value = "";
-        barcodeInputRef.current.focus();
-      }
+      resetDispenseForm();
     } catch (error) {
-      setSubmitError(error?.message || "บันทึกการส่งมอบไม่สำเร็จ");
+      if (isNetworkLikeError(error)) {
+        try {
+          const pending = await savePayloadAsPending(payload, error?.message || "NETWORK_ERROR");
+          setSubmitSuccess(
+            `เชื่อมต่อระบบไม่ได้ จึงบันทึกรายการรอส่งเข้าระบบแล้ว (${pending.localTxnId})`
+          );
+          setIsModalOpen(false);
+          resetDispenseForm();
+        } catch (queueError) {
+          setSubmitError(
+            queueError?.message ||
+              "เชื่อมต่อระบบไม่ได้ และไม่สามารถบันทึกรายการค้างในเครื่องนี้ได้"
+          );
+        }
+      } else {
+        setSubmitError(error?.message || "บันทึกการส่งมอบไม่สำเร็จ");
+      }
     } finally {
       setIsSubmitting(false);
     }
-  }, [buildDispensePayload, isSubmitting, resolveDispenseLinesForSubmit, userBranchCode]);
+  }, [
+    buildDispensePayload,
+    isOnline,
+    isSubmitting,
+    resetDispenseForm,
+    resolveDispenseLinesForSubmit,
+    savePayloadAsPending,
+  ]);
+
+  const handleSelectPendingReview = useCallback(
+    (event) => {
+      const localTxnId = toCleanText(event.target.value);
+      const record = pendingDispenses.find((row) => row.localTxnId === localTxnId) || null;
+      selectPendingReview(record);
+    },
+    [pendingDispenses, selectPendingReview]
+  );
+
+  const updatePendingReviewLine = useCallback((lineIndex, updater) => {
+    setPendingReviewDraft((prev) => {
+      if (!prev?.payload) return prev;
+      const lines = Array.isArray(prev.payload.lines) ? prev.payload.lines : [];
+      const nextLines = lines.map((line, index) => {
+        if (index !== lineIndex) return line;
+        const updatedLine =
+          typeof updater === "function" ? updater({ ...line }) : { ...line, ...updater };
+        return {
+          ...updatedLine,
+          note: buildLineNote(updatedLine, updatedLine.reportType),
+        };
+      });
+
+      return {
+        ...prev,
+        payload: {
+          ...prev.payload,
+          lines: nextLines,
+        },
+      };
+    });
+  }, []);
+
+  const handlePendingLineQtyChange = useCallback(
+    (lineIndex, value) => {
+      updatePendingReviewLine(lineIndex, { qty: value });
+    },
+    [updatePendingReviewLine]
+  );
+
+  const handlePendingLineLotChange = useCallback(
+    (lineIndex, lotId) => {
+      updatePendingReviewLine(lineIndex, (line) => {
+        const safeLotId = toCleanText(lotId);
+        const lotOptions = normalizeLotOptionsForPending(line?.lotOptions, line);
+        const matchedLot =
+          lotOptions.find((option) => toCleanText(option?.lotId) === safeLotId) || null;
+        return {
+          ...line,
+          lotId: safeLotId || undefined,
+          lotNo: safeLotId ? toCleanText(matchedLot?.lotNo) || undefined : undefined,
+          lotExpDate: safeLotId ? toCleanText(matchedLot?.expDate) || undefined : undefined,
+          lotOptions,
+        };
+      });
+    },
+    [updatePendingReviewLine]
+  );
+
+  const handleRemovePendingLine = useCallback((lineIndex) => {
+    setPendingReviewDraft((prev) => {
+      if (!prev?.payload) return prev;
+      const lines = Array.isArray(prev.payload.lines) ? prev.payload.lines : [];
+      return {
+        ...prev,
+        payload: {
+          ...prev.payload,
+          lines: lines.filter((_line, index) => index !== lineIndex),
+        },
+      };
+    });
+  }, []);
+
+  const buildPendingPayloadForSubmit = useCallback(() => {
+    const draftPayload = clonePendingPayload(pendingReviewDraft?.payload || {});
+    const lines = Array.isArray(draftPayload.lines) ? draftPayload.lines : [];
+    const validationErrors = [];
+    const normalizedLines = lines.map((line, index) => {
+      const rowLabel = `รายการค้างที่ ${index + 1}`;
+      const productId = toCleanText(line?.productId);
+      const qty = Number(line?.qty);
+      const unitLabel = toCleanText(line?.unitLabel);
+      const reportType = toCleanText(line?.reportType).toUpperCase();
+
+      if (!productId) validationErrors.push(`${rowLabel} ไม่มี productId`);
+      if (!Number.isFinite(qty) || qty <= 0) {
+        validationErrors.push(`${rowLabel} จำนวนต้องมากกว่า 0`);
+      }
+      if (!unitLabel) validationErrors.push(`${rowLabel} ไม่มีหน่วย`);
+
+      return {
+        productId,
+        productName: toCleanText(line?.productName),
+        productCode: toCleanText(line?.productCode),
+        qty,
+        unitLabel,
+        barcode: toCleanText(line?.barcode) || undefined,
+        lotId: toCleanText(line?.lotId) || undefined,
+        lotNo: toCleanText(line?.lotNo) || undefined,
+        lotExpDate: toCleanText(line?.lotExpDate) || undefined,
+        reportType: SUPPORTED_REPORT_TYPES.has(reportType) ? reportType : undefined,
+        note: buildLineNote(line, reportType),
+      };
+    });
+
+    if (!normalizedLines.length) {
+      validationErrors.push("ต้องมีรายการยาอย่างน้อย 1 รายการ");
+    }
+
+    const patient = draftPayload.patient || {};
+    if (!toCleanText(patient?.pid)) {
+      validationErrors.push("ข้อมูลบัตรไม่ครบ: ไม่พบเลขประจำตัวประชาชน");
+    }
+    if (!toCleanText(patient?.fullName)) {
+      validationErrors.push("ข้อมูลบัตรไม่ครบ: ไม่พบชื่อผู้รับมอบยา");
+    }
+
+    if (validationErrors.length) {
+      return { payload: null, error: validationErrors.join(" / ") };
+    }
+
+    return {
+      payload: {
+        ...draftPayload,
+        actionSource: "DELIVER_PAGE_OFFLINE_SYNC",
+        lines: normalizedLines,
+      },
+      error: "",
+    };
+  }, [pendingReviewDraft]);
+
+  const handleConfirmPendingDispense = useCallback(async () => {
+    if (isSyncingPending) return;
+    const localTxnId = toCleanText(pendingReviewDraft?.localTxnId || pendingReviewId);
+    if (!localTxnId) {
+      setPendingReviewError("ไม่พบรายการค้างที่เลือก");
+      return;
+    }
+    if (!isOnline) {
+      setPendingReviewError("ยังอยู่ในโหมดออฟไลน์ ต้องเชื่อมต่อก่อนยืนยันรายการค้าง");
+      return;
+    }
+
+    const { payload, error } = buildPendingPayloadForSubmit();
+    if (error || !payload) {
+      setPendingReviewError(error || "ข้อมูลรายการค้างไม่ครบถ้วน");
+      return;
+    }
+
+    setIsSyncingPending(true);
+    setPendingReviewError("");
+    try {
+      await updatePendingDispense(localTxnId, {
+        payload: clonePendingPayload({
+          ...(pendingReviewDraft?.payload || {}),
+          actionSource: "DELIVER_PAGE_OFFLINE_PENDING",
+        }),
+      });
+      const resolvedLines = await resolveDispenseLinesForSubmit(payload.lines);
+      const response = await dispenseApi.create({
+        ...payload,
+        lines: resolvedLines,
+      });
+      await removePendingDispense(localTxnId);
+      const rows = await refreshPendingDispenses();
+      const lineCount = Number(response?.lineCount || resolvedLines.length);
+      const referenceId = toCleanText(response?.headerId);
+      setSubmitError("");
+      setSubmitSuccess(
+        referenceId
+          ? `ยืนยันรายการค้างสำเร็จ (${lineCount} รายการ) เลขอ้างอิง ${referenceId}`
+          : `ยืนยันรายการค้างสำเร็จ (${lineCount} รายการ)`
+      );
+      if (!rows.length) {
+        setIsPendingModalOpen(false);
+      }
+    } catch (error) {
+      setPendingReviewError(error?.message || "ยืนยันรายการค้างไม่สำเร็จ");
+    } finally {
+      setIsSyncingPending(false);
+    }
+  }, [
+    buildPendingPayloadForSubmit,
+    isOnline,
+    isSyncingPending,
+    pendingReviewDraft,
+    pendingReviewId,
+    refreshPendingDispenses,
+    resolveDispenseLinesForSubmit,
+  ]);
+
+  const handleCancelPendingDispense = useCallback(async () => {
+    const localTxnId = toCleanText(pendingReviewDraft?.localTxnId || pendingReviewId);
+    if (!localTxnId || isSyncingPending) return;
+
+    setIsSyncingPending(true);
+    setPendingReviewError("");
+    try {
+      await removePendingDispense(localTxnId);
+      const rows = await refreshPendingDispenses();
+      setSubmitError("");
+      setSubmitSuccess(`ยกเลิกรายการค้าง ${localTxnId} แล้ว`);
+      if (!rows.length) {
+        setIsPendingModalOpen(false);
+      }
+    } catch (error) {
+      setPendingReviewError(error?.message || "ยกเลิกรายการค้างไม่สำเร็จ");
+    } finally {
+      setIsSyncingPending(false);
+    }
+  }, [isSyncingPending, pendingReviewDraft, pendingReviewId, refreshPendingDispenses]);
 
   const grandTotal = useMemo(() => {
     return items.reduce((sum, item) => sum + item.qty * item.price, 0);
   }, [items]);
 
-  const selectedBranchLabel = useMemo(() => {
-    if (!effectiveBranchCode) {
-      return isAdmin ? "-" : "ตามสิทธิ์ผู้ใช้";
-    }
-
-    const matchedBranch = branchOptions.find((branch) => branch.code === effectiveBranchCode);
-    if (matchedBranch) {
-      return `${matchedBranch.code}${matchedBranch.name ? ` : ${matchedBranch.name}` : ""}`;
-    }
-
-    return effectiveBranchCode;
-  }, [branchOptions, effectiveBranchCode, isAdmin]);
+  const pendingReviewPayload = pendingReviewDraft?.payload || {};
+  const pendingReviewLines = Array.isArray(pendingReviewPayload.lines)
+    ? pendingReviewPayload.lines
+    : [];
+  const pendingReviewPatient = pendingReviewPayload.patient || {};
+  const pendingReviewTotal = useMemo(() => {
+    return pendingReviewLines.reduce(
+      (sum, line) => sum + Number(line?.qty || 0) * Number(line?.price || 0),
+      0
+    );
+  }, [pendingReviewLines]);
 
   const handleModalBackdrop = useCallback(
     (event) => {
@@ -1382,6 +1813,34 @@ export default function Deliver() {
             ) : null}
             {submitSuccess ? (
               <div className="pos-feedback pos-feedback--success">{submitSuccess}</div>
+            ) : null}
+            {!isOnline || pendingDispenses.length || pendingLoadError ? (
+              <div className={`pos-offline-status${isOnline ? "" : " is-offline"}`}>
+                <div>
+                  <strong>{isOnline ? "เชื่อมต่อระบบแล้ว" : "โหมดออฟไลน์"}</strong>
+                  <span>
+                    {isOnline
+                      ? pendingDispenses.length
+                        ? ` มีรายการรอส่งเข้าระบบ ${pendingDispenses.length} รายการ`
+                        : " ไม่มีรายการค้างในเครื่องนี้"
+                      : " รายการส่งมอบจะถูกพักไว้ในเครื่องนี้จนกว่าจะเชื่อมต่ออีกครั้ง"}
+                  </span>
+                  {pendingLoadError ? (
+                    <div className="pos-offline-status__error">{pendingLoadError}</div>
+                  ) : null}
+                </div>
+                {pendingDispenses.length ? (
+                  <button
+                    type="button"
+                    className="pos-offline-status__button"
+                    onClick={() => {
+                      void refreshPendingDispenses({ openWhenOnline: true });
+                    }}
+                  >
+                    ตรวจรายการค้าง
+                  </button>
+                ) : null}
+              </div>
             ) : null}
 
             <div className="pos-panel">
@@ -1619,7 +2078,22 @@ export default function Deliver() {
                   disabled={!canConfirm}
                   title={items.length ? "" : "ยังไม่มีรายการสินค้า"}
                 >
-                  {isSubmitting ? "กำลังบันทึก..." : "ยืนยันการทำรายการ"}
+                  {isSubmitting
+                    ? "กำลังบันทึก..."
+                    : isOnline
+                    ? "ยืนยันการทำรายการ"
+                    : "บันทึกรายการรอส่ง"}
+                </button>
+
+                <button
+                  className="btn pos-pending-trigger"
+                  type="button"
+                  onClick={() => {
+                    void refreshPendingDispenses({ openWhenOnline: true });
+                  }}
+                  disabled={!pendingDispenses.length}
+                >
+                  รายการค้าง ({pendingDispenses.length})
                 </button>
 
                 {isAdmin ? (
@@ -1681,7 +2155,9 @@ export default function Deliver() {
           <div className="pos-confirm-dialog" role="dialog" aria-modal="true">
             <h2 className="pos-confirm-title">ยืนยันการทำรายการส่งมอบยา</h2>
             <p className="pos-confirm-body">
-              เมื่อยืนยันแล้ว ระบบจะบันทึกการจ่ายยาและตัดสต็อกทันทีแบบถาวร ต้องการดำเนินการต่อหรือไม่
+              {isOnline
+                ? "เมื่อยืนยันแล้ว ระบบจะบันทึกการจ่ายยาและตัดสต็อกทันทีแบบถาวร ต้องการดำเนินการต่อหรือไม่"
+                : "ขณะนี้เป็นโหมดออฟไลน์ ระบบจะพักรายการนี้ไว้ในเครื่อง และให้ตรวจสอบอีกครั้งเมื่อเชื่อมต่อระบบได้"}
             </p>
 
             <div className="pos-confirm-summary">
@@ -1712,7 +2188,7 @@ export default function Deliver() {
                 }}
                 disabled={isSubmitting}
               >
-                {isSubmitting ? "กำลังยืนยัน..." : "ยืนยัน"}
+                {isSubmitting ? "กำลังยืนยัน..." : isOnline ? "ยืนยัน" : "บันทึกรายการค้าง"}
               </button>
             </div>
           </div>
@@ -1732,6 +2208,243 @@ export default function Deliver() {
           );
         }}
       />
+
+      {isPendingModalOpen ? (
+        <div
+          className="pos-modal"
+          aria-hidden="false"
+          onClick={(event) => {
+            if (event.target === event.currentTarget && !isSyncingPending) {
+              setIsPendingModalOpen(false);
+            }
+          }}
+        >
+          <div
+            className="pos-pending-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="deliver-pending-title"
+          >
+            <div className="pos-pending-header">
+              <div>
+                <h2 className="pos-confirm-title" id="deliver-pending-title">
+                  รายการส่งมอบที่รอเข้าระบบ
+                </h2>
+                <p className="pos-confirm-body">
+                  ตรวจสอบข้อมูลจาก smartcard และแก้ได้เฉพาะจำนวนยา รายการยาในบิล และเลข lot ก่อนยืนยันส่งเข้าระบบ
+                </p>
+              </div>
+              <div className={`pos-pending-online${isOnline ? " is-online" : " is-offline"}`}>
+                {isOnline ? "ออนไลน์" : "ออฟไลน์"}
+              </div>
+            </div>
+
+            {pendingLoadError ? (
+              <div className="pos-feedback pos-feedback--error pos-search-feedback">
+                {pendingLoadError}
+              </div>
+            ) : null}
+            {pendingReviewError ? (
+              <div className="pos-feedback pos-feedback--error pos-search-feedback">
+                {pendingReviewError}
+              </div>
+            ) : null}
+
+            {pendingDispenses.length ? (
+              <div className="pos-pending-selector">
+                <label className="pos-notes-label" htmlFor="pending-dispense-select">
+                  เลือกรายการค้าง
+                </label>
+                <select
+                  id="pending-dispense-select"
+                  className="pos-notes-select"
+                  value={pendingReviewId}
+                  onChange={handleSelectPendingReview}
+                  disabled={isSyncingPending}
+                >
+                  {pendingDispenses.map((record) => (
+                    <option key={record.localTxnId} value={record.localTxnId}>
+                      {record.localTxnId} - {record.branchLabel || record.branchCode || "-"} -{" "}
+                      {record.patient?.fullName || record.payload?.patient?.fullName || "-"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="pos-search-empty">ไม่มีรายการค้างในเครื่องนี้</div>
+            )}
+
+            {pendingReviewDraft ? (
+              <>
+                <div className="pos-pending-summary">
+                  <div>
+                    <strong>เลขรายการ:</strong> {pendingReviewDraft.localTxnId}
+                  </div>
+                  <div>
+                    <strong>บันทึกเมื่อ:</strong>{" "}
+                    {pendingReviewDraft.createdAt
+                      ? new Date(pendingReviewDraft.createdAt).toLocaleString("th-TH")
+                      : "-"}
+                  </div>
+                  <div>
+                    <strong>สาขา:</strong>{" "}
+                    {pendingReviewDraft.branchLabel || pendingReviewPayload.branchCode || "-"}
+                  </div>
+                  <div>
+                    <strong>ผู้ทำรายการ:</strong>{" "}
+                    {pendingReviewDraft.userSnapshot?.fullName ||
+                      pendingReviewDraft.userSnapshot?.username ||
+                      "-"}
+                  </div>
+                  <div>
+                    <strong>ยอดรวมโดยประมาณ:</strong> {toMoney(pendingReviewTotal)} บาท
+                  </div>
+                </div>
+
+                <section className="pos-pending-patient">
+                  <h3>ข้อมูลผู้เสียบบัตร</h3>
+                  <div className="pos-pending-patient-grid">
+                    <div>
+                      <span>ชื่อผู้รับมอบยา</span>
+                      <strong>{toCleanText(pendingReviewPatient.fullName) || "-"}</strong>
+                    </div>
+                    <div>
+                      <span>เลขประจำตัวประชาชน</span>
+                      <strong>{toCleanText(pendingReviewPatient.pid) || "-"}</strong>
+                    </div>
+                    <div>
+                      <span>วันเกิด</span>
+                      <strong>{toDateLabel(pendingReviewPatient.birthDate) || "-"}</strong>
+                    </div>
+                    <div>
+                      <span>เพศ</span>
+                      <strong>{toCleanText(pendingReviewPatient.sex) || "-"}</strong>
+                    </div>
+                    <div className="pos-pending-patient-address">
+                      <span>ที่อยู่</span>
+                      <strong>{toCleanText(pendingReviewPatient.addressText) || "-"}</strong>
+                    </div>
+                  </div>
+                  <pre className="pos-pending-raw-card">
+                    {toCleanText(pendingReviewPayload.deliverNotesRaw) ||
+                      toCleanText(pendingReviewDraft.deliverNotesRaw) ||
+                      "-"}
+                  </pre>
+                </section>
+
+                <section className="pos-pending-lines">
+                  <h3>รายการยา</h3>
+                  <div className="pos-pending-line-head">
+                    <div>ยา</div>
+                    <div>จำนวน</div>
+                    <div>เลข lot</div>
+                    <div>จัดการ</div>
+                  </div>
+                  {pendingReviewLines.length ? (
+                    pendingReviewLines.map((line, index) => {
+                      const lineLotOptions = normalizeLotOptionsForPending(line?.lotOptions, line);
+                      return (
+                        <div
+                          className="pos-pending-line-row"
+                          key={`${line?.productId || line?.productCode || "line"}-${index}`}
+                        >
+                          <div className="pos-pending-line-product">
+                            <strong>{line?.productName || "-"}</strong>
+                            <span>
+                              {line?.productCode || "-"} / {line?.unitLabel || "-"}
+                            </span>
+                          </div>
+                          <div>
+                            <input
+                              className="pos-pending-qty-input"
+                              type="number"
+                              min="0.001"
+                              step="0.001"
+                              value={line?.qty ?? ""}
+                              onChange={(event) =>
+                                handlePendingLineQtyChange(index, event.target.value)
+                              }
+                              disabled={isSyncingPending}
+                            />
+                          </div>
+                          <div>
+                            <select
+                              className="pos-notes-select"
+                              value={toCleanText(line?.lotId)}
+                              onChange={(event) =>
+                                handlePendingLineLotChange(index, event.target.value)
+                              }
+                              disabled={isSyncingPending || !lineLotOptions.length}
+                            >
+                              <option value="">
+                                {lineLotOptions.length ? "ไม่ระบุ lot" : "ไม่มีตัวเลือก lot ใน cache"}
+                              </option>
+                              {lineLotOptions.map((option) => {
+                                const optionLotId = toCleanText(option?.lotId);
+                                if (!optionLotId) return null;
+                                const lotLabel = toCleanText(option?.lotNo) || optionLotId;
+                                const expLabel = toDateLabel(option?.expDate);
+                                return (
+                                  <option key={optionLotId} value={optionLotId}>
+                                    {expLabel ? `${lotLabel} (exp ${expLabel})` : lotLabel}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </div>
+                          <div>
+                            <button
+                              type="button"
+                              className="pos-pending-remove-line"
+                              onClick={() => handleRemovePendingLine(index)}
+                              disabled={isSyncingPending}
+                            >
+                              ลบ
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="pos-search-empty">รายการนี้ยังไม่มีรายการยา</div>
+                  )}
+                </section>
+              </>
+            ) : null}
+
+            <div className="pos-confirm-actions pos-pending-actions">
+              <button
+                type="button"
+                className="btn pos-confirm-cancel"
+                onClick={() => setIsPendingModalOpen(false)}
+                disabled={isSyncingPending}
+              >
+                ปิด
+              </button>
+              <button
+                type="button"
+                className="btn pos-pending-danger"
+                onClick={() => {
+                  void handleCancelPendingDispense();
+                }}
+                disabled={!pendingReviewDraft || isSyncingPending}
+              >
+                ยกเลิกรายการ
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary pos-confirm-submit"
+                onClick={() => {
+                  void handleConfirmPendingDispense();
+                }}
+                disabled={!pendingReviewDraft || isSyncingPending || !isOnline}
+              >
+                {isSyncingPending ? "กำลังยืนยัน..." : "ยืนยันการทำรายการ"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {isProductSearchModalOpen ? (
         <div
