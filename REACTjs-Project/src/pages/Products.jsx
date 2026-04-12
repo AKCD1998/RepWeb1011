@@ -68,6 +68,19 @@ const CUSTOM_GENERIC_VALUE = "__CUSTOM__";
 const CUSTOM_ACTIVE_INGREDIENT_VALUE = "__CUSTOM_ACTIVE_INGREDIENT__";
 const CUSTOM_NUMERATOR_UNIT_VALUE = "__CUSTOM_NUMERATOR_UNIT__";
 const CUSTOM_DENOMINATOR_UNIT_VALUE = "__CUSTOM_DENOMINATOR_UNIT__";
+const INGREDIENT_UNIT_CODE_OPTIONS = [
+  "MG",
+  "MCG",
+  "G",
+  "ML",
+  "L",
+  "TABLET",
+  "TAB",
+  "CAPSULE",
+  "CAP",
+  "INHALATION",
+];
+const INGREDIENT_UNIT_CODE_SET = new Set(INGREDIENT_UNIT_CODE_OPTIONS);
 
 function createEmptyIngredient() {
   return { ...EMPTY_INGREDIENT };
@@ -109,16 +122,21 @@ function normalizeUnitTypeOptions(payload) {
 
   for (const row of rows) {
     const code = getUnitCodeKey(row?.code);
-    if (!code) continue;
+    if (!code || !INGREDIENT_UNIT_CODE_SET.has(code)) continue;
     byCode.set(code, {
       id: String(row?.id || "").trim(),
       code,
       nameEn: String(row?.nameEn ?? "").trim(),
+      unitKind: String(row?.unitKind ?? row?.unit_kind ?? "").trim().toUpperCase(),
       symbol: String(row?.symbol || "").trim(),
     });
   }
 
-  return [...byCode.values()].sort((a, b) => a.code.localeCompare(b.code));
+  return [...byCode.values()].sort((a, b) => {
+    const indexA = INGREDIENT_UNIT_CODE_OPTIONS.indexOf(a.code);
+    const indexB = INGREDIENT_UNIT_CODE_OPTIONS.indexOf(b.code);
+    return indexA - indexB || a.code.localeCompare(b.code);
+  });
 }
 
 function createEmptyForm() {

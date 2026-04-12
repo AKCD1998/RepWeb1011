@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Outlet } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
+import ThemeToggle from "../components/ThemeToggle";
 import TransferNotifications from "../components/TransferNotifications";
 
 const MOBILE_QUERY = "(max-width: 900px)";
@@ -31,9 +32,12 @@ export default function AppLayout() {
     <div className="app-shell" data-collapsed={collapsed ? "true" : "false"}>
       <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((prev) => !prev)} />
       <main className="app-main">
-        <div className="app-topbar">
+        <div className="app-topbar no-print">
           <div className="app-topbar-spacer" />
-          <TransferNotifications />
+          <div className="app-topbar-actions">
+            <ThemeToggle />
+            <TransferNotifications />
+          </div>
         </div>
         <div className="app-content">
           <Outlet />

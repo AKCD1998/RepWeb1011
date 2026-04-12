@@ -14,6 +14,18 @@ const INGREDIENT_CODE_MAX_LENGTH = 80;
 const LOCATION_CODE_MAX_LENGTH = 30;
 const PRODUCT_UNIT_LEVEL_CODE_MAX_LENGTH = 50;
 const UNIT_LEVEL_DEFAULT_CODE = "SELLABLE";
+const INGREDIENT_UNIT_TYPE_CODES = [
+  "MG",
+  "MCG",
+  "G",
+  "ML",
+  "L",
+  "TABLET",
+  "TAB",
+  "CAPSULE",
+  "CAP",
+  "INHALATION",
+];
 let hasProductLotEditAuditsTableCache = null;
 
 function buildProductUnitLevelsIsActiveSelect(alias, outputAlias = "isActive") {
@@ -2807,9 +2819,11 @@ export async function getUnitTypes(req, res) {
         code,
         name_en AS "nameEn",
         name_th AS "nameTh",
+        unit_kind AS "unitKind",
         symbol
       FROM unit_types
       WHERE is_active = true
+        AND code = ANY($4::text[])
         AND (
           $1::text = ''
           OR code ILIKE $2
@@ -2820,7 +2834,7 @@ export async function getUnitTypes(req, res) {
       ORDER BY code ASC
       LIMIT $3
     `,
-    [searchText, pattern, limit]
+    [searchText, pattern, limit, INGREDIENT_UNIT_TYPE_CODES]
   );
 
   return res.json({ items: result.rows });

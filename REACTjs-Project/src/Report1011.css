@@ -176,6 +176,7 @@ body {
   display: grid;
   grid-template-columns: 1.05fr 0.95fr;
   gap: 24px;
+  padding-top: 24px;
 }
 
 .card {

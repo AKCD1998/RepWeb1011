@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import ThemeToggle from "../components/ThemeToggle";
 import { useAuth } from "../context/AuthContext";
 import "./Login.css";
 
@@ -41,6 +42,9 @@ export default function Login() {
 
   return (
     <div className="login-page">
+      <div className="login-theme-toggle">
+        <ThemeToggle />
+      </div>
       <form className="login-form" onSubmit={handleSubmit}>
         <h1>เข้าสู่ระบบ</h1>
 

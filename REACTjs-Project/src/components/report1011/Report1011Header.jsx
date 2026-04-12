@@ -1,5 +1,4 @@
 ﻿import Card from "./Card";
-import ThemeToggle from "../ThemeToggle";
 
 export default function Report1011Header() {
   return (
@@ -13,7 +12,6 @@ export default function Report1011Header() {
               จัดการรายละเอียดสินค้าและลอตรับเข้า พร้อมสร้างรายงานอย่างเป็นทางการ
             </p>
           </div>
-          <ThemeToggle />
         </div>
       </div>
       <Card className="header-card">

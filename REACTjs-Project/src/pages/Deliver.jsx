@@ -2287,7 +2287,7 @@ export default function Deliver() {
                 </button>
 
                 <button
-                  className="btn btn-primary"
+                  className="btn btn-primary pos-confirm-main"
                   id="pos-confirmBtn"
                   type="button"
                   onClick={handleOpenConfirmModal}
