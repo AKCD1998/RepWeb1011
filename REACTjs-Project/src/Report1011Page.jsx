@@ -294,8 +294,8 @@ export default function Report1011Page() {
     <div className="report1011">
       <Report1011Header />
       <main className="report1011-main">
+        <OrganicReportCard onPrint={handleOrganicPrint} />
         <div className="report1011-grid">
-          <OrganicReportCard onPrint={handleOrganicPrint} />
           <ReportTypeSelectCard
             branches={BRANCHES}
             branchId={branchId}
