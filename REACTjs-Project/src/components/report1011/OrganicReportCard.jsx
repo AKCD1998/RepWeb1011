@@ -19,7 +19,7 @@ const ORGANIC_REPORT_MODES = [
   {
     value: "bulk",
     label: "bulk mode",
-    description: "ค้นหาและเลือกหลายสินค้าที่มี dispense จริง",
+    description: "สร้างรายงานการส่งมอบยาทีละหลายรายการในครั้งเดียว",
   },
 ];
 
@@ -944,9 +944,7 @@ export default function OrganicReportCard({ onPrint }) {
     <>
       <Card title="รายงานจากข้อมูลจริง" className="organic-report-card no-print">
         <p className="organic-report-card__intro">
-          Card B นี้ใช้ข้อมูลจากธุรกรรมจริงของระบบ โดยดึงการจ่ายจาก Deliver/dispense และผูก lot กับ
-          receive movement ย้อนหลังเพื่อเติมข้อมูลหัวเอกสารให้ใกล้ความจริงที่สุด โดยไม่แตะ generator
-          แบบ make data เดิม
+          ปริ้นท์ข้อมูลการส่งมอบยาขย.10 และ ขย.11 ที่นี่
         </p>
 
         <OrganicReportModeSwitch reportMode={reportMode} onChange={handleReportModeChange} />

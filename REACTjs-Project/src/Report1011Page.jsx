@@ -295,6 +295,7 @@ export default function Report1011Page() {
       <Report1011Header />
       <main className="report1011-main">
         <div className="report1011-grid">
+          <OrganicReportCard onPrint={handleOrganicPrint} />
           <ReportTypeSelectCard
             branches={BRANCHES}
             branchId={branchId}
@@ -342,7 +343,6 @@ export default function Report1011Page() {
           </div>
         ) : null}
         <ReportPreview pages={pages} meta={previewMeta} printTarget="manual" />
-        <OrganicReportCard onPrint={handleOrganicPrint} />
       </main>
       <ActionButtonsBar
         canBuild={canBuild}
