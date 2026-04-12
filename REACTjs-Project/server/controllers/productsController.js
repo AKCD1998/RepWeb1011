@@ -2910,6 +2910,10 @@ export async function getProductsVersion(_req, res) {
         SELECT MAX(created_at) AS ts FROM product_unit_levels
         UNION ALL
         SELECT MAX(created_at) AS ts FROM product_prices
+        UNION ALL
+        SELECT MAX(updated_at) AS ts FROM report_groups
+        UNION ALL
+        SELECT MAX(GREATEST(created_at, COALESCE(effective_to::timestamptz, created_at))) AS ts FROM product_report_groups
       ) q
     `
   );

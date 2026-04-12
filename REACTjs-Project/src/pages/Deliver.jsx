@@ -11,10 +11,12 @@ import {
   startSmartcardListener,
 } from "../utils/deliverSmartcard";
 import {
-  fetchProductLots,
+  DELIVERY_METADATA_CACHE_TTL_MS,
+  buildProductLotCacheKey,
+  getProductLotsWithCache,
   hydrateProductMetadata,
   productLookup,
-  syncSnapshot,
+  syncDeliverMetadataSnapshot,
 } from "../utils/deliverCache";
 import {
   listPendingDispenses,
@@ -144,10 +146,7 @@ function getDeliverSearchCategory(product) {
 }
 
 function buildLotCacheKey(productId, productCode, branchCode) {
-  const productKey = buildProductIdentityKey(productId, productCode);
-  if (!productKey) return "";
-  const safeBranchCode = toCleanText(branchCode) || "*";
-  return `${safeBranchCode}|${productKey}`;
+  return buildProductLotCacheKey({ productId, productCode, branchCode });
 }
 
 function resolveLotSelection(
@@ -213,6 +212,17 @@ function isNetworkLikeError(error) {
     message.includes("timeout") ||
     message.includes("econn")
   );
+}
+
+function formatMetadataCacheTime(value) {
+  const timestamp = Number(value || 0);
+  if (!timestamp) return "";
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toLocaleString("th-TH", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 }
 
 function clonePendingPayload(payload = {}) {
@@ -329,6 +339,7 @@ export default function Deliver() {
   const [selectedReportType, setSelectedReportType] = useState("");
   const [lotOptions, setLotOptions] = useState([]);
   const [selectedLotId, setSelectedLotId] = useState("");
+  const [activeMetadataCacheStatus, setActiveMetadataCacheStatus] = useState(null);
   const [selectedProductName, setSelectedProductName] = useState("");
   const [activeItemKey, setActiveItemKey] = useState("");
   const [submitError, setSubmitError] = useState("");
@@ -360,6 +371,7 @@ export default function Deliver() {
   const [isSyncingPending, setIsSyncingPending] = useState(false);
   const barcodeInputRef = useRef(null);
   const lotOptionsCacheRef = useRef(new Map());
+  const lotOptionsMetaCacheRef = useRef(new Map());
   const itemsRef = useRef([]);
   const activeItemKeyRef = useRef("");
   const deliverNotesRef = useRef("");
@@ -443,8 +455,26 @@ export default function Deliver() {
   }, [userBranchCode]);
 
   useEffect(() => {
-    syncSnapshot().catch(() => {});
-  }, []);
+    if (isAdmin && !effectiveBranchCode) {
+      syncDeliverMetadataSnapshot().catch(() => {});
+      return undefined;
+    }
+
+    let cancelled = false;
+    const refreshSnapshot = () => {
+      syncDeliverMetadataSnapshot({ branchCode: effectiveBranchCode }).catch(() => {});
+    };
+
+    refreshSnapshot();
+    const timer = window.setInterval(() => {
+      if (!cancelled) refreshSnapshot();
+    }, DELIVERY_METADATA_CACHE_TTL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [effectiveBranchCode, isAdmin]);
 
   const handleSmartcardData = useCallback((normalized) => {
     const nextNotes = buildDeliverNotesFromCard(normalized?.fields);
@@ -612,7 +642,7 @@ export default function Deliver() {
   const loadLotsForProduct = useCallback(
     async (product) => {
       if (isAdmin && !effectiveBranchCode) {
-        return { lotCacheKey: "", lots: [] };
+        return { lotCacheKey: "", lots: [], source: "missing-branch", cachedAt: null, stale: true };
       }
 
       const productId = toCleanText(product?.id ?? product?.productId);
@@ -621,27 +651,46 @@ export default function Deliver() {
       );
       const lotCacheKey = buildLotCacheKey(productId, productCode, effectiveBranchCode);
       if (!lotCacheKey) {
-        return { lotCacheKey: "", lots: [] };
+        return { lotCacheKey: "", lots: [], source: "missing-key", cachedAt: null, stale: true };
       }
 
-      let cachedLots = lotOptionsCacheRef.current.get(lotCacheKey);
-      if (!cachedLots) {
-        cachedLots = await fetchProductLots({
+      if (!isOnline && lotOptionsCacheRef.current.has(lotCacheKey)) {
+        const memoryMeta = lotOptionsMetaCacheRef.current.get(lotCacheKey) || {};
+        return {
+          lotCacheKey,
+          lots: lotOptionsCacheRef.current.get(lotCacheKey) || [],
+          ...memoryMeta,
+          source: "cache",
+          cachedAt: memoryMeta.cachedAt || null,
+          stale: Boolean(memoryMeta.stale),
+        };
+      }
+
+      const result = await getProductLotsWithCache(
+        {
           productId,
           productCode,
           branchCode: effectiveBranchCode,
-        });
-        lotOptionsCacheRef.current.set(lotCacheKey, cachedLots);
-      }
+        },
+        { preferCache: !isOnline }
+      );
+      const lots = Array.isArray(result?.lots) ? result.lots : [];
+      lotOptionsCacheRef.current.set(lotCacheKey, lots);
+      lotOptionsMetaCacheRef.current.set(lotCacheKey, {
+        source: result?.source || "cache",
+        cachedAt: result?.cachedAt || null,
+        stale: Boolean(result?.stale),
+        error: result?.error || "",
+      });
 
-      return { lotCacheKey, lots: cachedLots };
+      return { lotCacheKey, ...result, lots };
     },
-    [effectiveBranchCode, isAdmin]
+    [effectiveBranchCode, isAdmin, isOnline]
   );
 
   const syncProductMeta = useCallback(
     async (product) => {
-      const metadata = await hydrateProductMetadata(product);
+      const metadata = await hydrateProductMetadata(product, { preferServer: isOnline });
       const source = metadata || product;
       const itemName = toCleanText(source?.name || product?.name);
       const itemKey = getItemIdentity(source || product);
@@ -672,6 +721,16 @@ export default function Deliver() {
       if (!lotCacheKey) {
         setLotOptions([]);
         setSelectedLotId("");
+        setActiveMetadataCacheStatus({
+          productName: itemName,
+          reportTypeCount: nextReportOptions.length,
+          lotCount: 0,
+          lotCacheKey: "",
+          source: isAdmin && !effectiveBranchCode ? "missing-branch" : "missing-key",
+          cachedAt: null,
+          stale: true,
+          error: "",
+        });
         if (itemKey) {
           setItems((prev) =>
             prev.map((item) =>
@@ -691,14 +750,41 @@ export default function Deliver() {
       }
 
       let cachedLots = [];
+      let lotStatus = {
+        lotCacheKey,
+        source: "missing-cache",
+        cachedAt: null,
+        stale: true,
+        error: "",
+      };
       try {
         const result = await loadLotsForProduct({ id: productId, productCode });
         cachedLots = Array.isArray(result?.lots) ? result.lots : [];
+        lotStatus = {
+          lotCacheKey,
+          source: result?.source || "cache",
+          cachedAt: result?.cachedAt || null,
+          stale: Boolean(result?.stale),
+          error: result?.error || "",
+        };
       } catch {
         cachedLots = [];
+        lotStatus = {
+          lotCacheKey,
+          source: isOnline ? "error" : "missing-cache",
+          cachedAt: null,
+          stale: true,
+          error: "",
+        };
       }
 
       setLotOptions(cachedLots);
+      setActiveMetadataCacheStatus({
+        productName: itemName,
+        reportTypeCount: nextReportOptions.length,
+        lotCount: cachedLots.length,
+        ...lotStatus,
+      });
       const { lotId: resolvedLotId, lotNo: resolvedLotNo, lotExpDate: resolvedLotExpDate } =
         resolveLotSelection(cachedLots, {
           preferredLotId: matchingItem?.lotId || selectedLotId,
@@ -726,6 +812,8 @@ export default function Deliver() {
     [
       buildReportTypeOptions,
       effectiveBranchCode,
+      isAdmin,
+      isOnline,
       items,
       loadLotsForProduct,
       selectedLotId,
@@ -743,10 +831,12 @@ export default function Deliver() {
       if (!currentItems.length) {
         setLotOptions([]);
         setSelectedLotId("");
+        setActiveMetadataCacheStatus(null);
         return;
       }
 
       const lotsByProductKey = new Map();
+      const lotStatusByProductKey = new Map();
 
       for (const item of currentItems) {
         const productId = toCleanText(item?.id);
@@ -760,9 +850,21 @@ export default function Deliver() {
           const result = await loadLotsForProduct({ id: productId, productCode });
           if (cancelled) return;
           lotsByProductKey.set(productKey, Array.isArray(result?.lots) ? result.lots : []);
+          lotStatusByProductKey.set(productKey, {
+            source: result?.source || "cache",
+            cachedAt: result?.cachedAt || null,
+            stale: Boolean(result?.stale),
+            error: result?.error || "",
+          });
         } catch {
           if (cancelled) return;
           lotsByProductKey.set(productKey, []);
+          lotStatusByProductKey.set(productKey, {
+            source: isOnline ? "error" : "missing-cache",
+            cachedAt: null,
+            stale: true,
+            error: "",
+          });
         }
       }
 
@@ -794,6 +896,7 @@ export default function Deliver() {
       if (!activeKey) {
         setLotOptions([]);
         setSelectedLotId("");
+        setActiveMetadataCacheStatus(null);
         return;
       }
 
@@ -802,6 +905,7 @@ export default function Deliver() {
       if (!activeItem) {
         setLotOptions([]);
         setSelectedLotId("");
+        setActiveMetadataCacheStatus(null);
         return;
       }
 
@@ -817,6 +921,22 @@ export default function Deliver() {
 
       setLotOptions(activeLots);
       setSelectedLotId(nextActiveLotSelection.lotId);
+      setActiveMetadataCacheStatus({
+        productName: toCleanText(activeItem?.name),
+        reportTypeCount: buildReportTypeOptions(activeItem).length,
+        lotCount: activeLots.length,
+        lotCacheKey: buildLotCacheKey(
+          activeItem?.id,
+          activeItem?.productCode ?? activeItem?.companyCode ?? activeItem?.product_code ?? "",
+          effectiveBranchCode
+        ),
+        ...(lotStatusByProductKey.get(activeProductKey) || {
+          source: isOnline ? "error" : "missing-cache",
+          cachedAt: null,
+          stale: true,
+          error: "",
+        }),
+      });
     };
 
     void revalidateLotsForBranch();
@@ -824,7 +944,7 @@ export default function Deliver() {
     return () => {
       cancelled = true;
     };
-  }, [effectiveBranchCode, isAdmin, loadLotsForProduct]);
+  }, [buildReportTypeOptions, effectiveBranchCode, isAdmin, isOnline, loadLotsForProduct]);
 
   const parseMultiplier = useCallback((rawValue) => {
     const normalized = String(rawValue ?? "").trim();
@@ -1072,6 +1192,7 @@ export default function Deliver() {
         setSelectedReportType("");
         setLotOptions([]);
         setSelectedLotId("");
+        setActiveMetadataCacheStatus(null);
       }
     },
     [activeItemKey]
@@ -1137,6 +1258,33 @@ export default function Deliver() {
     return matched.name ? `${matched.code} : ${matched.name}` : matched.code;
   }, [branchOptions, effectiveBranchCode, isAdmin]);
 
+  const activeMetadataCacheMessage = useMemo(() => {
+    if (!selectedProductName || !activeMetadataCacheStatus) return "";
+
+    const source = toCleanText(activeMetadataCacheStatus.source);
+    const cachedAtLabel = formatMetadataCacheTime(activeMetadataCacheStatus.cachedAt);
+    const suffix = cachedAtLabel ? ` (${cachedAtLabel})` : "";
+    const stalePrefix = activeMetadataCacheStatus.stale ? "ข้อมูล cache เกิน 12 ชั่วโมง: " : "";
+
+    if (source === "server") {
+      return "ออนไลน์: ดึง report/lot จาก backend แล้ว และบันทึก cache สำหรับโหมดออฟไลน์";
+    }
+    if (source === "cache") {
+      return `${stalePrefix}ใช้ report/lot จาก local cache${suffix}`;
+    }
+    if (source === "missing-branch") {
+      return "กรุณาเลือกสาขาก่อน ระบบจึงจะดึงหรือใช้ cache ของ lot ได้";
+    }
+    if (source === "missing-cache" || source === "missing-key") {
+      return "ยังไม่มี local cache ของ report/lot สำหรับสินค้านี้";
+    }
+    if (source === "error") {
+      return activeMetadataCacheStatus.error || "ไม่สามารถโหลด report/lot จาก backend และไม่มี cache ในเครื่องนี้";
+    }
+
+    return "";
+  }, [activeMetadataCacheStatus, selectedProductName]);
+
   const resetDispenseForm = useCallback(() => {
     setItems([]);
     setPendingMultiplier(null);
@@ -1152,6 +1300,7 @@ export default function Deliver() {
     setSelectedBranchCode(userBranchCode);
     setSelectedProductName("");
     setActiveItemKey("");
+    setActiveMetadataCacheStatus(null);
     if (barcodeInputRef.current) {
       barcodeInputRef.current.value = "";
       barcodeInputRef.current.focus();
@@ -1171,6 +1320,22 @@ export default function Deliver() {
         patient: { ...(payload?.patient || {}) },
         deliverNotesRaw: toCleanText(payload?.deliverNotesRaw),
         offlineReason: reason,
+        offlineMetadata: {
+          source: "DELIVER_METADATA_LOCAL_CACHE",
+          capturedAt: new Date().toISOString(),
+          cacheTtlMs: DELIVERY_METADATA_CACHE_TTL_MS,
+          lines: (Array.isArray(offlinePayload.lines) ? offlinePayload.lines : []).map(
+            (line) => ({
+              productId: toCleanText(line?.productId),
+              productCode: toCleanText(line?.productCode),
+              reportType: toCleanText(line?.reportType).toUpperCase(),
+              lotId: toCleanText(line?.lotId),
+              lotNo: toCleanText(line?.lotNo),
+              lotCachedAt: line?.metadataSnapshot?.lotCachedAt || null,
+              lotSource: line?.metadataSnapshot?.lotSource || null,
+            })
+          ),
+        },
         userSnapshot: {
           id: toCleanText(user?.id),
           username: toCleanText(user?.username),
@@ -1222,6 +1387,16 @@ export default function Deliver() {
       const cachedLotOptions = lotCacheKey
         ? lotOptionsCacheRef.current.get(lotCacheKey) || []
         : [];
+      const lotMeta = lotCacheKey ? lotOptionsMetaCacheRef.current.get(lotCacheKey) || null : null;
+      const lotId = toCleanText(item?.lotId);
+      const lotNo = toCleanText(item?.lotNo);
+
+      if (!SUPPORTED_REPORT_TYPES.has(reportType)) {
+        validationErrors.push(`${rowLabel} กรุณาระบุประเภทรายงาน KY10/KY11 ก่อนยืนยัน`);
+      }
+      if (!lotId && !lotNo) {
+        validationErrors.push(`${rowLabel} กรุณาเลือกเลข lot number ก่อนยืนยัน`);
+      }
 
       lines.push({
         productId,
@@ -1230,13 +1405,21 @@ export default function Deliver() {
         qty,
         unitLabel,
         barcode: toCleanText(item?.barcode) || undefined,
-        lotId: toCleanText(item?.lotId) || undefined,
-        lotNo: toCleanText(item?.lotNo) || undefined,
+        lotId: lotId || undefined,
+        lotNo: lotNo || undefined,
         lotExpDate: toCleanText(item?.lotExpDate) || undefined,
         lotOptions: normalizeLotOptionsForPending(cachedLotOptions, item),
         price: Number(item?.price || 0),
         reportType: SUPPORTED_REPORT_TYPES.has(reportType) ? reportType : undefined,
         note: buildLineNote(item, reportType),
+        metadataSnapshot: {
+          source: isOnline ? "online-backend" : "offline-cache",
+          lotCacheKey,
+          lotSource: lotMeta?.source || null,
+          lotCachedAt: lotMeta?.cachedAt || null,
+          lotCacheStale: Boolean(lotMeta?.stale),
+          reportGroupCodes: normalizeReportGroupCodes(item?.reportGroupCodes),
+        },
       });
     });
 
@@ -1324,6 +1507,7 @@ export default function Deliver() {
     effectiveBranchCode,
     hasCapturedSmartcardData,
     isAdmin,
+    isOnline,
     isLoadingBranches,
     items,
     parsedNotes,
@@ -1500,6 +1684,15 @@ export default function Deliver() {
     [updatePendingReviewLine]
   );
 
+  const handlePendingLineReportTypeChange = useCallback(
+    (lineIndex, value) => {
+      updatePendingReviewLine(lineIndex, {
+        reportType: toCleanText(value).toUpperCase(),
+      });
+    },
+    [updatePendingReviewLine]
+  );
+
   const handlePendingLineLotChange = useCallback(
     (lineIndex, lotId) => {
       updatePendingReviewLine(lineIndex, (line) => {
@@ -1543,12 +1736,20 @@ export default function Deliver() {
       const qty = Number(line?.qty);
       const unitLabel = toCleanText(line?.unitLabel);
       const reportType = toCleanText(line?.reportType).toUpperCase();
+      const lotId = toCleanText(line?.lotId);
+      const lotNo = toCleanText(line?.lotNo);
 
       if (!productId) validationErrors.push(`${rowLabel} ไม่มี productId`);
       if (!Number.isFinite(qty) || qty <= 0) {
         validationErrors.push(`${rowLabel} จำนวนต้องมากกว่า 0`);
       }
       if (!unitLabel) validationErrors.push(`${rowLabel} ไม่มีหน่วย`);
+      if (!SUPPORTED_REPORT_TYPES.has(reportType)) {
+        validationErrors.push(`${rowLabel} ไม่มีประเภทรายงาน KY10/KY11`);
+      }
+      if (!lotId && !lotNo) {
+        validationErrors.push(`${rowLabel} ไม่มีเลข lot number`);
+      }
 
       return {
         productId,
@@ -1557,8 +1758,8 @@ export default function Deliver() {
         qty,
         unitLabel,
         barcode: toCleanText(line?.barcode) || undefined,
-        lotId: toCleanText(line?.lotId) || undefined,
-        lotNo: toCleanText(line?.lotNo) || undefined,
+        lotId: lotId || undefined,
+        lotNo: lotNo || undefined,
         lotExpDate: toCleanText(line?.lotExpDate) || undefined,
         reportType: SUPPORTED_REPORT_TYPES.has(reportType) ? reportType : undefined,
         note: buildLineNote(line, reportType),
@@ -2037,6 +2238,21 @@ export default function Deliver() {
                             })}
                           </select>
                         </div>
+
+                        {activeMetadataCacheMessage ? (
+                          <div
+                            className={`pos-notes-help pos-notes-cache-status${
+                              activeMetadataCacheStatus?.source === "server"
+                                ? " pos-notes-help--success"
+                                : activeMetadataCacheStatus?.source === "cache" &&
+                                  !activeMetadataCacheStatus?.stale
+                                ? ""
+                                : " pos-notes-help--warn"
+                            }`}
+                          >
+                            {activeMetadataCacheMessage}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -2337,6 +2553,7 @@ export default function Deliver() {
                   <div className="pos-pending-line-head">
                     <div>ยา</div>
                     <div>จำนวน</div>
+                    <div>ประเภทรายงาน</div>
                     <div>เลข lot</div>
                     <div>จัดการ</div>
                   </div>
@@ -2366,6 +2583,23 @@ export default function Deliver() {
                               }
                               disabled={isSyncingPending}
                             />
+                          </div>
+                          <div>
+                            <select
+                              className="pos-notes-select"
+                              value={toCleanText(line?.reportType).toUpperCase()}
+                              onChange={(event) =>
+                                handlePendingLineReportTypeChange(index, event.target.value)
+                              }
+                              disabled={isSyncingPending}
+                            >
+                              <option value="">เลือกประเภทรายงาน</option>
+                              {Object.entries(REPORT_TYPE_META).map(([code, label]) => (
+                                <option key={code} value={code}>
+                                  {label}
+                                </option>
+                              ))}
+                            </select>
                           </div>
                           <div>
                             <select

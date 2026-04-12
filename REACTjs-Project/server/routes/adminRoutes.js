@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { executeSql } from "../controllers/adminController.js";
+import { executeSql, getDatabaseSchema, listTableRows } from "../controllers/adminController.js";
 import {
   applyIncidentReportResolution,
   createIncidentReport,
@@ -27,6 +27,8 @@ router.patch(
   requireRole("ADMIN"),
   asyncHandler(updateIncidentReportStatus)
 );
+router.get("/db/schema", verifyToken, requireRole("ADMIN"), asyncHandler(getDatabaseSchema));
+router.get("/db/tables/:tableName/rows", verifyToken, requireRole("ADMIN"), asyncHandler(listTableRows));
 router.post("/sql/execute", verifyToken, requireRole("ADMIN"), asyncHandler(executeSql));
 
 export default router;

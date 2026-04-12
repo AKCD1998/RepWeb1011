@@ -287,6 +287,10 @@
   color: #bbf7d0;
 }
 
+.pos-notes-cache-status {
+  margin-top: 0;
+}
+
 .pos-smartcard-policy {
   display: grid;
   gap: 8px;
@@ -635,7 +639,7 @@
   align-items: center;
   display: grid;
   gap: 10px;
-  grid-template-columns: 1fr 130px 260px 80px;
+  grid-template-columns: 1fr 110px 190px 240px 80px;
   padding: 10px 0;
 }
 

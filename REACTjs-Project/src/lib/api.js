@@ -650,6 +650,34 @@ export const reportsApi = {
 };
 
 export const adminApi = {
+  databaseSchema() {
+    return requestJson({
+      method: "GET",
+      url: "/api/admin/db/schema",
+    });
+  },
+  tableRows(tableName, options = {}) {
+    const name = String(tableName || "").trim();
+    if (!name) {
+      throw new Error("tableName is required");
+    }
+
+    const params = {};
+    const limit = Number(options?.limit);
+    const offset = Number(options?.offset);
+    const orderBy = String(options?.orderBy || "").trim();
+    const order = String(options?.order || "").trim().toUpperCase();
+    if (Number.isFinite(limit)) params.limit = String(limit);
+    if (Number.isFinite(offset)) params.offset = String(offset);
+    if (orderBy) params.orderBy = orderBy;
+    if (order) params.order = order;
+
+    return requestJson({
+      method: "GET",
+      url: `/api/admin/db/tables/${encodeURIComponent(name)}/rows`,
+      params: Object.keys(params).length ? params : undefined,
+    });
+  },
   executeSql(sql) {
     const text = String(sql ?? "").trim();
     if (!text) {

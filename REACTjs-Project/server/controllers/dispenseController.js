@@ -139,6 +139,33 @@ async function resolveLotIdForDispenseLine(client, { productId, lotIdInput, lotN
   return lotResult.rows[0].id;
 }
 
+async function assertReportGroupAllowedForProduct(client, { productId, reportType }) {
+  const normalizedReportType = toCleanText(reportType).toUpperCase();
+  if (!normalizedReportType) return;
+
+  const result = await client.query(
+    `
+      SELECT 1
+      FROM product_report_groups prg
+      JOIN report_groups rg ON rg.id = prg.report_group_id
+      WHERE prg.product_id = $1
+        AND rg.code = $2
+        AND rg.is_active = true
+        AND prg.effective_from <= CURRENT_DATE
+        AND (prg.effective_to IS NULL OR prg.effective_to > CURRENT_DATE)
+      LIMIT 1
+    `,
+    [productId, normalizedReportType]
+  );
+
+  if (!result.rows[0]) {
+    throw httpError(
+      400,
+      `reportType ${normalizedReportType} is not active for product ${productId}`
+    );
+  }
+}
+
 export async function createDispense(req, res) {
   const branchCodeInput = toCleanText(req.body?.branchCode);
   const lines = Array.isArray(req.body?.lines) ? req.body.lines : [];
@@ -202,10 +229,15 @@ export async function createDispense(req, res) {
       const productId = toCleanText(line?.productId);
       const qty = toPositiveNumeric(line?.qty, "qty");
       const unitLabel = toCleanText(line?.unitLabel);
+      const lineReportType = toCleanText(line?.reportType || reportType).toUpperCase();
       if (!unitLabel) throw httpError(400, "unitLabel is required");
       if (!productId) throw httpError(400, "productId is required");
 
       await ensureProductExists(client, productId);
+      await assertReportGroupAllowedForProduct(client, {
+        productId,
+        reportType: lineReportType,
+      });
       const unitLevel = await ensureProductUnitLevel(client, productId, unitLabel, line || {});
       const baseUnitLevel = await resolveProductBaseUnitLevel(client, productId);
       const quantityBase = convertToBase(qty, unitLevel);
@@ -215,6 +247,9 @@ export async function createDispense(req, res) {
         lotIdInput: line?.lotId,
         lotNoInput: line?.lotNo,
       });
+      if (lineReportType && !lotId) {
+        throw httpError(400, `lotId or lotNo is required for ${lineReportType} dispense`);
+      }
       if (lotId) {
         await assertLotBelongsToProduct(client, productId, lotId);
       }
@@ -309,7 +344,7 @@ export async function createDispense(req, res) {
         quantity: qty,
         quantityBase: -quantityBase,
         unitLabel,
-        reportType: reportType || null,
+        reportType: lineReportType || null,
       });
 
       lineNo += 1;
