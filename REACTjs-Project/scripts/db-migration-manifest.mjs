@@ -68,6 +68,85 @@ export const migrationManifest = {
       };
     },
   },
+  "0023_stock_movement_delete_audits.sql": {
+    fileName: "0023_stock_movement_delete_audits.sql",
+    description:
+      "Adds stock_movement_delete_audits so admin-deleted manual receive transactions keep an audit snapshot and stock reversal trace.",
+    checkMode: "schema-probe",
+    probeQuery: `
+      SELECT
+        to_regclass('public.stock_movements') IS NOT NULL AS has_stock_movements,
+        to_regclass('public.stock_movement_delete_audits') IS NOT NULL AS has_delete_audits_table,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'stock_movement_delete_audits'
+            AND column_name = 'deleted_movement_id'
+        ) AS has_deleted_movement_id_column,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'stock_movement_delete_audits'
+            AND column_name = 'movement_snapshot'
+        ) AS has_movement_snapshot_column,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'stock_movement_delete_audits'
+            AND column_name = 'reversed_delta_qty_base'
+        ) AS has_reversed_delta_qty_base_column,
+        EXISTS (
+          SELECT 1
+          FROM pg_indexes
+          WHERE schemaname = 'public'
+            AND indexname = 'idx_stock_movement_delete_audits_deleted_at'
+        ) AS has_deleted_at_index
+    `,
+    interpretProbe(row) {
+      const prerequisitesMet = Boolean(row?.has_stock_movements);
+      const applied = Boolean(
+        row?.has_delete_audits_table &&
+          row?.has_deleted_movement_id_column &&
+          row?.has_movement_snapshot_column &&
+          row?.has_reversed_delta_qty_base_column &&
+          row?.has_deleted_at_index
+      );
+
+      return {
+        applied,
+        prerequisitesMet,
+        details: [
+          {
+            label: "stock_movements table",
+            ok: prerequisitesMet,
+          },
+          {
+            label: "stock_movement_delete_audits table",
+            ok: Boolean(row?.has_delete_audits_table),
+          },
+          {
+            label: "deleted_movement_id column",
+            ok: Boolean(row?.has_deleted_movement_id_column),
+          },
+          {
+            label: "movement_snapshot column",
+            ok: Boolean(row?.has_movement_snapshot_column),
+          },
+          {
+            label: "reversed_delta_qty_base column",
+            ok: Boolean(row?.has_reversed_delta_qty_base_column),
+          },
+          {
+            label: "deleted_at index",
+            ok: Boolean(row?.has_deleted_at_index),
+          },
+        ],
+      };
+    },
+  },
 };
 
 export function getManagedMigrationDefinition(fileName) {

@@ -403,6 +403,27 @@ export const inventoryApi = {
       },
     });
   },
+  async deleteMovement(id, payload = {}) {
+    const movementId = String(id || "").trim();
+    const reason = String(payload.reason ?? payload.reasonText ?? payload.reason_text ?? "").trim();
+
+    if (!movementId) {
+      throw new Error("movement id is required");
+    }
+    if (!reason) {
+      throw new Error("reason is required");
+    }
+
+    const response = await requestJson({
+      method: "DELETE",
+      url: `/api/inventory/movements/${encodeURIComponent(movementId)}`,
+      data: {
+        reason,
+      },
+    });
+    emitInventoryChanged();
+    return response;
+  },
   receive(payload) {
     return requestJson({
       method: "POST",

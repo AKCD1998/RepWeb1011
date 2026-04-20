@@ -1,0 +1,21 @@
+
+> rx1011-react@0.0.0 dev:full
+> concurrently -k "npm run server" "npm run dev"
+
+[0] 
+[0] > rx1011-react@0.0.0 server
+[0] > node server/index.js
+[0] 
+[1] 
+[1] > rx1011-react@0.0.0 dev
+[1] > vite
+[1] 
+[0] Server listening on http://localhost:5050 (ready)
+[0] Loaded env from: C:\Users\scgro\Desktop\Webapp training project\Rx1011\REACTjs-Project\server\.env
+[1] 
+[1]   [32m[1mVITE[22m v7.3.2[39m  [2mready in [0m[1m287[22m[2m[0m ms[22m
+[1] 
+[1]   [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5173[22m/[39m
+[1] [2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[1] [2m10:49:35[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Receiving.jsx[22m
+[1] [2m10:49:41[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Receiving.css[22m

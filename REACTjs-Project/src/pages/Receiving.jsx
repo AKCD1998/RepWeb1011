@@ -269,6 +269,29 @@ function normalizeUnitOptionsResponse(response) {
     });
 }
 
+function normalizeProductSearchResults(rows, limit = PRODUCT_SEARCH_LIMIT) {
+  return (Array.isArray(rows) ? rows : [])
+    .slice(0, limit)
+    .map((row) => ({
+      id: toCleanText(row?.id),
+      tradeName: toCleanText(row?.tradeName || row?.productName || row?.product_name || "-"),
+      productCode: toCleanText(row?.productCode || row?.product_code || "-"),
+      barcode: toCleanText(row?.barcode || "-"),
+      genericName: toCleanText(row?.genericName || row?.generic_name),
+      manufacturerName: toCleanText(row?.manufacturerName || "-"),
+      packageSize: toCleanText(row?.packageSize || row?.package_size),
+      unitSymbol: toCleanText(row?.unitSymbol || ""),
+    }))
+    .filter((row) => row.id);
+}
+
+function getProductResultLabel(product) {
+  const productCode = toCleanText(product?.productCode);
+  const tradeName = toCleanText(product?.tradeName);
+  if (productCode && tradeName) return `${productCode} : ${tradeName}`;
+  return productCode || tradeName || "-";
+}
+
 function parseRequestedQuantityBase(line, unitOption) {
   const qtyNumber = Number(line?.qty);
   const quantityPerBase = Number(unitOption?.quantityPerBase);
@@ -474,6 +497,7 @@ export default function Receiving() {
   const [isOccurredAtCorrectionModalOpen, setIsOccurredAtCorrectionModalOpen] = useState(false);
   const [isSavingMovement, setIsSavingMovement] = useState(false);
   const [isSavingOccurredAtCorrection, setIsSavingOccurredAtCorrection] = useState(false);
+  const [isDeletingMovementId, setIsDeletingMovementId] = useState("");
   const [isSearchingProduct, setIsSearchingProduct] = useState(false);
   const [productSearchResults, setProductSearchResults] = useState([]);
   const [productSearchError, setProductSearchError] = useState("");
@@ -490,6 +514,11 @@ export default function Receiving() {
   const [formErrors, setFormErrors] = useState({});
   const [lineErrors, setLineErrors] = useState({});
   const [pageError, setPageError] = useState("");
+  const [movementSearchTerm, setMovementSearchTerm] = useState("");
+  const [movementSearchResults, setMovementSearchResults] = useState([]);
+  const [movementSearchSelectedProduct, setMovementSearchSelectedProduct] = useState(null);
+  const [movementSearchStatus, setMovementSearchStatus] = useState("");
+  const [isSearchingMovementProduct, setIsSearchingMovementProduct] = useState(false);
   const [productSearchStatus, setProductSearchStatus] = useState("");
   const [lineUnitOptionsById, setLineUnitOptionsById] = useState({});
   const [lineUnitLoadingById, setLineUnitLoadingById] = useState({});
@@ -500,8 +529,20 @@ export default function Receiving() {
   const lineUnitRequestSeqRef = useRef({});
   const transferLotRequestSeqRef = useRef(0);
 
-  const tableColumns = ["เวลา", "สินค้า", "รหัสสินค้า", "Lot", "ประเภท", "การเปลี่ยนแปลงสต๊อก"];
-  const totalText = useMemo(() => `รวม ${movements.length} รายการ`, [movements.length]);
+  const tableColumns = useMemo(() => {
+    const baseColumns = ["เวลา", "สินค้า", "รหัสสินค้า", "Lot", "ประเภท", "การเปลี่ยนแปลงสต๊อก"];
+    return isAdmin ? [...baseColumns, "Transaction ID / จัดการ"] : baseColumns;
+  }, [isAdmin]);
+  const movementSearchProductId = toCleanText(movementSearchSelectedProduct?.id);
+  const movementSearchProductLabel = useMemo(
+    () => getProductResultLabel(movementSearchSelectedProduct),
+    [movementSearchSelectedProduct]
+  );
+  const totalText = useMemo(() => {
+    const countText = `รวม ${movements.length} รายการ`;
+    if (!movementSearchProductId) return countText;
+    return `${countText} • ${movementSearchProductLabel}`;
+  }, [movementSearchProductId, movementSearchProductLabel, movements.length]);
   const locationMap = useMemo(() => {
     return new Map(
       locations.map((location) => {
@@ -629,7 +670,8 @@ export default function Receiving() {
     try {
       const rows = await inventoryApi.listMovements({
         location_id: viewerLocationId || undefined,
-        limit: 100,
+        productId: movementSearchProductId || undefined,
+        limit: movementSearchProductId ? 1000 : 100,
       });
       const normalized = (Array.isArray(rows) ? rows : [])
         .map(mapMovementRecord)
@@ -641,7 +683,7 @@ export default function Receiving() {
     } finally {
       setIsLoadingMovements(false);
     }
-  }, [isAdmin, viewerLocationId]);
+  }, [isAdmin, movementSearchProductId, viewerLocationId]);
 
   const loadLocations = useCallback(async () => {
     setIsLoadingLocations(true);
@@ -775,6 +817,118 @@ export default function Receiving() {
     setOccurredAtCorrectionForm(createInitialOccurredAtCorrectionForm(null));
     setOccurredAtCorrectionErrors({});
     setIsOccurredAtCorrectionModalOpen(false);
+  }
+
+  function handleMovementSearchInputChange(event) {
+    setMovementSearchTerm(event.target.value);
+    setMovementSearchResults([]);
+    setMovementSearchStatus("");
+  }
+
+  function handleSelectMovementSearchProduct(product) {
+    const nextProduct = {
+      id: toCleanText(product?.id),
+      tradeName: toCleanText(product?.tradeName),
+      productCode: toCleanText(product?.productCode),
+      barcode: toCleanText(product?.barcode),
+      manufacturerName: toCleanText(product?.manufacturerName),
+    };
+    if (!nextProduct.id) return;
+
+    setMovementSearchSelectedProduct(nextProduct);
+    setMovementSearchTerm(getProductResultLabel(nextProduct));
+    setMovementSearchResults([]);
+    setMovementSearchStatus(`กำลังแสดงการเคลื่อนไหวของ ${getProductResultLabel(nextProduct)}`);
+    setPageError("");
+  }
+
+  function clearMovementProductFilter() {
+    setMovementSearchTerm("");
+    setMovementSearchResults([]);
+    setMovementSearchSelectedProduct(null);
+    setMovementSearchStatus("ล้างตัวกรองสินค้าแล้ว");
+    setPageError("");
+  }
+
+  async function handleMovementProductSearch(event) {
+    event.preventDefault();
+    const keyword = toCleanText(movementSearchTerm);
+    if (!keyword) {
+      setMovementSearchResults([]);
+      setMovementSearchStatus("กรุณากรอกชื่อยา รหัสสินค้า บริษัท หรือบาร์โค้ดก่อนค้นหา");
+      return;
+    }
+
+    setIsSearchingMovementProduct(true);
+    setMovementSearchResults([]);
+    setMovementSearchStatus("");
+
+    try {
+      const rows = await productsApi.list(keyword);
+      const results = normalizeProductSearchResults(rows, 10);
+      if (!results.length) {
+        setMovementSearchStatus("ไม่พบสินค้าที่ตรงกับคำค้นหา");
+        return;
+      }
+
+      if (results.length === 1) {
+        handleSelectMovementSearchProduct(results[0]);
+        return;
+      }
+
+      setMovementSearchResults(results);
+      setMovementSearchStatus(`พบ ${results.length} รายการ โปรดเลือกสินค้าที่ต้องการดูการเคลื่อนไหว`);
+    } catch (error) {
+      setMovementSearchStatus(error?.message || "ค้นหาสินค้าไม่สำเร็จ");
+    } finally {
+      setIsSearchingMovementProduct(false);
+    }
+  }
+
+  function canDeleteMovement(movement) {
+    return (
+      isAdmin &&
+      toCleanText(movement?.id) &&
+      String(movement?.movementType || "").toUpperCase() === "RECEIVE" &&
+      !toCleanText(movement?.sourceRefType)
+    );
+  }
+
+  async function handleDeleteMovement(movement) {
+    const movementId = toCleanText(movement?.id);
+    if (!movementId || isDeletingMovementId) return;
+
+    if (!canDeleteMovement(movement)) {
+      setPageError("ลบได้เฉพาะรายการรับเข้า manual ที่ไม่ได้ผูกกับกระดิ่งหรือ workflow อื่น");
+      return;
+    }
+
+    const reason = window.prompt(
+      `ระบุเหตุผลในการลบ transaction ${movementId}\nเช่น รับเข้าเองผิดช่องทาง แทนการกดรับจากกระดิ่ง`
+    );
+    if (reason === null) return;
+    const cleanReason = toCleanText(reason);
+    if (!cleanReason) {
+      setPageError("กรุณาระบุเหตุผลก่อนลบ transaction");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `ยืนยันลบ transaction ${movementId}?\nระบบจะลบแถว movement นี้, หัก stock ที่เคยรับเข้าออก, และเก็บ audit การลบไว้`
+    );
+    if (!confirmed) return;
+
+    setIsDeletingMovementId(movementId);
+    setPageError("");
+    try {
+      await inventoryApi.deleteMovement(movementId, { reason: cleanReason });
+      setMovementSearchStatus(`ลบ transaction ${movementId} แล้ว`);
+      await loadMovements();
+    } catch (error) {
+      setPageError(error?.message || "ลบ transaction ไม่สำเร็จ");
+    } finally {
+      setIsDeletingMovementId("");
+    }
   }
 
   useEffect(() => {
@@ -1738,18 +1892,70 @@ export default function Receiving() {
           <div className="section-header">
             <strong>สืบค้นรายการสินค้า</strong>
           </div>
-          <div className="search-row">
+          <form className="search-row" onSubmit={handleMovementProductSearch}>
             <label htmlFor="prodSearch">ข้อมูลค้นหา</label>
             <input
               id="prodSearch"
               type="text"
               className="qinput"
+              value={movementSearchTerm}
+              onChange={handleMovementSearchInputChange}
               placeholder="ชื่อสามัญ / บริษัท / บาร์โค้ด"
             />
-            <button type="button" className="btn btn--accent" id="btnSearch">
-              🔎 ค้นหา
+            <button
+              type="submit"
+              className="btn btn--accent"
+              id="btnSearch"
+              disabled={isSearchingMovementProduct}
+            >
+              {isSearchingMovementProduct ? "กำลังค้นหา..." : "ค้นหา"}
             </button>
-          </div>
+          </form>
+
+          {movementSearchStatus ? (
+            <div className="movement-search-status search-panel-status">{movementSearchStatus}</div>
+          ) : null}
+
+          {movementSearchSelectedProduct ? (
+            <div className="movement-product-filter">
+              <div>
+                <strong>ตัวกรองสินค้า</strong>
+                <span>{movementSearchProductLabel}</span>
+              </div>
+              <button type="button" className="movement-filter-clear" onClick={clearMovementProductFilter}>
+                ล้างตัวกรอง
+              </button>
+            </div>
+          ) : null}
+
+          {movementSearchResults.length > 0 ? (
+            <div
+              className="product-search-results movement-product-search-results"
+              role="region"
+              aria-label="ผลลัพธ์การค้นหาสินค้าสำหรับดูการเคลื่อนไหว"
+            >
+              {movementSearchResults.map((product) => {
+                const productId = toCleanText(product?.id);
+                const isSelected = productId && productId === movementSearchProductId;
+                return (
+                  <button
+                    key={productId}
+                    type="button"
+                    className={`product-search-result${isSelected ? " is-selected" : ""}`}
+                    onClick={() => handleSelectMovementSearchProduct(product)}
+                    aria-label={`ดูการเคลื่อนไหวของ ${toCleanText(product?.tradeName) || "-"}`}
+                  >
+                    <span className="product-search-result-name">{toCleanText(product?.tradeName) || "-"}</span>
+                    <span className="product-search-result-meta">
+                      รหัส: {toCleanText(product?.productCode) || "-"} | บาร์โค้ด:{" "}
+                      {toCleanText(product?.barcode) || "-"} | บริษัท:{" "}
+                      {toCleanText(product?.manufacturerName) || "-"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
         </section>
       </div>
 
@@ -1779,7 +1985,7 @@ export default function Receiving() {
       {pageError ? <div className="qcard page-error">{pageError}</div> : null}
 
       <div className="qcard results-card">
-        <div className="pos-table">
+        <div className={`pos-table${isAdmin ? " pos-table--admin" : ""}`}>
           <div className="thead">
             {tableColumns.map((label) => (
               <div key={label}>{label}</div>
@@ -1794,6 +2000,7 @@ export default function Receiving() {
                 <div className="center">...</div>
                 <div className="center">...</div>
                 <div className="right">...</div>
+                {isAdmin ? <div className="center">...</div> : null}
               </div>
             ) : movements.length > 0 ? (
               movements.map((movement, index) => (
@@ -1835,16 +2042,43 @@ export default function Receiving() {
                   >
                     {formatDeltaCompact(movement)}
                   </div>
+                  {isAdmin ? (
+                    <div className="movement-admin-cell">
+                      <span className="movement-transaction-id" title={movement?.id || "-"}>
+                        {movement?.id || "-"}
+                      </span>
+                      {toCleanText(movement?.sourceRefType) ? (
+                        <span className="movement-admin-note">
+                          source: {movement.sourceRefType}
+                        </span>
+                      ) : null}
+                      {canDeleteMovement(movement) ? (
+                        <button
+                          type="button"
+                          className="movement-inline-action movement-inline-action--danger"
+                          onClick={() => void handleDeleteMovement(movement)}
+                          disabled={isDeletingMovementId === movement.id}
+                        >
+                          {isDeletingMovementId === movement.id ? "กำลังลบ..." : "ลบรายการ"}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               ))
             ) : (
               <div className="row row--placeholder">
                 <div className="center">-</div>
-                <div>ยังไม่มีข้อมูลรายการเคลื่อนไหว</div>
+                <div>
+                  {movementSearchProductId
+                    ? "ไม่พบการเคลื่อนไหวของสินค้านี้ตามสิทธิ์สาขาที่กำลังดู"
+                    : "ยังไม่มีข้อมูลรายการเคลื่อนไหว"}
+                </div>
                 <div className="center">-</div>
                 <div className="center">-</div>
                 <div className="center">-</div>
                 <div className="right">-</div>
+                {isAdmin ? <div className="center">-</div> : null}
               </div>
             )}
           </div>

@@ -1,0 +1,123 @@
+{
+  "productCode": "IC-002106",
+  "product": {
+    "id": "23e3499a-6362-478e-993e-f005d0966116",
+    "productCode": "IC-002106",
+    "tradeName": "ULTRACET (อัลทราเซ็ท) TRAMADOL HYDROCHLORIDE 37.5 MG PARACETAMOL 325 MG 10 S",
+    "genericName": "PARACETAMOL + TRAMADOL HYDROCHLORIDE",
+    "isActive": true,
+    "manufacturerCode": "MFR_JANSSEN_CILAG_SPA",
+    "manufacturerName": "JANSSEN-CILAG SpA."
+  },
+  "units": [
+    {
+      "id": "2125b404-9538-4188-9e10-f3af590b61f1",
+      "code": "SELLABLE",
+      "displayName": "1 กล่อง x 1 แผง x 10 เม็ด",
+      "isBase": true,
+      "isSellable": true,
+      "isActive": true,
+      "sortOrder": 1,
+      "barcode": "8850583002821",
+      "unitKey": "UL|product=IC-002106|lvl=1|parent=0|qpp=1|qpb=1|base=TABLET|ut=TABLET"
+    }
+  ],
+  "barcode": "8850583002821",
+  "movements": [
+    {
+      "id": "436c3873-fdb8-4fb9-b96e-ae1705f8047d",
+      "movementType": "RECEIVE",
+      "occurredAt": "2026-03-30 12:22:07.42928+00",
+      "fromCode": "OFFICE_MAIN",
+      "fromName": "Head Office",
+      "toCode": "003",
+      "toName": "Branch 003",
+      "lotNo": "QDL4700",
+      "expDate": "2028-03-01",
+      "quantity": "2.000",
+      "quantityBase": "2.000000",
+      "unitLabel": "1 กล่อง x 1 แผง x 10 เม็ด",
+      "unitBarcode": "8850583002821",
+      "sourceRefType": null
+    },
+    {
+      "id": "78775d92-b0d0-4bfa-b73a-4de20b45cf93",
+      "movementType": "RECEIVE",
+      "occurredAt": "2026-04-01 09:38:00.816533+00",
+      "fromCode": "OFFICE_MAIN",
+      "fromName": "Head Office",
+      "toCode": "004",
+      "toName": "Branch 004",
+      "lotNo": "QDL5D00",
+      "expDate": "2028-03-01",
+      "quantity": "19.000",
+      "quantityBase": "19.000000",
+      "unitLabel": "1 กล่อง x 1 แผง x 10 เม็ด",
+      "unitBarcode": "8850583002821",
+      "sourceRefType": null
+    },
+    {
+      "id": "211a61f4-aeaa-4404-9713-6295ce174b26",
+      "movementType": "RECEIVE",
+      "occurredAt": "2026-04-01 11:46:18.518371+00",
+      "fromCode": null,
+      "fromName": null,
+      "toCode": "003",
+      "toName": "Branch 003",
+      "lotNo": "QDL5D00",
+      "expDate": "2028-01-03",
+      "quantity": "40.000",
+      "quantityBase": "40.000000",
+      "unitLabel": "1 กล่อง x 1 แผง x 10 เม็ด",
+      "unitBarcode": "8850583002821",
+      "sourceRefType": null
+    },
+    {
+      "id": "b531cf5b-1171-4f6d-864d-98ff6a13b531",
+      "movementType": "RECEIVE",
+      "occurredAt": "2026-04-04 05:41:41.983268+00",
+      "fromCode": "OFFICE_MAIN",
+      "fromName": "Head Office",
+      "toCode": "001",
+      "toName": "Branch 001",
+      "lotNo": "QDL5D00",
+      "expDate": "2028-03-01",
+      "quantity": "36.000",
+      "quantityBase": "36.000000",
+      "unitLabel": "1 กล่อง x 1 แผง x 10 เม็ด",
+      "unitBarcode": "8850583002821",
+      "sourceRefType": null
+    }
+  ],
+  "masterXlsx": "C:\\Users\\scgro\\Desktop\\Webapp training project\\Rx1011\\REACTjs-Project\\tmp\\fda-track-trace\\fda_track_trace_md_IC-002106_receive_all-branches_all-dates.xlsx",
+  "transactionTemplateXlsx": "C:\\Users\\scgro\\Desktop\\Webapp training project\\Rx1011\\REACTjs-Project\\tmp\\fda-track-trace\\transaction_sn_IC-002106_receive_all-branches_all-dates.xlsx",
+  "partnerMapping": {
+    "description": "Export-only mapping for FDA Track & Trace documents. These codes are not part of the normal RX1011 product/location workflow.",
+    "productPartnerCodes": {
+      "IC-002106": "S4-0019"
+    },
+    "barcodePartnerCodes": {
+      "8850583002821": "S4-0019"
+    },
+    "partners": {
+      "S4-0019": {
+        "รหัสคู่ค้า": "S4-0019",
+        "ชื่อคู่ค้า": "บริษัท ดีเคเอสเอช (ประเทศไทย) จำกัด",
+        "ประเภท": "ขย4 - บริษัท ดีเคเอสเอช (ประเทศไทย) จำกัด",
+        "สถานที่ตั้ง": "ผู้ขายยาแผนปัจจุบัน (ประเภท ขย4)",
+        "สถานะ": "คงอยู่"
+      }
+    }
+  },
+  "outputMasterXlsx": "C:\\Users\\scgro\\Desktop\\Webapp training project\\Rx1011\\REACTjs-Project\\tmp\\fda-track-trace\\verify\\fda_track_trace_md_IC-002106_receive_all-branches_all-dates.xlsx",
+  "outputTransactionXlsx": "C:\\Users\\scgro\\Desktop\\Webapp training project\\Rx1011\\REACTjs-Project\\tmp\\fda-track-trace\\verify\\transaction_sn_IC-002106_receive_all-branches_all-dates.xlsx",
+  "outputReportJson": "C:\\Users\\scgro\\Desktop\\Webapp training project\\Rx1011\\REACTjs-Project\\tmp\\fda-track-trace\\verify\\match_report_IC-002106_receive_all-branches_all-dates.json",
+  "movementType": "RECEIVE",
+  "branchCode": null,
+  "dateFrom": null,
+  "dateTo": null,
+  "serialMode": "sequence",
+  "identifierType": "gtin",
+  "partnerCode": "",
+  "identifier": ""
+}

@@ -123,6 +123,60 @@
   font-weight: 700;
 }
 
+.receiving-page .search-panel-status {
+  margin-top: 10px;
+}
+
+.receiving-page .movement-product-filter {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #2c6f80;
+  background: #0b2b36;
+}
+
+.receiving-page .movement-product-filter div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.receiving-page .movement-product-filter strong {
+  font-size: 12px;
+  color: #aee5ee;
+}
+
+.receiving-page .movement-product-filter span {
+  color: #f8fafc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.receiving-page .movement-filter-clear {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid #7aa8b5;
+  background: #102a36;
+  color: #dff8ff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.receiving-page .movement-filter-clear:hover {
+  background: #173746;
+}
+
+.receiving-page .movement-product-search-results {
+  margin-top: 10px;
+}
+
 .receiving-page .actionTile {
   width: 100%;
   min-height: 165px;
@@ -253,8 +307,46 @@
   color: #ffffff;
 }
 
+.receiving-page .pos-table--admin .thead,
+.receiving-page .pos-table--admin .row {
+  grid-template-columns: 160px minmax(220px, 1fr) 120px 140px 140px 220px minmax(220px, 0.9fr);
+}
+
 .receiving-page .pos-table .row--placeholder {
   opacity: 0.85;
+}
+
+.receiving-page .movement-admin-cell {
+  display: grid;
+  gap: 6px;
+  align-items: center;
+  justify-items: start;
+  min-width: 0;
+}
+
+.receiving-page .movement-transaction-id {
+  max-width: 100%;
+  padding: 4px 7px;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  background: #0b1424;
+  color: #dbeafe;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-all;
+}
+
+.receiving-page .movement-admin-note {
+  max-width: 100%;
+  color: #95b8cf;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .receiving-page .movement-type-badge {
@@ -336,6 +428,21 @@
 
 .receiving-page .movement-inline-action:hover {
   background: rgba(20, 52, 81, 0.95);
+}
+
+.receiving-page .movement-inline-action--danger {
+  border-color: rgba(248, 113, 113, 0.52);
+  background: rgba(127, 29, 29, 0.78);
+  color: #fee2e2;
+}
+
+.receiving-page .movement-inline-action--danger:hover {
+  background: rgba(153, 27, 27, 0.9);
+}
+
+.receiving-page .movement-inline-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .receiving-page .movement-inline-action:focus-visible {
@@ -793,6 +900,11 @@
     grid-template-columns: 140px 1fr 100px 120px 120px 170px;
   }
 
+  .receiving-page .pos-table--admin .thead,
+  .receiving-page .pos-table--admin .row {
+    grid-template-columns: 140px minmax(190px, 1fr) 100px 120px 120px 170px minmax(190px, 0.9fr);
+  }
+
   .receiving-page .movement-lines-toolbar {
     flex-direction: column;
   }
@@ -841,6 +953,15 @@
 
   .receiving-page .movement-search-row {
     grid-template-columns: 1fr;
+  }
+
+  .receiving-page .movement-product-filter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .receiving-page .movement-filter-clear {
+    width: 100%;
   }
 
   .receiving-page .modal {

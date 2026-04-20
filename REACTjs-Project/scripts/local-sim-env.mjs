@@ -36,6 +36,7 @@ export const preSeedMigrations = [
   "0020_admin_incident_reports.sql",
   "0021_product_report_receive_unit_levels.sql",
   "0022_incident_report_resolution_actions.sql",
+  "0023_stock_movement_delete_audits.sql",
 ];
 
 export const postCatalogFixMigrations = [

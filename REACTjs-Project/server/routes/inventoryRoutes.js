@@ -3,6 +3,7 @@ import {
   acceptTransferRequest,
   createMovement,
   createMovementBatch,
+  deleteMovement,
   listTransferRequests,
   rejectTransferRequest,
   receiveInventory,
@@ -69,6 +70,12 @@ router.patch(
   verifyToken,
   requireRole("ADMIN"),
   asyncHandler(updateMovementOccurredAtCorrection)
+);
+router.delete(
+  "/movements/:id",
+  verifyToken,
+  requireRole("ADMIN"),
+  asyncHandler(deleteMovement)
 );
 
 export default router;

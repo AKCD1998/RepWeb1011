@@ -23,6 +23,7 @@ import { parseDateOnlyInput } from "../utils/dateOnly.js";
 const MOVEMENT_TYPES = new Set(["RECEIVE", "TRANSFER_OUT", "DISPENSE"]);
 const TRANSFER_REQUEST_SOURCE_REF = "TRANSFER_REQUEST";
 const TRANSFER_REQUEST_STATUSES = new Set(["PENDING", "ACCEPTED", "REJECTED"]);
+let hasStockMovementDeleteAuditsTableCache = null;
 const LOCATION_TYPES = new Set([
   "BRANCH",
   "OFFICE",
@@ -99,6 +100,29 @@ function normalizeTransferRequestStatus(value, fallback = "PENDING") {
     throw httpError(400, `Unsupported transfer request status: ${normalized}`);
   }
   return normalized;
+}
+
+async function hasStockMovementDeleteAuditsTable(client) {
+  if (hasStockMovementDeleteAuditsTableCache === true) {
+    return true;
+  }
+
+  const result = await client.query(
+    `
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = 'stock_movement_delete_audits'
+      LIMIT 1
+    `
+  );
+
+  if (result.rows[0]) {
+    hasStockMovementDeleteAuditsTableCache = true;
+    return true;
+  }
+
+  return false;
 }
 
 function composeTransferDecisionNote(baseNote, decisionLabel, reason) {
@@ -1733,6 +1757,214 @@ export async function updateMovementOccurredAtCorrection(req, res) {
       correctedOccurredAt: nextCorrectedOccurredAtIso,
       occurredAt: nextEffectiveOccurredAtIso,
       correctionCleared: nextCorrectedOccurredAtIso === null,
+    };
+  });
+
+  return res.json({
+    ok: true,
+    ...result,
+  });
+}
+
+export async function deleteMovement(req, res) {
+  const movementId = normalizeText(req.params?.id);
+  const reason = requireNonEmptyText(
+    req.body?.reason ?? req.body?.reasonText ?? req.body?.reason_text,
+    "reason"
+  );
+  const deletedByUserId = req.user?.id || req.body?.deletedByUserId || null;
+
+  if (!isUuid(movementId)) {
+    throw httpError(400, "movement id must be a valid UUID");
+  }
+
+  const result = await withTransaction(async (client) => {
+    if (!(await hasStockMovementDeleteAuditsTable(client))) {
+      throw httpError(503, "stock movement delete audit table is not deployed yet; run migration 0023 first");
+    }
+
+    const actorUserId = await resolveActorUserId(client, deletedByUserId);
+    const movementResult = await client.query(
+      `
+        SELECT
+          sm.id,
+          sm.movement_type AS "movementType",
+          sm.from_location_id AS "fromLocationId",
+          sm.to_location_id AS "toLocationId",
+          sm.product_id AS "productId",
+          sm.lot_id AS "lotId",
+          sm.quantity,
+          sm.quantity_base AS "quantityBase",
+          sm.unit_level_id AS "unitLevelId",
+          sm.dispense_line_id AS "dispenseLineId",
+          sm.source_ref_type AS "sourceRefType",
+          sm.source_ref_id AS "sourceRefId",
+          sm.occurred_at AS "occurredAt",
+          sm.created_by AS "createdBy",
+          sm.note_text AS "noteText",
+          sm.created_at AS "createdAt",
+          row_to_json(sm)::jsonb AS "movementSnapshot"
+        FROM stock_movements sm
+        WHERE sm.id = $1::uuid
+        FOR UPDATE
+        LIMIT 1
+      `,
+      [movementId]
+    );
+
+    const movement = movementResult.rows[0];
+    if (!movement) {
+      throw httpError(404, "Movement not found");
+    }
+
+    if (movement.movementType !== "RECEIVE") {
+      throw httpError(400, "Only manual RECEIVE movements can be deleted from this screen");
+    }
+    if (normalizeText(movement.sourceRefType)) {
+      throw httpError(409, "This movement is linked to another workflow and cannot be deleted directly");
+    }
+    if (movement.dispenseLineId) {
+      throw httpError(409, "This movement is linked to a dispense line and cannot be deleted directly");
+    }
+    if (!movement.toLocationId) {
+      throw httpError(400, "Stored RECEIVE movement is missing to_location_id");
+    }
+
+    const transferReferenceResult = await client.query(
+      `
+        SELECT EXISTS (
+          SELECT 1
+          FROM inventory_transfer_requests itr
+          WHERE itr.transfer_out_movement_id = $1::uuid
+             OR itr.transfer_in_movement_id = $1::uuid
+             OR itr.return_movement_id = $1::uuid
+        ) AS "hasTransferReference"
+      `,
+      [movementId]
+    );
+
+    let hasIncidentResolutionReference = false;
+    const incidentResolutionTableResult = await client.query(
+      `SELECT to_regclass('public.incident_report_resolution_actions') AS table_name`
+    );
+    if (incidentResolutionTableResult.rows[0]?.table_name) {
+      const incidentResolutionReferenceResult = await client.query(
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM incident_report_resolution_actions irra
+            WHERE irra.applied_stock_movement_id = $1::uuid
+          ) AS "hasIncidentResolutionReference"
+        `,
+        [movementId]
+      );
+      hasIncidentResolutionReference = Boolean(
+        incidentResolutionReferenceResult.rows[0]?.hasIncidentResolutionReference
+      );
+    }
+
+    if (transferReferenceResult.rows[0]?.hasTransferReference || hasIncidentResolutionReference) {
+      throw httpError(409, "This movement is referenced by another record and cannot be deleted directly");
+    }
+
+    const quantityBase = Number(movement.quantityBase);
+    if (!Number.isFinite(quantityBase) || quantityBase <= 0) {
+      throw httpError(500, "Stored RECEIVE movement has invalid quantity_base");
+    }
+
+    const baseUnitLevel = await resolveProductBaseUnitLevel(client, movement.productId);
+    const reversedDeltaQtyBase = -quantityBase;
+
+    await applyStockDelta(client, {
+      branchId: movement.toLocationId,
+      productId: movement.productId,
+      lotId: movement.lotId || null,
+      baseUnitLevelId: baseUnitLevel.id,
+      deltaQtyBase: reversedDeltaQtyBase,
+    });
+
+    const auditResult = await client.query(
+      `
+        INSERT INTO stock_movement_delete_audits (
+          deleted_movement_id,
+          movement_type,
+          product_id,
+          lot_id,
+          from_location_id,
+          to_location_id,
+          quantity,
+          quantity_base,
+          unit_level_id,
+          occurred_at,
+          source_ref_type,
+          source_ref_id,
+          note_text,
+          movement_snapshot,
+          reason_text,
+          reversed_branch_id,
+          reversed_delta_qty_base,
+          deleted_by,
+          deleted_at
+        )
+        VALUES (
+          $1::uuid,
+          $2::movement_type,
+          $3::uuid,
+          $4::uuid,
+          $5::uuid,
+          $6::uuid,
+          $7,
+          $8,
+          $9::uuid,
+          $10::timestamptz,
+          $11,
+          $12::uuid,
+          $13,
+          $14::jsonb,
+          $15,
+          $16::uuid,
+          $17,
+          $18::uuid,
+          now()
+        )
+        RETURNING id, deleted_at AS "deletedAt"
+      `,
+      [
+        movement.id,
+        movement.movementType,
+        movement.productId,
+        movement.lotId || null,
+        movement.fromLocationId || null,
+        movement.toLocationId,
+        movement.quantity,
+        movement.quantityBase,
+        movement.unitLevelId,
+        movement.occurredAt,
+        movement.sourceRefType || null,
+        movement.sourceRefId || null,
+        movement.noteText || null,
+        movement.movementSnapshot,
+        reason,
+        movement.toLocationId,
+        reversedDeltaQtyBase,
+        actorUserId,
+      ]
+    );
+
+    await client.query(
+      `
+        DELETE FROM stock_movements
+        WHERE id = $1::uuid
+      `,
+      [movementId]
+    );
+
+    return {
+      id: movementId,
+      deletedAuditId: auditResult.rows[0]?.id || null,
+      deletedAt: auditResult.rows[0]?.deletedAt || null,
+      reversedBranchId: movement.toLocationId,
+      reversedDeltaQtyBase,
     };
   });
 

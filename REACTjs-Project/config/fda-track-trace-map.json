@@ -1,0 +1,18 @@
+{
+  "description": "Export-only mapping for FDA Track & Trace documents. These codes are not part of the normal RX1011 product/location workflow.",
+  "productPartnerCodes": {
+    "IC-002106": "S4-0019"
+  },
+  "barcodePartnerCodes": {
+    "8850583002821": "S4-0019"
+  },
+  "partners": {
+    "S4-0019": {
+      "รหัสคู่ค้า": "S4-0019",
+      "ชื่อคู่ค้า": "บริษัท ดีเคเอสเอช (ประเทศไทย) จำกัด",
+      "ประเภท": "ขย4 - บริษัท ดีเคเอสเอช (ประเทศไทย) จำกัด",
+      "สถานที่ตั้ง": "ผู้ขายยาแผนปัจจุบัน (ประเภท ขย4)",
+      "สถานะ": "คงอยู่"
+    }
+  }
+}
