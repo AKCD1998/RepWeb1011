@@ -609,6 +609,33 @@ export default function Receiving() {
     () => getProductResultLabel(movementSearchSelectedProduct),
     [movementSearchSelectedProduct]
   );
+  const locationMap = useMemo(() => {
+    return new Map(
+      locations.map((location) => {
+        const id = toCleanText(location?.id);
+        return [id, location];
+      })
+    );
+  }, [locations]);
+  const locationOptions = useMemo(() => {
+    return locations.filter((location) => toCleanText(location?.id));
+  }, [locations]);
+  const movementBranchFilterOptions = useMemo(() => {
+    return locationOptions
+      .filter((location) => normalizeRole(location?.type || location?.location_type) === "BRANCH")
+      .filter((location) => ADMIN_MOVEMENT_BRANCH_CODES.has(toCleanText(location?.code)))
+      .sort((left, right) => toCleanText(left?.code).localeCompare(toCleanText(right?.code)));
+  }, [locationOptions]);
+  const selectedMovementBranch = useMemo(() => {
+    if (!movementBranchFilter) return null;
+    return (
+      movementBranchFilterOptions.find((location) => toCleanText(location?.id) === movementBranchFilter) ||
+      null
+    );
+  }, [movementBranchFilter, movementBranchFilterOptions]);
+  const selectedMovementBranchLabel = selectedMovementBranch
+    ? buildLocationLabel(selectedMovementBranch)
+    : "";
   const totalText = useMemo(() => {
     const parts = [`รวม ${movements.length} รายการ`];
     if (movementSearchProductId) {
@@ -646,33 +673,6 @@ export default function Receiving() {
 
     return `ไม่พบข้อมูลการเคลื่อนไหวสำหรับ${filterLabels.join(" และ ")}ตามสิทธิ์สาขาที่กำลังดู`;
   }, [movementSearchProductId, selectedMovementBranchLabel, selectedMovementTypeLabel]);
-  const locationMap = useMemo(() => {
-    return new Map(
-      locations.map((location) => {
-        const id = toCleanText(location?.id);
-        return [id, location];
-      })
-    );
-  }, [locations]);
-  const locationOptions = useMemo(() => {
-    return locations.filter((location) => toCleanText(location?.id));
-  }, [locations]);
-  const movementBranchFilterOptions = useMemo(() => {
-    return locationOptions
-      .filter((location) => normalizeRole(location?.type || location?.location_type) === "BRANCH")
-      .filter((location) => ADMIN_MOVEMENT_BRANCH_CODES.has(toCleanText(location?.code)))
-      .sort((left, right) => toCleanText(left?.code).localeCompare(toCleanText(right?.code)));
-  }, [locationOptions]);
-  const selectedMovementBranch = useMemo(() => {
-    if (!movementBranchFilter) return null;
-    return (
-      movementBranchFilterOptions.find((location) => toCleanText(location?.id) === movementBranchFilter) ||
-      null
-    );
-  }, [movementBranchFilter, movementBranchFilterOptions]);
-  const selectedMovementBranchLabel = selectedMovementBranch
-    ? buildLocationLabel(selectedMovementBranch)
-    : "";
   const effectiveMovementLocationId = isAdmin ? movementBranchFilter : viewerLocationId;
   const fromLocationOptions = useMemo(() => {
     if (isAdmin) {
