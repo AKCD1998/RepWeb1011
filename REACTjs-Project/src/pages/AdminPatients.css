@@ -259,6 +259,11 @@
 
 .admin-patients-page .admin-patients-table {
   overflow: auto;
+  margin-bottom: 0;
+  border: 1px solid var(--patients-table-divider);
+  border-radius: calc(var(--patients-card-radius) - 2px);
+  background: var(--patients-table-shell);
+  color: var(--ink);
 }
 
 .admin-patients-page .admin-patients-table .thead,
@@ -274,16 +279,22 @@
   font-weight: 700;
 }
 
+.admin-patients-page .admin-patients-table .tbody {
+  color: var(--ink);
+}
+
 .admin-patients-page .admin-patients-table .thead > div,
 .admin-patients-page .admin-patients-table .row > div {
   padding: 14px 16px;
   border-bottom: 1px solid var(--patients-table-divider);
   min-width: 0;
   word-break: break-word;
+  color: inherit;
 }
 
 .admin-patients-page .admin-patients-table .row {
   background: var(--patients-table-row-bg);
+  color: var(--ink);
   transition: background-color 140ms ease;
 }
 
