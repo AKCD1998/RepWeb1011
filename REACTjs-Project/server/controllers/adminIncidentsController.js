@@ -2,8 +2,10 @@ import { query, withTransaction } from "../db/pool.js";
 import { httpError } from "../utils/httpError.js";
 import { parseDateOnlyInput } from "../utils/dateOnly.js";
 import {
+  applyStockDelta,
   resolveBranchByCode,
   resolveBranchById,
+  resolveProductBaseUnitLevel,
   toIsoTimestamp,
   toPositiveNumeric,
 } from "./helpers.js";
@@ -16,6 +18,7 @@ import {
 const INCIDENT_STATUSES = new Set(["OPEN", "ACKNOWLEDGED", "CLOSED"]);
 const DEFAULT_LIST_LIMIT = 100;
 const MAX_LIST_LIMIT = 500;
+const INCIDENT_SOURCE_REF_TYPE = "INCIDENT_REPORT";
 let hasIncidentResolutionActionsTableCache = null;
 let hasIncidentAdminAuditsTableCache = null;
 
@@ -531,6 +534,220 @@ async function insertIncidentAdminAudit(client, {
   );
 }
 
+function buildIncidentDeleteReversalNote(incident, action, reason) {
+  const parts = [
+    `[incident-delete-reversal] ${toCleanText(incident?.incidentCode) || "-"}`,
+    `action=${toCleanText(action?.actionType) || "-"}`,
+  ];
+
+  if (Number.isFinite(Number(action?.lineNo))) {
+    parts.push(`line=${Number(action.lineNo)}`);
+  }
+
+  const trimmedReason = toCleanText(reason);
+  if (trimmedReason) {
+    parts.push(`reason=${trimmedReason}`);
+  }
+
+  return parts.join(" | ");
+}
+
+async function reverseIncidentResolutionActionsForDelete(
+  client,
+  { incident, deletedByUserId, deletedAt, reason }
+) {
+  const actions = Array.isArray(incident?.resolutionActions) ? incident.resolutionActions : [];
+  if (!actions.length) {
+    return [];
+  }
+
+  const retrospectiveAction = actions.find(
+    (action) =>
+      toCleanText(action?.actionType).toUpperCase() === "RETROSPECTIVE_DISPENSE" ||
+      action?.appliedDispenseHeaderId ||
+      action?.appliedDispenseLineId
+  );
+  if (retrospectiveAction) {
+    throw httpError(
+      409,
+      "Incident reports with retrospective dispense corrective actions cannot be deleted automatically; void the linked dispense record first"
+    );
+  }
+
+  const baseUnitLevelIdByProductId = new Map();
+  const reversalSummaries = [];
+  const reversibleActions = [...actions].sort(
+    (left, right) => (Number(right?.lineNo) || 0) - (Number(left?.lineNo) || 0)
+  );
+
+  for (const action of reversibleActions) {
+    const actionType = toCleanText(action?.actionType).toUpperCase();
+    const lineLabel = Number(action?.lineNo) || "-";
+    if (!["STOCK_IN", "STOCK_OUT"].includes(actionType)) {
+      throw httpError(409, `Unsupported incident corrective action for delete reversal: ${actionType || "-"}`);
+    }
+
+    const movementId = toCleanText(action?.appliedStockMovementId);
+    if (!movementId || !isUuid(movementId)) {
+      throw httpError(
+        409,
+        `Resolution action line ${lineLabel} is missing its applied stock movement reference`
+      );
+    }
+
+    const movementResult = await client.query(
+      `
+        SELECT
+          sm.id,
+          sm.movement_type AS "movementType",
+          sm.from_location_id AS "fromLocationId",
+          sm.to_location_id AS "toLocationId",
+          sm.product_id AS "productId",
+          sm.lot_id AS "lotId",
+          sm.quantity,
+          sm.quantity_base AS "quantityBase",
+          sm.unit_level_id AS "unitLevelId",
+          sm.source_ref_type AS "sourceRefType",
+          sm.source_ref_id AS "sourceRefId"
+        FROM stock_movements sm
+        WHERE sm.id = $1::uuid
+        LIMIT 1
+      `,
+      [movementId]
+    );
+
+    const movement = movementResult.rows[0];
+    if (!movement) {
+      throw httpError(
+        409,
+        `Applied stock movement for resolution action line ${lineLabel} no longer exists`
+      );
+    }
+
+    const expectedMovementType = actionType === "STOCK_IN" ? "RECEIVE" : "DISPENSE";
+    if (movement.movementType !== expectedMovementType) {
+      throw httpError(
+        409,
+        `Resolution action line ${lineLabel} cannot be reversed because its movement type is ${movement.movementType || "-"}`
+      );
+    }
+
+    if (
+      toCleanText(movement.sourceRefType) !== INCIDENT_SOURCE_REF_TYPE ||
+      toCleanText(movement.sourceRefId) !== toCleanText(incident?.id)
+    ) {
+      throw httpError(
+        409,
+        `Resolution action line ${lineLabel} is linked to an unexpected stock source`
+      );
+    }
+
+    const reversedDeltaQtyBase = -Number(movement.quantityBase);
+    if (!Number.isFinite(reversedDeltaQtyBase) || reversedDeltaQtyBase === 0) {
+      throw httpError(
+        500,
+        `Resolution action line ${lineLabel} has an invalid stored stock quantity`
+      );
+    }
+
+    const branchId = movement.toLocationId || movement.fromLocationId;
+    if (!branchId || !isUuid(branchId)) {
+      throw httpError(
+        500,
+        `Resolution action line ${lineLabel} has an invalid stock branch reference`
+      );
+    }
+
+    let baseUnitLevelId = baseUnitLevelIdByProductId.get(movement.productId);
+    if (!baseUnitLevelId) {
+      const baseUnitLevel = await resolveProductBaseUnitLevel(client, movement.productId);
+      baseUnitLevelId = baseUnitLevel.id;
+      baseUnitLevelIdByProductId.set(movement.productId, baseUnitLevelId);
+    }
+
+    try {
+      await applyStockDelta(client, {
+        branchId,
+        productId: movement.productId,
+        lotId: movement.lotId || null,
+        baseUnitLevelId,
+        deltaQtyBase: reversedDeltaQtyBase,
+      });
+    } catch (error) {
+      if (error?.status === 400 && error?.message === "Insufficient stock for requested movement") {
+        throw httpError(
+          409,
+          `Incident cannot be deleted because reversing resolution action line ${lineLabel} would make stock negative`
+        );
+      }
+      throw error;
+    }
+
+    const reversalMovementType = reversedDeltaQtyBase > 0 ? "RECEIVE" : "DISPENSE";
+    const reversalMovementResult = await client.query(
+      `
+        INSERT INTO stock_movements (
+          movement_type,
+          from_location_id,
+          to_location_id,
+          product_id,
+          lot_id,
+          quantity,
+          quantity_base,
+          unit_level_id,
+          source_ref_type,
+          source_ref_id,
+          occurred_at,
+          created_by,
+          note_text
+        )
+        VALUES (
+          $1::movement_type,
+          $2::uuid,
+          $3::uuid,
+          $4::uuid,
+          $5::uuid,
+          $6,
+          $7,
+          $8::uuid,
+          $9,
+          $10::uuid,
+          $11::timestamptz,
+          $12::uuid,
+          $13
+        )
+        RETURNING id, movement_type AS "movementType", quantity_base AS "quantityBase"
+      `,
+      [
+        reversalMovementType,
+        reversalMovementType === "DISPENSE" ? branchId : null,
+        reversalMovementType === "RECEIVE" ? branchId : null,
+        movement.productId,
+        movement.lotId || null,
+        movement.quantity,
+        Math.abs(Number(movement.quantityBase)),
+        movement.unitLevelId,
+        INCIDENT_SOURCE_REF_TYPE,
+        incident.id,
+        deletedAt,
+        deletedByUserId,
+        buildIncidentDeleteReversalNote(incident, action, reason),
+      ]
+    );
+
+    reversalSummaries.push({
+      lineNo: Number(action?.lineNo) || null,
+      actionType,
+      originalMovementId: movement.id,
+      reversalMovementId: reversalMovementResult.rows[0]?.id || null,
+      reversalMovementType: reversalMovementResult.rows[0]?.movementType || reversalMovementType,
+      reversedDeltaQtyBase,
+    });
+  }
+
+  return reversalSummaries.sort((left, right) => (left.lineNo || 0) - (right.lineNo || 0));
+}
+
 function hasBodyField(body = {}, fieldNames = []) {
   return fieldNames.some((fieldName) => Object.prototype.hasOwnProperty.call(body, fieldName));
 }
@@ -1044,6 +1261,12 @@ export async function deleteIncidentReport(req, res) {
 
     const timestamp = new Date().toISOString();
     const statusState = deriveStatusStateForUpdate(existing, "CLOSED", adminUserId, timestamp);
+    const reversedResolutionActions = await reverseIncidentResolutionActionsForDelete(client, {
+      incident: existing,
+      deletedByUserId: adminUserId,
+      deletedAt: timestamp,
+      reason,
+    });
 
     await client.query(
       `
@@ -1082,7 +1305,10 @@ export async function deleteIncidentReport(req, res) {
     if (!detail) {
       throw httpError(500, "Incident report was deleted but could not be loaded");
     }
-    return detail;
+    return {
+      ...detail,
+      reversedResolutionActions,
+    };
   });
 
   return res.json({
