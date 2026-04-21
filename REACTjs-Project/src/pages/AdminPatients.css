@@ -1,56 +1,176 @@
 .admin-patients-page {
+  --patients-gutter: 20px;
+  --patients-section-gap: 25px;
+  --patients-card-radius: 18px;
   display: grid;
-  gap: 18px;
+  gap: 0;
+  color: #0f172a;
+}
+
+.admin-patients-page .qgrid {
+  display: grid;
+}
+
+.admin-patients-page .qcard {
+  box-sizing: border-box;
+  padding: 18px 20px;
+  border-radius: var(--patients-card-radius);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
+}
+
+.admin-patients-page .qinput {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #0f172a;
+  font: inherit;
+  box-sizing: border-box;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+
+.admin-patients-page .qinput:focus {
+  outline: none;
+  border-color: #0f766e;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
+}
+
+.admin-patients-page .btn {
+  width: auto;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  color: #0f172a;
+  font: inherit;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+.admin-patients-page .btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.1);
+  border-color: #94a3b8;
+}
+
+.admin-patients-page .btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
+  box-shadow: none;
+}
+
+.admin-patients-page .btn--accent {
+  background: linear-gradient(180deg, #14b8a6 0%, #0f766e 100%);
+  border-color: #0f766e;
+  color: #f8fafc;
+}
+
+.admin-patients-page .btn--yellow {
+  background: linear-gradient(180deg, #fef3c7 0%, #f59e0b 100%);
+  border-color: #d97706;
+  color: #78350f;
 }
 
 .admin-patients-page .admin-patients-top {
-  grid-template-columns: minmax(280px, 1.1fr) minmax(420px, 1.4fr);
-  gap: 18px;
+  grid-template-columns: minmax(280px, 1.05fr) minmax(420px, 1.35fr);
   align-items: stretch;
+  column-gap: var(--patients-section-gap);
+  row-gap: 0;
+  margin-inline: var(--patients-gutter);
+}
+
+.admin-patients-page .admin-patients-top > * {
+  min-width: 0;
 }
 
 .admin-patients-page .admin-patients-hero,
 .admin-patients-page .admin-patients-search,
-.admin-patients-page .results-card {
+.admin-patients-page .admin-patients-config-bar,
+.admin-patients-page .results-card,
+.admin-patients-page .page-error {
   background: #ffffff;
   border: 1px solid #dbe4ee;
+  margin: 0 var(--patients-gutter) var(--patients-section-gap);
+}
+
+.admin-patients-page .admin-patients-top .admin-patients-hero,
+.admin-patients-page .admin-patients-top .admin-patients-search {
+  margin-inline: 0;
+}
+
+.admin-patients-page .results-card {
+  padding: 0;
+  overflow: hidden;
 }
 
 .admin-patients-page .section-header {
   background: linear-gradient(180deg, #0f766e 0%, #115e59 100%);
-  margin: -8px -8px 14px;
-  border-radius: 8px;
-  padding: 8px 12px;
+  margin: -18px -20px 18px;
+  border-radius: calc(var(--patients-card-radius) - 1px) calc(var(--patients-card-radius) - 1px) 14px 14px;
+  padding: 12px 18px;
   color: #f8fafc;
+}
+
+.admin-patients-page .section-header strong {
+  font-size: 16px;
+  letter-spacing: 0.01em;
 }
 
 .admin-patients-page .admin-patients-hero p {
   margin: 0;
+  max-width: 62ch;
   color: #475569;
-  line-height: 1.6;
+  line-height: 1.7;
 }
 
 .admin-patients-page .admin-patients-search-row {
   display: grid;
-  grid-template-columns: 160px 1fr 140px;
+  grid-template-columns: 160px minmax(0, 1fr) 140px;
   gap: 12px;
   align-items: center;
 }
 
 .admin-patients-page .admin-patients-search-row label {
+  display: grid;
+  gap: 6px;
   font-weight: 700;
   color: #0f172a;
 }
 
 .admin-patients-page .admin-patients-search-actions {
-  margin-top: 12px;
+  margin-top: 14px;
   display: flex;
   justify-content: flex-end;
+}
+
+.admin-patients-page .page-size-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: #334155;
+  font-weight: 600;
+}
+
+.admin-patients-page .page-size-label .qinput {
+  width: auto;
+  min-width: 110px;
 }
 
 .admin-patients-page .admin-patients-config-bar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
 }
@@ -59,12 +179,19 @@
   margin-left: auto;
   color: #334155;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .admin-patients-page .admin-patients-pager {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-patients-page .admin-patients-pager span {
+  color: #334155;
+  font-weight: 600;
 }
 
 .admin-patients-page .admin-patients-table {
@@ -86,17 +213,23 @@
 
 .admin-patients-page .admin-patients-table .thead > div,
 .admin-patients-page .admin-patients-table .row > div {
-  padding: 12px 14px;
+  padding: 14px 16px;
   border-bottom: 1px solid #e2e8f0;
   min-width: 0;
+  word-break: break-word;
 }
 
 .admin-patients-page .admin-patients-table .row {
   background: #ffffff;
+  transition: background-color 140ms ease;
+}
+
+.admin-patients-page .admin-patients-table .row:nth-child(even) {
+  background: #f8fafc;
 }
 
 .admin-patients-page .admin-patients-table .row:hover {
-  background: #f8fafc;
+  background: #eef6ff;
 }
 
 .admin-patients-page .center {
@@ -120,6 +253,7 @@
   color: #0f766e;
   font: inherit;
   font-weight: 700;
+  line-height: 1.5;
   text-align: left;
   cursor: pointer;
   text-decoration: underline;
@@ -136,11 +270,43 @@
   border-radius: 4px;
 }
 
-.admin-patients-page .page-error,
-.admin-patients-page .admin-patients-copy-status {
+.admin-patients-page .page-error {
   color: #991b1b;
   background: #fef2f2;
-  border: 1px solid #fecaca;
+  border-color: #fecaca;
+}
+
+.admin-patients-page .page-error,
+.admin-patients-page .admin-patients-copy-status {
+  padding: 12px 14px;
+  border-radius: 12px;
+}
+
+.admin-patients-page .admin-patients-copy-status {
+  margin-bottom: 12px;
+  color: #166534;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+
+.admin-patients-page .modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.46);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  padding: 24px;
+}
+
+.admin-patients-page .modal-card {
+  min-width: 520px;
+  max-width: 96vw;
+  background: #ffffff;
+  border: 1px solid #dbe4ee;
+  box-shadow: 0 28px 56px rgba(15, 23, 42, 0.22);
 }
 
 .admin-patients-page .admin-patients-modal-card {
@@ -175,7 +341,7 @@
 .admin-patients-page .admin-patients-detail-grid > div,
 .admin-patients-page .admin-patients-detail-section {
   padding: 12px;
-  border-radius: 10px;
+  border-radius: 12px;
   border: 1px solid #dbe4ee;
   background: #f8fafc;
 }
@@ -223,7 +389,7 @@
 .admin-patients-page .admin-patients-template {
   margin: 0;
   padding: 12px;
-  border-radius: 8px;
+  border-radius: 10px;
   background: #0f172a;
   color: #e2e8f0;
   white-space: pre-wrap;
@@ -243,13 +409,36 @@
 }
 
 @media (max-width: 800px) {
+  .admin-patients-page {
+    --patients-gutter: 16px;
+    --patients-section-gap: 20px;
+  }
+
+  .admin-patients-page .qcard {
+    padding: 16px;
+  }
+
+  .admin-patients-page .section-header {
+    margin: -16px -16px 16px;
+    padding: 12px 16px;
+  }
+
   .admin-patients-page .admin-patients-search-row {
     grid-template-columns: 1fr;
+  }
+
+  .admin-patients-page .admin-patients-search-actions {
+    justify-content: flex-start;
+  }
+
+  .admin-patients-page .admin-patients-config-bar {
+    align-items: stretch;
   }
 
   .admin-patients-page .table-totals {
     margin-left: 0;
     width: 100%;
+    white-space: normal;
   }
 
   .admin-patients-page .admin-patients-table .thead,
@@ -259,6 +448,25 @@
 }
 
 @media (max-width: 640px) {
+  .admin-patients-page {
+    --patients-gutter: 12px;
+  }
+
+  .admin-patients-page .modal {
+    padding: 12px;
+  }
+
+  .admin-patients-page .modal-card {
+    min-width: 0;
+  }
+
+  .admin-patients-page .page-size-label,
+  .admin-patients-page .page-size-label .qinput,
+  .admin-patients-page .admin-patients-pager,
+  .admin-patients-page .admin-patients-template-header {
+    width: 100%;
+  }
+
   .admin-patients-page .admin-patients-pager,
   .admin-patients-page .admin-patients-template-header {
     align-items: stretch;
