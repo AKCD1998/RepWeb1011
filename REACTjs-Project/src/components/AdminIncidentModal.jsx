@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { adminApi, inventoryApi, productsApi } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
 import {
   ADMIN_INCIDENT_REASON_OPTIONS,
   ADMIN_INCIDENT_RESOLUTION_ACTION_OPTIONS,
@@ -167,6 +168,84 @@ function createEmptyResolutionPatient(seed = {}) {
     cardExpiryDate: toCleanText(seed?.cardExpiryDate ?? seed?.card_expiry_date),
     addressText: toCleanText(seed?.addressText ?? seed?.address_text ?? seed?.address_raw_text),
   };
+}
+
+function formatPatientPickerDate(value) {
+  const text = toCleanText(value);
+  if (!text) return "-";
+
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    return text;
+  }
+
+  return date.toLocaleDateString("th-TH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatPatientPickerDateTime(value) {
+  const text = toCleanText(value);
+  if (!text) return "-";
+
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    return text;
+  }
+
+  return date.toLocaleString("th-TH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getPatientSexLabel(value) {
+  const normalized = toCleanText(value).toUpperCase();
+  if (normalized === "MALE") return "ชาย";
+  if (normalized === "FEMALE") return "หญิง";
+  if (normalized === "OTHER") return "อื่น ๆ";
+  if (normalized === "UNKNOWN") return "ไม่ระบุ";
+  return toCleanText(value) || "-";
+}
+
+function buildResolutionPatientAddress(patient) {
+  const rawText = toCleanText(patient?.addressText ?? patient?.address_text ?? patient?.address_raw_text);
+  if (rawText) return rawText;
+
+  const parts = [
+    patient?.addressLine1,
+    patient?.addressLine2,
+    patient?.subdistrict,
+    patient?.district,
+    patient?.province,
+    patient?.postalCode,
+    toCleanText(patient?.country) && toCleanText(patient?.country).toUpperCase() !== "TH"
+      ? patient?.country
+      : "",
+  ]
+    .map((part) => toCleanText(part))
+    .filter(Boolean);
+
+  return parts.join(" ");
+}
+
+function createResolutionPatientFromPatientRow(patient = {}) {
+  return createEmptyResolutionPatient({
+    pid: toCleanText(patient?.pid),
+    fullName: toCleanText(patient?.fullName ?? patient?.full_name ?? patient?.name),
+    englishName: toCleanText(patient?.englishName ?? patient?.english_name),
+    birthDate: toCleanText(patient?.birthDate ?? patient?.birth_date),
+    sex: toCleanText(patient?.sex),
+    cardIssuePlace: toCleanText(patient?.cardIssuePlace ?? patient?.card_issue_place),
+    cardIssuedDate: toCleanText(patient?.cardIssuedDate ?? patient?.card_issued_date),
+    cardExpiryDate: toCleanText(patient?.cardExpiryDate ?? patient?.card_expiry_date),
+    addressText: buildResolutionPatientAddress(patient),
+  });
 }
 
 function createInitialFormState(initialValues = {}, mode = "create") {
@@ -474,14 +553,23 @@ export default function AdminIncidentModal({
   mode = "create",
   incidentId = "",
 }) {
+  const { user } = useAuth();
   const lotCacheRef = useRef(new Map());
   const unitCacheRef = useRef(new Map());
   const [form, setForm] = useState(() => createInitialFormState(initialValues, mode));
   const [branches, setBranches] = useState([]);
   const [products, setProducts] = useState([]);
+  const [isPatientPickerOpen, setIsPatientPickerOpen] = useState(false);
+  const [patientPickerQuery, setPatientPickerQuery] = useState("");
+  const [patientPickerSearch, setPatientPickerSearch] = useState("");
+  const [patientPickerItems, setPatientPickerItems] = useState([]);
+  const [patientPickerTotal, setPatientPickerTotal] = useState(0);
+  const [isPatientPickerLoading, setIsPatientPickerLoading] = useState(false);
+  const [patientPickerError, setPatientPickerError] = useState("");
   const [isBootstrapping, setIsBootstrapping] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
+  const isAdmin = toCleanText(user?.role).toUpperCase() === "ADMIN";
 
   const productOptions = useMemo(() => normalizeProducts(products), [products]);
   const productMap = useMemo(
@@ -501,6 +589,20 @@ export default function AdminIncidentModal({
     () => shouldShowResolutionPatientSection(form.resolutionActions, form.resolutionPatient),
     [form.resolutionActions, form.resolutionPatient]
   );
+  const selectedResolutionPatientText = useMemo(() => {
+    const name = toCleanText(form.resolutionPatient?.fullName);
+    const pid = toCleanText(form.resolutionPatient?.pid);
+    if (name && pid) return `${name} (${pid})`;
+    return name || pid || "";
+  }, [form.resolutionPatient]);
+  const patientPickerSummary = useMemo(() => {
+    const parts = [`แสดง ${patientPickerItems.length.toLocaleString("th-TH")} รายชื่อ`];
+    parts.push(`ทั้งหมด ${patientPickerTotal.toLocaleString("th-TH")} รายชื่อ`);
+    if (patientPickerSearch) {
+      parts.push(`ค้นหา: ${patientPickerSearch}`);
+    }
+    return parts.join(" • ");
+  }, [patientPickerItems.length, patientPickerSearch, patientPickerTotal]);
 
   useEffect(() => {
     if (!open) return;
@@ -509,6 +611,12 @@ export default function AdminIncidentModal({
     const nextForm = createInitialFormState(initialValues, mode);
     setForm(nextForm);
     setError("");
+    setIsPatientPickerOpen(false);
+    setPatientPickerQuery("");
+    setPatientPickerSearch("");
+    setPatientPickerItems([]);
+    setPatientPickerTotal(0);
+    setPatientPickerError("");
 
     async function loadLots(productId) {
       const key = toCleanText(productId);
@@ -637,6 +745,52 @@ export default function AdminIncidentModal({
     };
   }, [initialValues, mode, open]);
 
+  useEffect(() => {
+    if (!showResolutionPatient) {
+      setIsPatientPickerOpen(false);
+    }
+  }, [showResolutionPatient]);
+
+  useEffect(() => {
+    if (!open || !showResolutionPatient || !isPatientPickerOpen || !isAdmin) {
+      return undefined;
+    }
+
+    let isCancelled = false;
+
+    async function loadPatientPickerItems() {
+      setIsPatientPickerLoading(true);
+      try {
+        const response = await adminApi.listPatients({
+          q: patientPickerSearch || undefined,
+          limit: 50,
+          offset: 0,
+        });
+        if (isCancelled) return;
+
+        setPatientPickerItems(Array.isArray(response?.items) ? response.items : []);
+        setPatientPickerTotal(Number(response?.total || 0));
+        setPatientPickerError("");
+      } catch (requestError) {
+        if (isCancelled) return;
+        setPatientPickerItems([]);
+        setPatientPickerTotal(0);
+        setPatientPickerError(
+          toCleanText(requestError?.message) || "ไม่สามารถโหลดรายชื่อผู้ป่วยได้"
+        );
+      } finally {
+        if (!isCancelled) {
+          setIsPatientPickerLoading(false);
+        }
+      }
+    }
+
+    void loadPatientPickerItems();
+    return () => {
+      isCancelled = true;
+    };
+  }, [isAdmin, isPatientPickerOpen, open, patientPickerSearch, showResolutionPatient]);
+
   async function loadLotsForProduct(productId) {
     const normalizedProductId = toCleanText(productId);
     if (!normalizedProductId) return [];
@@ -712,6 +866,30 @@ export default function AdminIncidentModal({
         [field]: value,
       },
     }));
+  }
+
+  function handleOpenPatientPicker() {
+    if (!isAdmin || isSaving) {
+      return;
+    }
+
+    setPatientPickerSearch(toCleanText(patientPickerQuery));
+    setIsPatientPickerOpen(true);
+    setPatientPickerError("");
+  }
+
+  function handlePatientPickerSearchSubmit(event) {
+    event.preventDefault();
+    setPatientPickerSearch(toCleanText(patientPickerQuery));
+  }
+
+  function handleSelectPatientRow(patient) {
+    setForm((current) => ({
+      ...current,
+      resolutionPatient: createResolutionPatientFromPatientRow(patient),
+    }));
+    setIsPatientPickerOpen(false);
+    setPatientPickerError("");
   }
 
   function handleRowFieldChange(kind, rowKey, field, value) {
@@ -1334,7 +1512,27 @@ export default function AdminIncidentModal({
                     โดยไม่มี smartcard session เดิม
                   </p>
                 </div>
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    className="admin-incident-modal__secondary"
+                    onClick={handleOpenPatientPicker}
+                    disabled={isSaving}
+                  >
+                    ผู้รับบริการ
+                  </button>
+                ) : null}
               </div>
+
+              {isAdmin ? (
+                <div className="admin-incident-modal__patient-picker-note">
+                  <span>
+                    {selectedResolutionPatientText
+                      ? `เลือกแล้ว: ${selectedResolutionPatientText}`
+                      : "ค้นหาฐานข้อมูลผู้ป่วยแล้วดับเบิลคลิกแถวเพื่อเติมข้อมูลอัตโนมัติ"}
+                  </span>
+                </div>
+              ) : null}
 
               <div className="admin-incident-modal__grid">
                 <label className="admin-incident-modal__field">
@@ -1438,6 +1636,112 @@ export default function AdminIncidentModal({
                 />
               </label>
             </section>
+          ) : null}
+
+          {showResolutionPatient && isAdmin && isPatientPickerOpen ? (
+            <div
+              className="admin-incident-modal__patient-picker-backdrop"
+              onClick={() => setIsPatientPickerOpen(false)}
+            >
+              <div
+                className="admin-incident-modal__patient-picker"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="admin-incident-patient-picker-title"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="admin-incident-modal__patient-picker-header">
+                  <div>
+                    <h3 id="admin-incident-patient-picker-title">เลือกผู้รับบริการ</h3>
+                    <p>ใช้ข้อมูลจากฐานผู้ป่วยเดิมของระบบ แล้วดับเบิลคลิกแถวเพื่อเติมข้อมูลลงฟอร์ม</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="admin-incident-modal__secondary"
+                    onClick={() => setIsPatientPickerOpen(false)}
+                    disabled={isPatientPickerLoading}
+                  >
+                    ปิด
+                  </button>
+                </div>
+
+                <form
+                  className="admin-incident-modal__patient-picker-search"
+                  onSubmit={handlePatientPickerSearchSubmit}
+                >
+                  <input
+                    type="text"
+                    value={patientPickerQuery}
+                    onChange={(event) => setPatientPickerQuery(event.target.value)}
+                    placeholder="ชื่อผู้ป่วย / PID / ที่อยู่ / จังหวัด / รหัสไปรษณีย์"
+                    autoFocus
+                  />
+                  <button type="submit" className="admin-incident-modal__primary" disabled={isPatientPickerLoading}>
+                    {isPatientPickerLoading ? "กำลังค้นหา..." : "ค้นหา"}
+                  </button>
+                </form>
+
+                <div className="admin-incident-modal__patient-picker-summary">{patientPickerSummary}</div>
+
+                {patientPickerError ? (
+                  <div className="admin-incident-modal__feedback admin-incident-modal__feedback--error">
+                    {patientPickerError}
+                  </div>
+                ) : null}
+
+                <div className="admin-incident-modal__patient-picker-table">
+                  <div className="admin-incident-modal__patient-picker-head">
+                    <div>ลำดับ</div>
+                    <div>ชื่อผู้ป่วย</div>
+                    <div>PID</div>
+                    <div>วันเกิด</div>
+                    <div>เพศ</div>
+                    <div>ส่งมอบล่าสุด</div>
+                  </div>
+                  <div className="admin-incident-modal__patient-picker-body">
+                    {isPatientPickerLoading ? (
+                      <div className="admin-incident-modal__patient-picker-row admin-incident-modal__patient-picker-row--placeholder">
+                        <div className="center">...</div>
+                        <div>กำลังโหลดรายชื่อผู้ป่วย</div>
+                        <div className="center">...</div>
+                        <div className="center">...</div>
+                        <div className="center">...</div>
+                        <div className="center">...</div>
+                      </div>
+                    ) : patientPickerItems.length ? (
+                      patientPickerItems.map((patient, index) => (
+                        <button
+                          key={patient?.id || `${patient?.pid || "patient"}-${index}`}
+                          type="button"
+                          className="admin-incident-modal__patient-picker-row"
+                          onDoubleClick={() => handleSelectPatientRow(patient)}
+                          onClick={() => setError("")}
+                          title="ดับเบิลคลิกเพื่อเลือกผู้รับบริการ"
+                        >
+                          <div className="center">{index + 1}</div>
+                          <div className="admin-incident-modal__patient-picker-name">
+                            {toCleanText(patient?.fullName) || "-"}
+                          </div>
+                          <div>{toCleanText(patient?.pid) || "-"}</div>
+                          <div>{formatPatientPickerDate(patient?.birthDate)}</div>
+                          <div>{getPatientSexLabel(patient?.sex)}</div>
+                          <div>{formatPatientPickerDateTime(patient?.lastDispensedAt)}</div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="admin-incident-modal__patient-picker-row admin-incident-modal__patient-picker-row--placeholder">
+                        <div className="center">-</div>
+                        <div>ไม่พบรายชื่อผู้ป่วยตามเงื่อนไขที่ค้นหา</div>
+                        <div className="center">-</div>
+                        <div className="center">-</div>
+                        <div className="center">-</div>
+                        <div className="center">-</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
           ) : null}
 
           <div className="admin-incident-modal__actions">

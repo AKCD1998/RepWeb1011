@@ -250,6 +250,169 @@
   color: #1d4ed8;
 }
 
+.admin-incident-modal__patient-picker-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(253, 186, 116, 0.42);
+  color: #9a3412;
+  font-size: 13px;
+}
+
+.admin-incident-modal__patient-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(4px);
+}
+
+.admin-incident-modal__patient-picker {
+  width: min(920px, 96vw);
+  max-height: min(78vh, 760px);
+  overflow: auto;
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 22px;
+  background: #fffdf7;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28);
+}
+
+.admin-incident-modal__patient-picker-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.admin-incident-modal__patient-picker-header h3 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+.admin-incident-modal__patient-picker-header p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.admin-incident-modal__patient-picker-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.admin-incident-modal__patient-picker-search input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  background: #ffffff;
+  font: inherit;
+  color: #0f172a;
+}
+
+.admin-incident-modal__patient-picker-summary {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.admin-incident-modal__patient-picker-table {
+  border: 1px solid #dbe4ee;
+  border-radius: 18px;
+  overflow: auto;
+  background: #ffffff;
+}
+
+.admin-incident-modal__patient-picker-head,
+.admin-incident-modal__patient-picker-row {
+  display: grid;
+  grid-template-columns: 68px minmax(220px, 1.45fr) 170px 130px 110px 170px;
+  align-items: center;
+}
+
+.admin-incident-modal__patient-picker-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.admin-incident-modal__patient-picker-body {
+  display: grid;
+}
+
+.admin-incident-modal__patient-picker-head > div,
+.admin-incident-modal__patient-picker-row > div {
+  min-width: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+  word-break: break-word;
+}
+
+.admin-incident-modal__patient-picker-row {
+  appearance: none;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: #ffffff;
+  color: #0f172a;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.admin-incident-modal__patient-picker-row:nth-child(even) {
+  background: #f8fafc;
+}
+
+.admin-incident-modal__patient-picker-row:hover {
+  background: #eff6ff;
+}
+
+.admin-incident-modal__patient-picker-row:focus-visible {
+  outline: 2px solid rgba(29, 78, 216, 0.35);
+  outline-offset: -2px;
+}
+
+.admin-incident-modal__patient-picker-row:last-child > div {
+  border-bottom: none;
+}
+
+.admin-incident-modal__patient-picker-row--placeholder {
+  cursor: default;
+  color: #64748b;
+}
+
+.admin-incident-modal__patient-picker-row--placeholder:hover {
+  background: inherit;
+}
+
+.admin-incident-modal__patient-picker-table .center {
+  text-align: center;
+}
+
+.admin-incident-modal__patient-picker-name {
+  font-weight: 700;
+  color: #0f766e;
+}
+
 .admin-incident-modal__actions {
   display: flex;
   align-items: center;
@@ -273,8 +436,22 @@
     grid-template-columns: 1fr;
   }
 
+  .admin-incident-modal__patient-picker-backdrop {
+    padding: 12px;
+  }
+
+  .admin-incident-modal__patient-picker {
+    padding: 16px;
+    max-height: calc(100vh - 24px);
+  }
+
+  .admin-incident-modal__patient-picker-search {
+    grid-template-columns: 1fr;
+  }
+
   .admin-incident-modal__header,
   .admin-incident-modal__items-header,
+  .admin-incident-modal__patient-picker-header,
   .admin-incident-modal__actions {
     flex-direction: column;
     align-items: stretch;
