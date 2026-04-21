@@ -43,6 +43,7 @@ const MOVEMENT_TABLE_FILTER_OPTIONS = [
   { value: "TRANSFER_OUT", label: MOVEMENT_TYPE_LABEL.TRANSFER_OUT },
   { value: "DISPENSE", label: MOVEMENT_TYPE_LABEL.DISPENSE },
 ];
+const ADMIN_MOVEMENT_BRANCH_CODES = new Set(["001", "003", "004", "005"]);
 const PRODUCT_SEARCH_LIMIT = 20;
 const INCIDENT_SOURCE_REF_TYPE = "INCIDENT_REPORT";
 const BANGKOK_TIME_ZONE = "Asia/Bangkok";
@@ -583,6 +584,7 @@ export default function Receiving() {
   const [movementSearchResults, setMovementSearchResults] = useState([]);
   const [movementSearchSelectedProduct, setMovementSearchSelectedProduct] = useState(null);
   const [movementTypeFilter, setMovementTypeFilter] = useState("");
+  const [movementBranchFilter, setMovementBranchFilter] = useState("");
   const [movementSearchStatus, setMovementSearchStatus] = useState("");
   const [isSearchingMovementProduct, setIsSearchingMovementProduct] = useState(false);
   const [productSearchStatus, setProductSearchStatus] = useState("");
@@ -615,10 +617,19 @@ export default function Receiving() {
     if (selectedMovementTypeLabel) {
       parts.push(`ประเภท: ${selectedMovementTypeLabel}`);
     }
+    if (selectedMovementBranchLabel) {
+      parts.push(`สาขา: ${selectedMovementBranchLabel}`);
+    }
     return parts.join(" • ");
-  }, [movementSearchProductId, movementSearchProductLabel, movements.length, selectedMovementTypeLabel]);
+  }, [
+    movementSearchProductId,
+    movementSearchProductLabel,
+    movements.length,
+    selectedMovementBranchLabel,
+    selectedMovementTypeLabel,
+  ]);
   const emptyMovementText = useMemo(() => {
-    if (!movementSearchProductId && !selectedMovementTypeLabel) {
+    if (!movementSearchProductId && !selectedMovementTypeLabel && !selectedMovementBranchLabel) {
       return "ยังไม่มีข้อมูลรายการเคลื่อนไหว";
     }
 
@@ -629,9 +640,12 @@ export default function Receiving() {
     if (selectedMovementTypeLabel) {
       filterLabels.push(`ประเภท ${selectedMovementTypeLabel}`);
     }
+    if (selectedMovementBranchLabel) {
+      filterLabels.push(`สาขา ${selectedMovementBranchLabel}`);
+    }
 
     return `ไม่พบข้อมูลการเคลื่อนไหวสำหรับ${filterLabels.join(" และ ")}ตามสิทธิ์สาขาที่กำลังดู`;
-  }, [movementSearchProductId, selectedMovementTypeLabel]);
+  }, [movementSearchProductId, selectedMovementBranchLabel, selectedMovementTypeLabel]);
   const locationMap = useMemo(() => {
     return new Map(
       locations.map((location) => {
@@ -643,6 +657,23 @@ export default function Receiving() {
   const locationOptions = useMemo(() => {
     return locations.filter((location) => toCleanText(location?.id));
   }, [locations]);
+  const movementBranchFilterOptions = useMemo(() => {
+    return locationOptions
+      .filter((location) => normalizeRole(location?.type || location?.location_type) === "BRANCH")
+      .filter((location) => ADMIN_MOVEMENT_BRANCH_CODES.has(toCleanText(location?.code)))
+      .sort((left, right) => toCleanText(left?.code).localeCompare(toCleanText(right?.code)));
+  }, [locationOptions]);
+  const selectedMovementBranch = useMemo(() => {
+    if (!movementBranchFilter) return null;
+    return (
+      movementBranchFilterOptions.find((location) => toCleanText(location?.id) === movementBranchFilter) ||
+      null
+    );
+  }, [movementBranchFilter, movementBranchFilterOptions]);
+  const selectedMovementBranchLabel = selectedMovementBranch
+    ? buildLocationLabel(selectedMovementBranch)
+    : "";
+  const effectiveMovementLocationId = isAdmin ? movementBranchFilter : viewerLocationId;
   const fromLocationOptions = useMemo(() => {
     if (isAdmin) {
       return locationOptions;
@@ -758,7 +789,7 @@ export default function Receiving() {
     setIsLoadingMovements(true);
     try {
       const rows = await inventoryApi.listMovements({
-        location_id: viewerLocationId || undefined,
+        location_id: effectiveMovementLocationId || undefined,
         productId: movementSearchProductId || undefined,
         movementType: movementTypeFilter || undefined,
         limit: movementSearchProductId ? 1000 : 100,
@@ -773,7 +804,7 @@ export default function Receiving() {
     } finally {
       setIsLoadingMovements(false);
     }
-  }, [isAdmin, movementSearchProductId, movementTypeFilter, viewerLocationId]);
+  }, [effectiveMovementLocationId, isAdmin, movementSearchProductId, movementTypeFilter, viewerLocationId]);
 
   const loadLocations = useCallback(async () => {
     setIsLoadingLocations(true);
@@ -1016,6 +1047,11 @@ export default function Receiving() {
 
   function handleMovementTypeFilterChange(event) {
     setMovementTypeFilter(normalizeRole(event.target.value));
+    setPageError("");
+  }
+
+  function handleMovementBranchFilterChange(event) {
+    setMovementBranchFilter(toCleanText(event.target.value));
     setPageError("");
   }
 
@@ -2240,6 +2276,26 @@ export default function Receiving() {
               ))}
             </select>
           </div>
+
+          {isAdmin ? (
+            <div className="movement-filter-row">
+              <label htmlFor="movementBranchFilter">สาขา</label>
+              <select
+                id="movementBranchFilter"
+                className="qinput"
+                value={movementBranchFilter}
+                onChange={handleMovementBranchFilterChange}
+                disabled={isLoadingLocations}
+              >
+                <option value="">ทุกสาขา</option>
+                {movementBranchFilterOptions.map((location) => (
+                  <option key={location.id} value={location.id}>
+                    {buildLocationLabel(location)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
 
           {movementSearchStatus ? (
             <div className="movement-search-status search-panel-status">{movementSearchStatus}</div>
