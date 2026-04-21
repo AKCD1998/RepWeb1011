@@ -526,13 +526,16 @@ export const inventoryApi = {
       params: Object.keys(params).length ? params : undefined,
     });
   },
-  listMovements({ location_id, limit, fromDate, toDate, productId } = {}) {
+  listMovements({ location_id, limit, fromDate, toDate, productId, movementType } = {}) {
     const params = {};
     if (location_id) {
       params.location_id = String(location_id).trim();
     }
     if (productId) {
       params.productId = String(productId).trim();
+    }
+    if (movementType) {
+      params.movementType = String(movementType).trim().toUpperCase();
     }
     if (fromDate) {
       params.fromDate = String(fromDate).trim();
@@ -666,6 +669,20 @@ export const reportsApi = {
       method: "GET",
       url: "/api/reports/organic-dispense-ledger/activity-products",
       params,
+    });
+  },
+};
+
+export const incidentsApi = {
+  getIncident(id) {
+    const incidentId = String(id || "").trim();
+    if (!incidentId) {
+      throw new Error("incident id is required");
+    }
+
+    return requestJson({
+      method: "GET",
+      url: `/api/incidents/${encodeURIComponent(incidentId)}`,
     });
   },
 };
@@ -838,6 +855,64 @@ export const adminApi = {
       method: "PATCH",
       url: `/api/admin/incidents/${encodeURIComponent(incidentId)}/status`,
       data: { status },
+    });
+  },
+  updateIncident(id, payload = {}) {
+    const incidentId = String(id || "").trim();
+    const reason = String(payload?.reason ?? payload?.reasonText ?? payload?.reason_text ?? "").trim();
+    if (!incidentId) {
+      throw new Error("incident id is required");
+    }
+    if (!reason) {
+      throw new Error("reason is required");
+    }
+
+    const data = { reason };
+    if (payload?.incidentType !== undefined || payload?.incident_type !== undefined) {
+      data.incidentType = String(payload?.incidentType ?? payload?.incident_type ?? "").trim();
+    }
+    if (payload?.incidentReason !== undefined || payload?.incident_reason !== undefined) {
+      data.incidentReason = String(payload?.incidentReason ?? payload?.incident_reason ?? "").trim();
+    }
+    if (payload?.incidentDescription !== undefined || payload?.incident_description !== undefined) {
+      data.incidentDescription = String(
+        payload?.incidentDescription ?? payload?.incident_description ?? ""
+      ).trim();
+    }
+    if (payload?.happenedAt !== undefined || payload?.happened_at !== undefined) {
+      data.happenedAt = normalizeBangkokDateTimeInput(payload?.happenedAt ?? payload?.happened_at);
+    }
+    if (payload?.status !== undefined) {
+      data.status = String(payload?.status ?? "").trim().toUpperCase();
+    }
+    if (
+      payload?.note !== undefined ||
+      payload?.noteText !== undefined ||
+      payload?.note_text !== undefined
+    ) {
+      data.note = String(payload?.note ?? payload?.noteText ?? payload?.note_text ?? "").trim();
+    }
+
+    return requestJson({
+      method: "PATCH",
+      url: `/api/admin/incidents/${encodeURIComponent(incidentId)}`,
+      data,
+    });
+  },
+  deleteIncident(id, payload = {}) {
+    const incidentId = String(id || "").trim();
+    const reason = String(payload?.reason ?? payload?.reasonText ?? payload?.reason_text ?? "").trim();
+    if (!incidentId) {
+      throw new Error("incident id is required");
+    }
+    if (!reason) {
+      throw new Error("reason is required");
+    }
+
+    return requestJson({
+      method: "DELETE",
+      url: `/api/admin/incidents/${encodeURIComponent(incidentId)}`,
+      data: { reason },
     });
   },
 };

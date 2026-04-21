@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { INVENTORY_CHANGED_EVENT, inventoryApi, productsApi } from "../lib/api";
+import {
+  ADMIN_INCIDENT_REASON_OPTIONS,
+  ADMIN_INCIDENT_STATUS_OPTIONS,
+  ADMIN_INCIDENT_TYPE_OPTIONS,
+  createAdminIncidentLocalDateTimeValue,
+  formatAdminIncidentDateTime,
+  getAdminIncidentReasonLabel,
+  getAdminIncidentResolutionActionLabel,
+  getAdminIncidentStatusLabel,
+  getAdminIncidentTypeLabel,
+} from "../lib/adminIncidents";
+import { INVENTORY_CHANGED_EVENT, adminApi, incidentsApi, inventoryApi, productsApi } from "../lib/api";
 import { formatDateOnlyDisplay as formatDateOnlyDisplayValue, normalizeDateOnlyInput } from "../lib/dateOnly";
 import {
   formatDisplayNumber as formatQty,
@@ -25,6 +36,13 @@ const MOVEMENT_TYPE_LABEL = {
 };
 
 const SUPPORTED_TABLE_TYPES = new Set(["RECEIVE", "TRANSFER_OUT", "TRANSFER_IN", "DISPENSE"]);
+const MOVEMENT_TABLE_FILTER_OPTIONS = [
+  { value: "", label: "ทุกประเภทการเคลื่อนไหว" },
+  { value: "RECEIVE", label: MOVEMENT_TYPE_LABEL.RECEIVE },
+  { value: "TRANSFER_IN", label: MOVEMENT_TYPE_LABEL.TRANSFER_IN },
+  { value: "TRANSFER_OUT", label: MOVEMENT_TYPE_LABEL.TRANSFER_OUT },
+  { value: "DISPENSE", label: MOVEMENT_TYPE_LABEL.DISPENSE },
+];
 const PRODUCT_SEARCH_LIMIT = 20;
 const INCIDENT_SOURCE_REF_TYPE = "INCIDENT_REPORT";
 const BANGKOK_TIME_ZONE = "Asia/Bangkok";
@@ -332,6 +350,11 @@ function mapMovementRecord(row) {
     movementType: String(row?.movementType || "").toUpperCase(),
     sourceRefType,
     sourceRefId: toCleanText(row?.sourceRefId || row?.source_ref_id),
+    sourceIncidentCode: toCleanText(row?.sourceIncidentCode || row?.source_incident_code),
+    sourceIncidentDescription: toCleanText(
+      row?.sourceIncidentDescription || row?.source_incident_description
+    ),
+    sourceIncidentDeletedAt: toCleanText(row?.sourceIncidentDeletedAt || row?.source_incident_deleted_at),
     qtyValue: Number.isFinite(parsedQuantity) ? parsedQuantity : 0,
     qtyBaseValue: Number.isFinite(parsedQuantityBase) ? parsedQuantityBase : null,
     unit: String(row?.unitLabel || row?.unit || "").trim(),
@@ -369,9 +392,42 @@ function getMovementTypeClass(movement) {
 function getMovementTypeTitle(movement) {
   const label = MOVEMENT_TYPE_LABEL[movement?.movementType] || movement?.movementType || "-";
   if (isCorrectiveDispenseMovement(movement)) {
-    return `${label}\nสร้างจาก incident corrective action`;
+    const incidentRef =
+      toCleanText(movement?.sourceIncidentCode) ||
+      toCleanText(movement?.sourceRefId) ||
+      "ไม่พบหมายเลข incident";
+    const lines = [`${label}`, `สร้างจาก incident corrective action`, `Incident: ${incidentRef}`];
+    if (toCleanText(movement?.sourceIncidentDeletedAt)) {
+      lines.push("incident นี้ถูกลบ/ซ่อนโดย admin แล้ว แต่ movement ยังเก็บ reference ไว้");
+    }
+    if (toCleanText(movement?.sourceIncidentDescription)) {
+      lines.push(movement.sourceIncidentDescription);
+    }
+    return lines.join("\n");
   }
   return label;
+}
+
+function getIncidentDisplayCode(incidentOrMovement) {
+  return (
+    toCleanText(incidentOrMovement?.incidentCode) ||
+    toCleanText(incidentOrMovement?.sourceIncidentCode) ||
+    toCleanText(incidentOrMovement?.id) ||
+    toCleanText(incidentOrMovement?.sourceRefId) ||
+    "-"
+  );
+}
+
+function createIncidentEditForm(incident = {}) {
+  return {
+    incidentType: toCleanText(incident?.incidentType),
+    incidentReason: toCleanText(incident?.incidentReason),
+    incidentDescription: toCleanText(incident?.incidentDescription),
+    happenedAt: incident?.happenedAt ? createAdminIncidentLocalDateTimeValue(incident.happenedAt) : "",
+    status: toCleanText(incident?.status).toUpperCase() || "ACKNOWLEDGED",
+    note: toCleanText(incident?.noteText),
+    reason: "",
+  };
 }
 
 function getDeltaClass(movementType) {
@@ -498,6 +554,15 @@ export default function Receiving() {
   const [isSavingMovement, setIsSavingMovement] = useState(false);
   const [isSavingOccurredAtCorrection, setIsSavingOccurredAtCorrection] = useState(false);
   const [isDeletingMovementId, setIsDeletingMovementId] = useState("");
+  const [incidentDetailId, setIncidentDetailId] = useState("");
+  const [incidentDetailMovement, setIncidentDetailMovement] = useState(null);
+  const [incidentDetail, setIncidentDetail] = useState(null);
+  const [isLoadingIncidentDetail, setIsLoadingIncidentDetail] = useState(false);
+  const [incidentDetailError, setIncidentDetailError] = useState("");
+  const [isEditingIncident, setIsEditingIncident] = useState(false);
+  const [incidentEditForm, setIncidentEditForm] = useState(() => createIncidentEditForm());
+  const [isSavingIncidentEdit, setIsSavingIncidentEdit] = useState(false);
+  const [isDeletingIncident, setIsDeletingIncident] = useState(false);
   const [isSearchingProduct, setIsSearchingProduct] = useState(false);
   const [productSearchResults, setProductSearchResults] = useState([]);
   const [productSearchError, setProductSearchError] = useState("");
@@ -517,6 +582,7 @@ export default function Receiving() {
   const [movementSearchTerm, setMovementSearchTerm] = useState("");
   const [movementSearchResults, setMovementSearchResults] = useState([]);
   const [movementSearchSelectedProduct, setMovementSearchSelectedProduct] = useState(null);
+  const [movementTypeFilter, setMovementTypeFilter] = useState("");
   const [movementSearchStatus, setMovementSearchStatus] = useState("");
   const [isSearchingMovementProduct, setIsSearchingMovementProduct] = useState(false);
   const [productSearchStatus, setProductSearchStatus] = useState("");
@@ -534,15 +600,38 @@ export default function Receiving() {
     return isAdmin ? [...baseColumns, "Transaction ID / จัดการ"] : baseColumns;
   }, [isAdmin]);
   const movementSearchProductId = toCleanText(movementSearchSelectedProduct?.id);
+  const selectedMovementTypeLabel = movementTypeFilter
+    ? MOVEMENT_TYPE_LABEL[movementTypeFilter] || movementTypeFilter
+    : "";
   const movementSearchProductLabel = useMemo(
     () => getProductResultLabel(movementSearchSelectedProduct),
     [movementSearchSelectedProduct]
   );
   const totalText = useMemo(() => {
-    const countText = `รวม ${movements.length} รายการ`;
-    if (!movementSearchProductId) return countText;
-    return `${countText} • ${movementSearchProductLabel}`;
-  }, [movementSearchProductId, movementSearchProductLabel, movements.length]);
+    const parts = [`รวม ${movements.length} รายการ`];
+    if (movementSearchProductId) {
+      parts.push(movementSearchProductLabel);
+    }
+    if (selectedMovementTypeLabel) {
+      parts.push(`ประเภท: ${selectedMovementTypeLabel}`);
+    }
+    return parts.join(" • ");
+  }, [movementSearchProductId, movementSearchProductLabel, movements.length, selectedMovementTypeLabel]);
+  const emptyMovementText = useMemo(() => {
+    if (!movementSearchProductId && !selectedMovementTypeLabel) {
+      return "ยังไม่มีข้อมูลรายการเคลื่อนไหว";
+    }
+
+    const filterLabels = [];
+    if (movementSearchProductId) {
+      filterLabels.push("สินค้าที่เลือก");
+    }
+    if (selectedMovementTypeLabel) {
+      filterLabels.push(`ประเภท ${selectedMovementTypeLabel}`);
+    }
+
+    return `ไม่พบข้อมูลการเคลื่อนไหวสำหรับ${filterLabels.join(" และ ")}ตามสิทธิ์สาขาที่กำลังดู`;
+  }, [movementSearchProductId, selectedMovementTypeLabel]);
   const locationMap = useMemo(() => {
     return new Map(
       locations.map((location) => {
@@ -671,6 +760,7 @@ export default function Receiving() {
       const rows = await inventoryApi.listMovements({
         location_id: viewerLocationId || undefined,
         productId: movementSearchProductId || undefined,
+        movementType: movementTypeFilter || undefined,
         limit: movementSearchProductId ? 1000 : 100,
       });
       const normalized = (Array.isArray(rows) ? rows : [])
@@ -683,7 +773,7 @@ export default function Receiving() {
     } finally {
       setIsLoadingMovements(false);
     }
-  }, [isAdmin, movementSearchProductId, viewerLocationId]);
+  }, [isAdmin, movementSearchProductId, movementTypeFilter, viewerLocationId]);
 
   const loadLocations = useCallback(async () => {
     setIsLoadingLocations(true);
@@ -725,6 +815,45 @@ export default function Receiving() {
     void loadLocations();
   }, [loadLocations]);
 
+  useEffect(() => {
+    const incidentId = toCleanText(incidentDetailId);
+    if (!incidentId) {
+      setIncidentDetail(null);
+      setIncidentDetailError("");
+      setIsLoadingIncidentDetail(false);
+      return undefined;
+    }
+
+    let isCancelled = false;
+
+    async function loadIncidentDetail() {
+      setIsLoadingIncidentDetail(true);
+      setIncidentDetailError("");
+      try {
+        const response = await incidentsApi.getIncident(incidentId);
+        if (isCancelled) return;
+
+        const incident = response?.incident || null;
+        setIncidentDetail(incident);
+        setIncidentEditForm(createIncidentEditForm(incident || {}));
+      } catch (error) {
+        if (!isCancelled) {
+          setIncidentDetail(null);
+          setIncidentDetailError(error?.message || "โหลดรายละเอียด incident report ไม่สำเร็จ");
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingIncidentDetail(false);
+        }
+      }
+    }
+
+    void loadIncidentDetail();
+    return () => {
+      isCancelled = true;
+    };
+  }, [incidentDetailId]);
+
   function resetLineUnitState() {
     lineUnitRequestSeqRef.current = {};
     setLineUnitOptionsById({});
@@ -742,8 +871,24 @@ export default function Receiving() {
     setIsMovementConfirmModalOpen(false);
   }
 
+  function closeIncidentDetailModal() {
+    setIncidentDetailId("");
+    setIncidentDetailMovement(null);
+    setIncidentDetail(null);
+    setIncidentDetailError("");
+    setIsEditingIncident(false);
+    setIncidentEditForm(createIncidentEditForm());
+    setIsSavingIncidentEdit(false);
+    setIsDeletingIncident(false);
+  }
+
   useEffect(() => {
-    if (!isMovementModalOpen && !isMovementConfirmModalOpen && !isOccurredAtCorrectionModalOpen) {
+    if (
+      !isMovementModalOpen &&
+      !isMovementConfirmModalOpen &&
+      !isOccurredAtCorrectionModalOpen &&
+      !incidentDetailId
+    ) {
       return undefined;
     }
 
@@ -757,13 +902,17 @@ export default function Receiving() {
           closeOccurredAtCorrectionModal();
           return;
         }
+        if (incidentDetailId) {
+          closeIncidentDetailModal();
+          return;
+        }
         closeMovementModal();
       }
     }
 
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [isMovementConfirmModalOpen, isMovementModalOpen, isOccurredAtCorrectionModalOpen]);
+  }, [incidentDetailId, isMovementConfirmModalOpen, isMovementModalOpen, isOccurredAtCorrectionModalOpen]);
 
   function resetTransferLotLookup() {
     transferLotRequestSeqRef.current += 1;
@@ -819,6 +968,21 @@ export default function Receiving() {
     setIsOccurredAtCorrectionModalOpen(false);
   }
 
+  function openIncidentDetailModal(movement) {
+    const incidentId = toCleanText(movement?.sourceRefId);
+    if (!incidentId) {
+      setPageError("movement นี้ไม่มี incident report id ให้เปิดดู");
+      return;
+    }
+
+    setIncidentDetailMovement(movement || null);
+    setIncidentDetailId(incidentId);
+    setIncidentDetail(null);
+    setIncidentDetailError("");
+    setIsEditingIncident(false);
+    setIncidentEditForm(createIncidentEditForm());
+  }
+
   function handleMovementSearchInputChange(event) {
     setMovementSearchTerm(event.target.value);
     setMovementSearchResults([]);
@@ -847,6 +1011,11 @@ export default function Receiving() {
     setMovementSearchResults([]);
     setMovementSearchSelectedProduct(null);
     setMovementSearchStatus("ล้างตัวกรองสินค้าแล้ว");
+    setPageError("");
+  }
+
+  function handleMovementTypeFilterChange(event) {
+    setMovementTypeFilter(normalizeRole(event.target.value));
     setPageError("");
   }
 
@@ -929,6 +1098,141 @@ export default function Receiving() {
     } finally {
       setIsDeletingMovementId("");
     }
+  }
+
+  function startIncidentEdit() {
+    if (!isAdmin || !incidentDetail || incidentDetail?.deletedAt) return;
+    setIncidentEditForm(createIncidentEditForm(incidentDetail));
+    setIncidentDetailError("");
+    setIsEditingIncident(true);
+  }
+
+  function cancelIncidentEdit() {
+    setIncidentEditForm(createIncidentEditForm(incidentDetail || {}));
+    setIncidentDetailError("");
+    setIsEditingIncident(false);
+  }
+
+  function setIncidentEditField(field, value) {
+    setIncidentEditForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+    setIncidentDetailError("");
+  }
+
+  async function handleSaveIncidentEdit(event) {
+    event.preventDefault();
+    const incidentId = toCleanText(incidentDetail?.id || incidentDetailId);
+    if (!isAdmin || !incidentId || isSavingIncidentEdit) return;
+
+    const reason = toCleanText(incidentEditForm.reason);
+    if (!reason) {
+      setIncidentDetailError("กรุณาระบุเหตุผลในการแก้ไข incident เพื่อเก็บ audit");
+      return;
+    }
+
+    setIsSavingIncidentEdit(true);
+    setIncidentDetailError("");
+    try {
+      const response = await adminApi.updateIncident(incidentId, {
+        incidentType: incidentEditForm.incidentType,
+        incidentReason: incidentEditForm.incidentReason,
+        incidentDescription: incidentEditForm.incidentDescription,
+        happenedAt: incidentEditForm.happenedAt,
+        status: incidentEditForm.status,
+        note: incidentEditForm.note,
+        reason,
+      });
+      const incident = response?.incident || null;
+      setIncidentDetail(incident);
+      setIncidentEditForm(createIncidentEditForm(incident || {}));
+      setIsEditingIncident(false);
+      setMovementSearchStatus(`อัปเดต incident ${getIncidentDisplayCode(incident || {})} แล้ว`);
+    } catch (error) {
+      setIncidentDetailError(error?.message || "แก้ไข incident report ไม่สำเร็จ");
+    } finally {
+      setIsSavingIncidentEdit(false);
+    }
+  }
+
+  async function handleDeleteIncidentFromDetail() {
+    const incidentId = toCleanText(incidentDetail?.id || incidentDetailId);
+    if (!isAdmin || !incidentId || isDeletingIncident) return;
+    if (incidentDetail?.deletedAt) {
+      setIncidentDetailError("incident นี้ถูกลบ/ซ่อนไปแล้ว");
+      return;
+    }
+
+    const incidentCode = getIncidentDisplayCode(incidentDetail || incidentDetailMovement || {});
+    const reason = window.prompt(`ระบุเหตุผลในการลบ incident ${incidentCode}`);
+    if (reason === null) return;
+    const cleanReason = toCleanText(reason);
+    if (!cleanReason) {
+      setIncidentDetailError("กรุณาระบุเหตุผลก่อนลบ incident เพื่อเก็บ audit");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `ยืนยันลบ/ซ่อน incident ${incidentCode}?\nmovement ที่เคยเกิดจาก incident นี้จะยังคง trace reference ไว้`
+    );
+    if (!confirmed) return;
+
+    setIsDeletingIncident(true);
+    setIncidentDetailError("");
+    try {
+      const response = await adminApi.deleteIncident(incidentId, { reason: cleanReason });
+      const incident = response?.incident || null;
+      setIncidentDetail(incident);
+      setIncidentEditForm(createIncidentEditForm(incident || {}));
+      setIsEditingIncident(false);
+      setMovements((current) =>
+        current.map((movement) =>
+          toCleanText(movement?.sourceRefId) === incidentId
+            ? {
+                ...movement,
+                sourceIncidentCode: toCleanText(incident?.incidentCode) || movement.sourceIncidentCode,
+                sourceIncidentDescription:
+                  toCleanText(incident?.incidentDescription) || movement.sourceIncidentDescription,
+                sourceIncidentDeletedAt: toCleanText(incident?.deletedAt),
+              }
+            : movement
+        )
+      );
+      setMovementSearchStatus(`ลบ/ซ่อน incident ${getIncidentDisplayCode(incident || {})} แล้ว`);
+    } catch (error) {
+      setIncidentDetailError(error?.message || "ลบ incident report ไม่สำเร็จ");
+    } finally {
+      setIsDeletingIncident(false);
+    }
+  }
+
+  function renderMovementTypeBadge(movement) {
+    const label = MOVEMENT_TYPE_LABEL[movement?.movementType] || movement?.movementType || "-";
+    const className = `movement-type-badge ${getMovementTypeClass(movement)}`;
+
+    if (!isCorrectiveDispenseMovement(movement)) {
+      return (
+        <span className={className} title={getMovementTypeTitle(movement)}>
+          {label}
+        </span>
+      );
+    }
+
+    const incidentCode = getIncidentDisplayCode(movement);
+    const hasIncidentId = Boolean(toCleanText(movement?.sourceRefId));
+    return (
+      <button
+        type="button"
+        className={`${className} movement-type-badge--button`}
+        title={getMovementTypeTitle(movement)}
+        onClick={() => openIncidentDetailModal(movement)}
+        disabled={!hasIncidentId}
+      >
+        <span>{label}</span>
+        <span className="movement-type-badge__meta">{incidentCode}</span>
+      </button>
+    );
   }
 
   useEffect(() => {
@@ -1872,6 +2176,15 @@ export default function Receiving() {
     }
   }
 
+  function handleIncidentDetailModalBackdropClick(event) {
+    if (event.target === event.currentTarget) {
+      closeIncidentDetailModal();
+    }
+  }
+
+  const incidentDetailCode = getIncidentDisplayCode(incidentDetail || incidentDetailMovement || {});
+  const canManageIncidentDetail = Boolean(isAdmin && incidentDetail && !incidentDetail?.deletedAt);
+
   return (
     <div className="outerpad receiving-page">
       <div id="product-admin" className="qgrid receiving-top">
@@ -1911,6 +2224,22 @@ export default function Receiving() {
               {isSearchingMovementProduct ? "กำลังค้นหา..." : "ค้นหา"}
             </button>
           </form>
+
+          <div className="movement-filter-row">
+            <label htmlFor="movementTypeFilter">ประเภทการเคลื่อนไหว</label>
+            <select
+              id="movementTypeFilter"
+              className="qinput"
+              value={movementTypeFilter}
+              onChange={handleMovementTypeFilterChange}
+            >
+              {MOVEMENT_TABLE_FILTER_OPTIONS.map((option) => (
+                <option key={option.value || "all"} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
           {movementSearchStatus ? (
             <div className="movement-search-status search-panel-status">{movementSearchStatus}</div>
@@ -2028,14 +2357,7 @@ export default function Receiving() {
                   </div>
                   <div>{movement?.productCode || "-"}</div>
                   <div>{movement?.lotNo || "-"}</div>
-                  <div>
-                    <span
-                      className={`movement-type-badge ${getMovementTypeClass(movement)}`}
-                      title={getMovementTypeTitle(movement)}
-                    >
-                      {MOVEMENT_TYPE_LABEL[movement?.movementType] || movement?.movementType || "-"}
-                    </span>
-                  </div>
+                  <div>{renderMovementTypeBadge(movement)}</div>
                   <div
                     className={`right movement-delta ${getDeltaClass(movement?.movementType)}`}
                     title={getDeltaTitle(movement)}
@@ -2070,9 +2392,7 @@ export default function Receiving() {
               <div className="row row--placeholder">
                 <div className="center">-</div>
                 <div>
-                  {movementSearchProductId
-                    ? "ไม่พบการเคลื่อนไหวของสินค้านี้ตามสิทธิ์สาขาที่กำลังดู"
-                    : "ยังไม่มีข้อมูลรายการเคลื่อนไหว"}
+                  {emptyMovementText}
                 </div>
                 <div className="center">-</div>
                 <div className="center">-</div>
@@ -2773,6 +3093,360 @@ export default function Receiving() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      ) : null}
+
+      {incidentDetailId ? (
+        <div
+          className="modal"
+          aria-hidden="false"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="incident-detail-modal-title"
+          onClick={handleIncidentDetailModalBackdropClick}
+        >
+          <div className="qcard modal-card movement-modal-card incident-detail-card">
+            <div className="section-header incident-detail-header">
+              <div>
+                <strong id="incident-detail-modal-title">Incident report {incidentDetailCode}</strong>
+                <span>
+                  รายการส่งมอบลูกค้านี้ถูกสร้างจาก corrective action ของ incident report
+                </span>
+              </div>
+              <button className="btn" type="button" onClick={closeIncidentDetailModal}>
+                ปิด
+              </button>
+            </div>
+
+            {incidentDetailError ? (
+              <div className="field-error incident-detail-error">{incidentDetailError}</div>
+            ) : null}
+
+            {isLoadingIncidentDetail ? (
+              <div className="incident-detail-state">กำลังโหลดรายละเอียด incident report...</div>
+            ) : incidentDetail ? (
+              <div className="incident-detail-content">
+                <div className="incident-detail-grid">
+                  <div>
+                    <strong>Incident code</strong>
+                    <span>{toCleanText(incidentDetail?.incidentCode) || "-"}</span>
+                  </div>
+                  <div>
+                    <strong>Status</strong>
+                    <span>{getAdminIncidentStatusLabel(incidentDetail?.status)}</span>
+                  </div>
+                  <div>
+                    <strong>Type</strong>
+                    <span>{getAdminIncidentTypeLabel(incidentDetail?.incidentType)}</span>
+                  </div>
+                  <div>
+                    <strong>Reason</strong>
+                    <span>{getAdminIncidentReasonLabel(incidentDetail?.incidentReason)}</span>
+                  </div>
+                  <div>
+                    <strong>Branch</strong>
+                    <span>
+                      {toCleanText(incidentDetail?.branchCode)
+                        ? `${toCleanText(incidentDetail?.branchCode)} : ${
+                            toCleanText(incidentDetail?.branchName) || "-"
+                          }`
+                        : "-"}
+                    </span>
+                  </div>
+                  <div>
+                    <strong>Reporter</strong>
+                    <span>
+                      {toCleanText(incidentDetail?.reporterName) ||
+                        toCleanText(incidentDetail?.reporterUsername) ||
+                        "-"}
+                    </span>
+                  </div>
+                  <div>
+                    <strong>Happened at</strong>
+                    <span>{formatAdminIncidentDateTime(incidentDetail?.happenedAt)}</span>
+                  </div>
+                  <div>
+                    <strong>Reported at</strong>
+                    <span>{formatAdminIncidentDateTime(incidentDetail?.reportedAt)}</span>
+                  </div>
+                </div>
+
+                {incidentDetail?.deletedAt ? (
+                  <div className="incident-detail-deleted">
+                    <strong>incident นี้ถูกลบ/ซ่อนแล้ว</strong>
+                    <span>
+                      ลบโดย{" "}
+                      {toCleanText(incidentDetail?.deletedByAdminName) ||
+                        toCleanText(incidentDetail?.deletedByAdminUsername) ||
+                        "-"}{" "}
+                      เมื่อ {formatAdminIncidentDateTime(incidentDetail?.deletedAt)}
+                    </span>
+                    <span>เหตุผล: {toCleanText(incidentDetail?.deleteReasonText) || "-"}</span>
+                  </div>
+                ) : null}
+
+                <section className="incident-detail-section">
+                  <h3>Description</h3>
+                  <p>{toCleanText(incidentDetail?.incidentDescription) || "-"}</p>
+                </section>
+
+                <section className="incident-detail-section">
+                  <h3>Admin note / reference</h3>
+                  <p>{toCleanText(incidentDetail?.noteText) || "-"}</p>
+                </section>
+
+                {isAdmin ? (
+                  <section className="incident-detail-section incident-admin-section">
+                    <div className="incident-admin-toolbar">
+                      <h3>Admin controls</h3>
+                      {canManageIncidentDetail ? (
+                        <div className="incident-admin-actions">
+                          <button
+                            type="button"
+                            className="movement-inline-action"
+                            onClick={startIncidentEdit}
+                            disabled={isEditingIncident || isSavingIncidentEdit || isDeletingIncident}
+                          >
+                            แก้ไข incident
+                          </button>
+                          <button
+                            type="button"
+                            className="movement-inline-action movement-inline-action--danger"
+                            onClick={() => void handleDeleteIncidentFromDetail()}
+                            disabled={isSavingIncidentEdit || isDeletingIncident}
+                          >
+                            {isDeletingIncident ? "กำลังลบ..." : "ลบ incident"}
+                          </button>
+                        </div>
+                      ) : (
+                        <span>incident นี้แก้ไขหรือลบซ้ำไม่ได้</span>
+                      )}
+                    </div>
+
+                    {isEditingIncident ? (
+                      <form className="incident-edit-form" onSubmit={handleSaveIncidentEdit}>
+                        <div className="movement-grid">
+                          <div className="field-block">
+                            <label htmlFor="receivingIncidentEditType">Incident type</label>
+                            <select
+                              id="receivingIncidentEditType"
+                              className="qinput"
+                              value={incidentEditForm.incidentType}
+                              onChange={(event) =>
+                                setIncidentEditField("incidentType", event.target.value)
+                              }
+                              required
+                            >
+                              {ADMIN_INCIDENT_TYPE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="field-block">
+                            <label htmlFor="receivingIncidentEditReason">Incident reason</label>
+                            <select
+                              id="receivingIncidentEditReason"
+                              className="qinput"
+                              value={incidentEditForm.incidentReason}
+                              onChange={(event) =>
+                                setIncidentEditField("incidentReason", event.target.value)
+                              }
+                              required
+                            >
+                              {ADMIN_INCIDENT_REASON_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="field-block">
+                            <label htmlFor="receivingIncidentEditStatus">Status</label>
+                            <select
+                              id="receivingIncidentEditStatus"
+                              className="qinput"
+                              value={incidentEditForm.status}
+                              onChange={(event) => setIncidentEditField("status", event.target.value)}
+                              required
+                            >
+                              {ADMIN_INCIDENT_STATUS_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="field-block">
+                            <label htmlFor="receivingIncidentEditHappenedAt">Happened at</label>
+                            <input
+                              id="receivingIncidentEditHappenedAt"
+                              className="qinput"
+                              type="datetime-local"
+                              value={incidentEditForm.happenedAt}
+                              onChange={(event) =>
+                                setIncidentEditField("happenedAt", event.target.value)
+                              }
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        <div className="field-block">
+                          <label htmlFor="receivingIncidentEditDescription">Description</label>
+                          <textarea
+                            id="receivingIncidentEditDescription"
+                            className="qinput incident-textarea"
+                            value={incidentEditForm.incidentDescription}
+                            onChange={(event) =>
+                              setIncidentEditField("incidentDescription", event.target.value)
+                            }
+                            rows={4}
+                            required
+                          />
+                        </div>
+
+                        <div className="field-block">
+                          <label htmlFor="receivingIncidentEditNote">Admin note / reference</label>
+                          <textarea
+                            id="receivingIncidentEditNote"
+                            className="qinput incident-textarea"
+                            value={incidentEditForm.note}
+                            onChange={(event) => setIncidentEditField("note", event.target.value)}
+                            rows={3}
+                          />
+                        </div>
+
+                        <div className="field-block">
+                          <label htmlFor="receivingIncidentEditAuditReason">
+                            เหตุผลในการแก้ไข
+                          </label>
+                          <textarea
+                            id="receivingIncidentEditAuditReason"
+                            className="qinput incident-textarea"
+                            value={incidentEditForm.reason}
+                            onChange={(event) => setIncidentEditField("reason", event.target.value)}
+                            placeholder="ระบุเหตุผลเพื่อเก็บใน audit metadata"
+                            rows={3}
+                            required
+                          />
+                        </div>
+
+                        <div className="modal-actions">
+                          <button
+                            className="btn"
+                            type="button"
+                            onClick={cancelIncidentEdit}
+                            disabled={isSavingIncidentEdit}
+                          >
+                            ยกเลิก
+                          </button>
+                          <button
+                            className="btn btn--yellow"
+                            type="submit"
+                            disabled={isSavingIncidentEdit}
+                          >
+                            {isSavingIncidentEdit ? "กำลังบันทึก..." : "บันทึกการแก้ไข"}
+                          </button>
+                        </div>
+                      </form>
+                    ) : null}
+                  </section>
+                ) : null}
+
+                <section className="incident-detail-section">
+                  <h3>Related items</h3>
+                  {Array.isArray(incidentDetail?.items) && incidentDetail.items.length ? (
+                    <div className="incident-detail-table-wrap">
+                      <table className="incident-detail-table">
+                        <thead>
+                          <tr>
+                            <th>#</th>
+                            <th>Product</th>
+                            <th>Lot</th>
+                            <th>EXP</th>
+                            <th>Qty</th>
+                            <th>Unit</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {incidentDetail.items.map((item) => (
+                            <tr key={toCleanText(item?.id) || item?.lineNo}>
+                              <td>{Number(item?.lineNo || 0)}</td>
+                              <td>
+                                <strong>{toCleanText(item?.productNameSnapshot) || "-"}</strong>
+                                <span>{toCleanText(item?.productCodeSnapshot) || "-"}</span>
+                              </td>
+                              <td>{toCleanText(item?.lotNoSnapshot) || "-"}</td>
+                              <td>{toCleanText(item?.expDateSnapshot) || "-"}</td>
+                              <td>{Number(item?.qty || 0)}</td>
+                              <td>{toCleanText(item?.unitLabelSnapshot) || "-"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="incident-detail-state">incident นี้ไม่มี item rows</div>
+                  )}
+                </section>
+
+                <section className="incident-detail-section">
+                  <h3>Resolution actions</h3>
+                  {Array.isArray(incidentDetail?.resolutionActions) &&
+                  incidentDetail.resolutionActions.length ? (
+                    <div className="incident-detail-table-wrap">
+                      <table className="incident-detail-table">
+                        <thead>
+                          <tr>
+                            <th>#</th>
+                            <th>Action</th>
+                            <th>Product</th>
+                            <th>Lot</th>
+                            <th>Qty</th>
+                            <th>Applied</th>
+                            <th>Reference</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {incidentDetail.resolutionActions.map((action) => (
+                            <tr key={toCleanText(action?.id) || action?.lineNo}>
+                              <td>{Number(action?.lineNo || 0)}</td>
+                              <td>{getAdminIncidentResolutionActionLabel(action?.actionType)}</td>
+                              <td>
+                                <strong>{toCleanText(action?.productNameSnapshot) || "-"}</strong>
+                                <span>{toCleanText(action?.productCodeSnapshot) || "-"}</span>
+                              </td>
+                              <td>
+                                <strong>{toCleanText(action?.lotNoSnapshot) || "-"}</strong>
+                                <span>{toCleanText(action?.expDateSnapshot) || "-"}</span>
+                              </td>
+                              <td>
+                                {Number(action?.qty || 0)}{" "}
+                                {toCleanText(action?.unitLabelSnapshot) || ""}
+                              </td>
+                              <td>{formatAdminIncidentDateTime(action?.appliedAt)}</td>
+                              <td>
+                                <strong>{toCleanText(action?.appliedStockMovementId) || "-"}</strong>
+                                <span>{toCleanText(action?.noteText) || "-"}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="incident-detail-state">
+                      incident นี้ยังไม่มี corrective actions ที่ apply แล้ว
+                    </div>
+                  )}
+                </section>
+              </div>
+            ) : (
+              <div className="incident-detail-state">ไม่พบรายละเอียด incident report</div>
+            )}
           </div>
         </div>
       ) : null}

@@ -21,6 +21,7 @@ import { httpError } from "../utils/httpError.js";
 import { parseDateOnlyInput } from "../utils/dateOnly.js";
 
 const MOVEMENT_TYPES = new Set(["RECEIVE", "TRANSFER_OUT", "DISPENSE"]);
+const MOVEMENT_REPORT_TYPES = new Set(["RECEIVE", "TRANSFER_OUT", "TRANSFER_IN", "DISPENSE"]);
 const TRANSFER_REQUEST_SOURCE_REF = "TRANSFER_REQUEST";
 const TRANSFER_REQUEST_STATUSES = new Set(["PENDING", "ACCEPTED", "REJECTED"]);
 let hasStockMovementDeleteAuditsTableCache = null;
@@ -1978,6 +1979,7 @@ export async function getMovements(req, res) {
   const sellableUnitActivePredicate = productUnitLevelsActiveCompatPredicate("puls");
   const baseUnitActivePredicate = productUnitLevelsActiveCompatPredicate("pulb");
   const productId = req.query.productId ? String(req.query.productId).trim() : "";
+  const movementType = req.query.movementType ? String(req.query.movementType).trim().toUpperCase() : "";
   const branchCode = req.query.branchCode ? String(req.query.branchCode).trim() : "";
   const requestedLocationId =
     req.query.location_id || req.query.locationId
@@ -2004,6 +2006,9 @@ export async function getMovements(req, res) {
 
   if (from && Number.isNaN(from.getTime())) throw httpError(400, "Invalid from datetime");
   if (to && Number.isNaN(to.getTime())) throw httpError(400, "Invalid to datetime");
+  if (movementType && !MOVEMENT_REPORT_TYPES.has(movementType)) {
+    throw httpError(400, `Unsupported movementType filter: ${movementType}`);
+  }
 
   const params = [];
   const where = ["1=1"];
@@ -2025,6 +2030,11 @@ export async function getMovements(req, res) {
   if (productId) {
     params.push(productId);
     where.push(`sm.product_id = $${params.length}`);
+  }
+
+  if (movementType) {
+    params.push(movementType);
+    where.push(`sm.movement_type = $${params.length}::movement_type`);
   }
 
   if (branchCode) {
@@ -2056,6 +2066,9 @@ export async function getMovements(req, res) {
         sm.movement_type AS "movementType",
         sm.source_ref_type AS "sourceRefType",
         sm.source_ref_id AS "sourceRefId",
+        source_incident.incident_code AS "sourceIncidentCode",
+        source_incident.incident_description AS "sourceIncidentDescription",
+        to_jsonb(source_incident) ->> 'deleted_at' AS "sourceIncidentDeletedAt",
         ${effectiveOccurredAtSql} AS "occurredAt",
         sm.occurred_at AS "originalOccurredAt",
         sm.corrected_occurred_at AS "correctedOccurredAt",
@@ -2117,6 +2130,9 @@ export async function getMovements(req, res) {
       ) latest_correction ON true
       LEFT JOIN locations from_l ON from_l.id = sm.from_location_id
       LEFT JOIN locations to_l ON to_l.id = sm.to_location_id
+      LEFT JOIN incident_reports source_incident
+        ON sm.source_ref_type = 'INCIDENT_REPORT'
+       AND source_incident.id = sm.source_ref_id
       WHERE ${where.join(" AND ")}
       ORDER BY ${effectiveOccurredAtSql} DESC, sm.created_at DESC
       LIMIT $${params.length}

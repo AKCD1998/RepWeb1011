@@ -114,7 +114,10 @@
 
 .admin-incident-page__filters input,
 .admin-incident-page__filters select,
-.admin-incident-page__status-editor select {
+.admin-incident-page__status-editor select,
+.admin-incident-page__edit-form input,
+.admin-incident-page__edit-form select,
+.admin-incident-page__edit-form textarea {
   width: 100%;
   box-sizing: border-box;
   padding: 1px 12px;
@@ -126,13 +129,22 @@
   box-shadow: inset 0 1px #ffffff0d;
 }
 
+.admin-incident-page__edit-form textarea {
+  min-height: 96px;
+  padding-top: 10px;
+  resize: vertical;
+}
+
 .admin-incident-page__filters input::placeholder {
   color: rgba(191, 219, 254, 0.52);
 }
 
 .admin-incident-page__filters input:focus,
 .admin-incident-page__filters select:focus,
-.admin-incident-page__status-editor select:focus {
+.admin-incident-page__status-editor select:focus,
+.admin-incident-page__edit-form input:focus,
+.admin-incident-page__edit-form select:focus,
+.admin-incident-page__edit-form textarea:focus {
   outline: none;
   border-color: rgba(251, 191, 36, 0.5);
   box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
@@ -292,10 +304,58 @@
   justify-content: space-between;
 }
 
+.admin-incident-page__detail-actions,
 .admin-incident-page__status-editor {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.admin-incident-page__detail-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.admin-incident-page__edit-panel,
+.admin-incident-page__deleted-block {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(251, 191, 36, 0.24);
+  background: rgba(34, 23, 10, 0.48);
+}
+
+.admin-incident-page__deleted-block {
+  display: grid;
+  gap: 4px;
+  border-color: rgba(248, 113, 113, 0.34);
+  background: rgba(127, 29, 29, 0.32);
+}
+
+.admin-incident-page__deleted-block strong {
+  color: #fee2e2;
+}
+
+.admin-incident-page__deleted-block span {
+  color: rgba(254, 226, 226, 0.86);
+}
+
+.admin-incident-page__edit-form {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-incident-page__edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-incident-page__edit-form label {
+  display: grid;
+  gap: 8px;
+  color: rgba(226, 232, 240, 0.92);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .admin-incident-page__status {
@@ -359,7 +419,8 @@
 }
 
 .admin-incident-page__primary,
-.admin-incident-page__secondary {
+.admin-incident-page__secondary,
+.admin-incident-page__danger {
   appearance: none;
   border: none;
   cursor: pointer;
@@ -383,12 +444,32 @@
   border: 1px solid rgba(148, 163, 184, 0.18);
 }
 
+.admin-incident-page__danger {
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(127, 29, 29, 0.78);
+  color: #fee2e2;
+  border: 1px solid rgba(248, 113, 113, 0.5);
+  font-weight: 700;
+}
+
 .admin-incident-page__primary:hover {
   filter: brightness(1.04);
 }
 
 .admin-incident-page__secondary:hover {
   background: rgba(255, 255, 255, 0.12);
+}
+
+.admin-incident-page__danger:hover {
+  background: rgba(153, 27, 27, 0.9);
+}
+
+.admin-incident-page__primary:disabled,
+.admin-incident-page__secondary:disabled,
+.admin-incident-page__danger:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
 }
 
 @media (max-width: 1100px) {
@@ -404,12 +485,14 @@
 @media (max-width: 768px) {
   .admin-incident-page__header,
   .admin-incident-page__card-header,
+  .admin-incident-page__detail-actions,
   .admin-incident-page__status-editor {
     flex-direction: column;
     align-items: stretch;
   }
 
   .admin-incident-page__filters,
+  .admin-incident-page__edit-grid,
   .admin-incident-page__detail-grid {
     grid-template-columns: 1fr;
   }

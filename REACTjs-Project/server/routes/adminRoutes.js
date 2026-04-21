@@ -3,8 +3,10 @@ import { executeSql, getDatabaseSchema, listTableRows } from "../controllers/adm
 import {
   applyIncidentReportResolution,
   createIncidentReport,
+  deleteIncidentReport,
   getIncidentReportById,
   listIncidentReports,
+  updateIncidentReport,
   updateIncidentReportStatus,
 } from "../controllers/adminIncidentsController.js";
 import { requireRole, verifyToken } from "../middleware/authMiddleware.js";
@@ -15,6 +17,7 @@ const router = Router();
 router.get("/incidents", verifyToken, requireRole("ADMIN"), asyncHandler(listIncidentReports));
 router.get("/incidents/:id", verifyToken, requireRole("ADMIN"), asyncHandler(getIncidentReportById));
 router.post("/incidents", verifyToken, requireRole("ADMIN"), asyncHandler(createIncidentReport));
+router.patch("/incidents/:id", verifyToken, requireRole("ADMIN"), asyncHandler(updateIncidentReport));
 router.post(
   "/incidents/:id/resolution",
   verifyToken,
@@ -27,6 +30,7 @@ router.patch(
   requireRole("ADMIN"),
   asyncHandler(updateIncidentReportStatus)
 );
+router.delete("/incidents/:id", verifyToken, requireRole("ADMIN"), asyncHandler(deleteIncidentReport));
 router.get("/db/schema", verifyToken, requireRole("ADMIN"), asyncHandler(getDatabaseSchema));
 router.get("/db/tables/:tableName/rows", verifyToken, requireRole("ADMIN"), asyncHandler(listTableRows));
 router.post("/sql/execute", verifyToken, requireRole("ADMIN"), asyncHandler(executeSql));

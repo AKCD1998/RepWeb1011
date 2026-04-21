@@ -17,6 +17,7 @@ const INCIDENT_STATUSES = new Set(["OPEN", "ACKNOWLEDGED", "CLOSED"]);
 const DEFAULT_LIST_LIMIT = 100;
 const MAX_LIST_LIMIT = 500;
 let hasIncidentResolutionActionsTableCache = null;
+let hasIncidentAdminAuditsTableCache = null;
 
 function toCleanText(value) {
   return String(value ?? "").trim();
@@ -68,6 +69,15 @@ function normalizeListLimit(value) {
   return Math.min(Math.floor(numeric), MAX_LIST_LIMIT);
 }
 
+function parseBoolean(value, fallback = false) {
+  if (value === undefined || value === null || String(value).trim() === "") return fallback;
+  if (typeof value === "boolean") return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (["true", "1", "yes"].includes(normalized)) return true;
+  if (["false", "0", "no"].includes(normalized)) return false;
+  return fallback;
+}
+
 function normalizeIncidentDateFilterStart(value) {
   const normalized = parseDateOnlyInput(value, "fromDate", { allowEmpty: true });
   if (!normalized) return "";
@@ -103,6 +113,35 @@ async function hasIncidentResolutionActionsTable(client) {
   }
 
   return false;
+}
+
+async function hasIncidentAdminAuditsTable(client) {
+  if (hasIncidentAdminAuditsTableCache === true) {
+    return true;
+  }
+
+  const result = await client.query(
+    `
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = 'incident_report_admin_audits'
+      LIMIT 1
+    `
+  );
+
+  if (result.rows[0]) {
+    hasIncidentAdminAuditsTableCache = true;
+    return true;
+  }
+
+  return false;
+}
+
+function requireIncidentAdminAuditSchemaAvailable(isAvailable) {
+  if (!isAvailable) {
+    throw httpError(503, "incident report admin audit schema is not deployed yet; run migration 0024 first");
+  }
 }
 
 function normalizeIncidentItemInput(item, index) {
@@ -338,11 +377,17 @@ async function getIncidentDetailById(db, incidentId) {
         ir.smartcard_session_id AS "smartcardSessionId",
         ir.dispense_attempt_id AS "dispenseAttemptId",
         ir.note_text AS "noteText",
+        to_jsonb(ir) ->> 'deleted_at' AS "deletedAt",
+        to_jsonb(ir) ->> 'deleted_by_admin_user_id' AS "deletedByAdminUserId",
+        COALESCE(NULLIF(TRIM(del_admin.full_name), ''), del_admin.username, '') AS "deletedByAdminName",
+        del_admin.username AS "deletedByAdminUsername",
+        to_jsonb(ir) ->> 'delete_reason_text' AS "deleteReasonText",
         ir.created_at AS "createdAt",
         ir.updated_at AS "updatedAt"
       FROM incident_reports ir
       JOIN users reporter ON reporter.id = ir.reporter_user_id
       LEFT JOIN users ack_admin ON ack_admin.id = ir.acknowledged_by_admin_user_id
+      LEFT JOIN users del_admin ON del_admin.id = NULLIF(to_jsonb(ir) ->> 'deleted_by_admin_user_id', '')::uuid
       WHERE ir.id = $1::uuid
       LIMIT 1
     `,
@@ -431,6 +476,63 @@ async function getIncidentDetailById(db, incidentId) {
       qty: Number(row.qty),
     })),
   };
+}
+
+async function getIncidentSnapshotById(client, incidentId) {
+  const result = await client.query(
+    `
+      SELECT row_to_json(ir)::jsonb AS snapshot
+      FROM incident_reports ir
+      WHERE ir.id = $1::uuid
+      LIMIT 1
+    `,
+    [incidentId]
+  );
+  return result.rows[0]?.snapshot || null;
+}
+
+async function insertIncidentAdminAudit(client, {
+  incidentId,
+  actionType,
+  previousSnapshot,
+  nextSnapshot = null,
+  reason,
+  changedByUserId,
+}) {
+  await client.query(
+    `
+      INSERT INTO incident_report_admin_audits (
+        incident_report_id,
+        action_type,
+        previous_snapshot,
+        next_snapshot,
+        reason_text,
+        changed_by,
+        changed_at
+      )
+      VALUES (
+        $1::uuid,
+        $2,
+        $3::jsonb,
+        $4::jsonb,
+        $5,
+        $6::uuid,
+        now()
+      )
+    `,
+    [
+      incidentId,
+      actionType,
+      previousSnapshot,
+      nextSnapshot,
+      reason,
+      changedByUserId,
+    ]
+  );
+}
+
+function hasBodyField(body = {}, fieldNames = []) {
+  return fieldNames.some((fieldName) => Object.prototype.hasOwnProperty.call(body, fieldName));
 }
 
 export async function createIncidentReport(req, res) {
@@ -649,10 +751,15 @@ export async function listIncidentReports(req, res) {
   const branchCode = normalizeOptionalText(req.query.branchCode ?? req.query.branch_code, 30, "branchCode");
   const incidentType = normalizeOptionalText(req.query.incidentType ?? req.query.incident_type, 80, "incidentType");
   const status = normalizeIncidentStatus(req.query.status, { allowEmpty: true });
+  const includeDeleted = parseBoolean(req.query.includeDeleted ?? req.query.include_deleted, false);
   const limit = normalizeListLimit(req.query.limit);
 
   const params = [];
   const where = [];
+
+  if (!includeDeleted) {
+    where.push(`(to_jsonb(ir) ->> 'deleted_at') IS NULL`);
+  }
 
   if (fromDate) {
     params.push(fromDate);
@@ -689,6 +796,8 @@ export async function listIncidentReports(req, res) {
         ir.happened_at AS "happenedAt",
         ir.reported_at AS "reportedAt",
         ir.status,
+        to_jsonb(ir) ->> 'deleted_at' AS "deletedAt",
+        to_jsonb(ir) ->> 'delete_reason_text' AS "deleteReasonText",
         COALESCE(NULLIF(TRIM(reporter.full_name), ''), reporter.username, 'unknown') AS "reporterName",
         reporter.username AS "reporterUsername",
         COALESCE(item_count.item_count, 0) AS "itemCount"
@@ -725,6 +834,18 @@ export async function getIncidentReportById(req, res) {
     throw httpError(404, "Incident report not found");
   }
 
+  const userRole = toCleanText(req.user?.role).toUpperCase();
+  if (userRole !== "ADMIN") {
+    const userLocationId = toCleanText(req.user?.location_id);
+    const userBranchCode = toCleanText(req.user?.branchCode ?? req.user?.branch_code);
+    const canViewBranch =
+      (userLocationId && toCleanText(incident.branchId) === userLocationId) ||
+      (userBranchCode && toCleanText(incident.branchCode) === userBranchCode);
+    if (!canViewBranch) {
+      throw httpError(403, "Forbidden: incident report is outside your branch");
+    }
+  }
+
   return res.json({
     incident,
   });
@@ -754,6 +875,9 @@ export async function applyIncidentReportResolution(req, res) {
     if (!existing) {
       throw httpError(404, "Incident report not found");
     }
+    if (existing.deletedAt) {
+      throw httpError(409, "Deleted incident reports cannot receive corrective actions");
+    }
 
     await applyIncidentResolutionActions(client, {
       incident: existing,
@@ -775,6 +899,198 @@ export async function applyIncidentReportResolution(req, res) {
   });
 }
 
+export async function updateIncidentReport(req, res) {
+  const incidentId = toCleanText(req.params.id);
+  const adminUserId = toCleanText(req.user?.id);
+  if (!incidentId || !isUuid(incidentId)) {
+    throw httpError(400, "incident id must be a valid UUID");
+  }
+  if (!adminUserId || !isUuid(adminUserId)) {
+    throw httpError(401, "Authentication required");
+  }
+
+  const reason = normalizeRequiredText(
+    req.body?.reason ?? req.body?.reasonText ?? req.body?.reason_text,
+    4000,
+    "reason"
+  );
+  const body = req.body || {};
+
+  const updatedIncident = await withTransaction(async (client) => {
+    requireIncidentAdminAuditSchemaAvailable(await hasIncidentAdminAuditsTable(client));
+
+    const existing = await getIncidentDetailById(client, incidentId);
+    if (!existing) {
+      throw httpError(404, "Incident report not found");
+    }
+    if (existing.deletedAt) {
+      throw httpError(409, "Deleted incident reports cannot be edited");
+    }
+
+    const previousSnapshot = await getIncidentSnapshotById(client, incidentId);
+    if (!previousSnapshot) {
+      throw httpError(404, "Incident report not found");
+    }
+
+    const nextIncidentType = hasBodyField(body, ["incidentType", "incident_type"])
+      ? normalizeRequiredText(body.incidentType ?? body.incident_type, 80, "incidentType")
+      : existing.incidentType;
+    const nextIncidentReason = hasBodyField(body, ["incidentReason", "incident_reason"])
+      ? normalizeRequiredText(body.incidentReason ?? body.incident_reason, 160, "incidentReason")
+      : existing.incidentReason;
+    const nextIncidentDescription = hasBodyField(body, ["incidentDescription", "incident_description"])
+      ? normalizeRequiredText(
+          body.incidentDescription ?? body.incident_description,
+          4000,
+          "incidentDescription"
+        )
+      : existing.incidentDescription;
+    const nextHappenedAt = hasBodyField(body, ["happenedAt", "happened_at"])
+      ? toIsoTimestamp(body.happenedAt ?? body.happened_at)
+      : existing.happenedAt;
+    const nextStatus = hasBodyField(body, ["status"])
+      ? normalizeIncidentStatus(body.status, { defaultValue: existing.status || "ACKNOWLEDGED" })
+      : existing.status;
+    const nextNoteText = hasBodyField(body, ["note", "noteText", "note_text"])
+      ? normalizeOptionalText(body.note ?? body.noteText ?? body.note_text, 4000, "note")
+      : existing.noteText || null;
+
+    const timestamp = new Date().toISOString();
+    const statusState = deriveStatusStateForUpdate(existing, nextStatus, adminUserId, timestamp);
+
+    await client.query(
+      `
+        UPDATE incident_reports
+        SET incident_type = $2,
+            incident_reason = $3,
+            incident_description = $4,
+            happened_at = $5::timestamptz,
+            status = $6,
+            acknowledged_by_admin_user_id = $7::uuid,
+            acknowledged_at = $8::timestamptz,
+            closed_at = $9::timestamptz,
+            note_text = $10,
+            updated_at = now()
+        WHERE id = $1::uuid
+      `,
+      [
+        incidentId,
+        nextIncidentType,
+        nextIncidentReason,
+        nextIncidentDescription,
+        nextHappenedAt,
+        nextStatus,
+        statusState.acknowledgedByAdminUserId,
+        statusState.acknowledgedAt,
+        statusState.closedAt,
+        nextNoteText,
+      ]
+    );
+
+    const nextSnapshot = await getIncidentSnapshotById(client, incidentId);
+    await insertIncidentAdminAudit(client, {
+      incidentId,
+      actionType: "UPDATE",
+      previousSnapshot,
+      nextSnapshot,
+      reason,
+      changedByUserId: adminUserId,
+    });
+
+    const detail = await getIncidentDetailById(client, incidentId);
+    if (!detail) {
+      throw httpError(500, "Incident report was updated but could not be loaded");
+    }
+    return detail;
+  });
+
+  return res.json({
+    ok: true,
+    incident: updatedIncident,
+  });
+}
+
+export async function deleteIncidentReport(req, res) {
+  const incidentId = toCleanText(req.params.id);
+  const adminUserId = toCleanText(req.user?.id);
+  if (!incidentId || !isUuid(incidentId)) {
+    throw httpError(400, "incident id must be a valid UUID");
+  }
+  if (!adminUserId || !isUuid(adminUserId)) {
+    throw httpError(401, "Authentication required");
+  }
+
+  const reason = normalizeRequiredText(
+    req.body?.reason ?? req.body?.reasonText ?? req.body?.reason_text,
+    4000,
+    "reason"
+  );
+
+  const deletedIncident = await withTransaction(async (client) => {
+    requireIncidentAdminAuditSchemaAvailable(await hasIncidentAdminAuditsTable(client));
+
+    const existing = await getIncidentDetailById(client, incidentId);
+    if (!existing) {
+      throw httpError(404, "Incident report not found");
+    }
+    if (existing.deletedAt) {
+      throw httpError(409, "Incident report is already deleted");
+    }
+
+    const previousSnapshot = await getIncidentSnapshotById(client, incidentId);
+    if (!previousSnapshot) {
+      throw httpError(404, "Incident report not found");
+    }
+
+    const timestamp = new Date().toISOString();
+    const statusState = deriveStatusStateForUpdate(existing, "CLOSED", adminUserId, timestamp);
+
+    await client.query(
+      `
+        UPDATE incident_reports
+        SET status = 'CLOSED',
+            acknowledged_by_admin_user_id = $2::uuid,
+            acknowledged_at = $3::timestamptz,
+            closed_at = $4::timestamptz,
+            deleted_at = $5::timestamptz,
+            deleted_by_admin_user_id = $2::uuid,
+            delete_reason_text = $6,
+            updated_at = now()
+        WHERE id = $1::uuid
+      `,
+      [
+        incidentId,
+        statusState.acknowledgedByAdminUserId,
+        statusState.acknowledgedAt,
+        statusState.closedAt,
+        timestamp,
+        reason,
+      ]
+    );
+
+    const nextSnapshot = await getIncidentSnapshotById(client, incidentId);
+    await insertIncidentAdminAudit(client, {
+      incidentId,
+      actionType: "DELETE",
+      previousSnapshot,
+      nextSnapshot,
+      reason,
+      changedByUserId: adminUserId,
+    });
+
+    const detail = await getIncidentDetailById(client, incidentId);
+    if (!detail) {
+      throw httpError(500, "Incident report was deleted but could not be loaded");
+    }
+    return detail;
+  });
+
+  return res.json({
+    ok: true,
+    incident: deletedIncident,
+  });
+}
+
 export async function updateIncidentReportStatus(req, res) {
   const incidentId = toCleanText(req.params.id);
   const adminUserId = toCleanText(req.user?.id);
@@ -791,6 +1107,9 @@ export async function updateIncidentReportStatus(req, res) {
     const existing = await getIncidentDetailById(client, incidentId);
     if (!existing) {
       throw httpError(404, "Incident report not found");
+    }
+    if (existing.deletedAt) {
+      throw httpError(409, "Deleted incident reports cannot be updated");
     }
 
     const timestamp = new Date().toISOString();

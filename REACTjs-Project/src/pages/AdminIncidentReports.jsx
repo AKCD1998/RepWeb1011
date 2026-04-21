@@ -3,8 +3,10 @@ import { useAuth } from "../context/AuthContext";
 import AdminIncidentModal from "../components/AdminIncidentModal";
 import { adminApi, inventoryApi } from "../lib/api";
 import {
+  ADMIN_INCIDENT_REASON_OPTIONS,
   ADMIN_INCIDENT_STATUS_OPTIONS,
   ADMIN_INCIDENT_TYPE_OPTIONS,
+  createAdminIncidentLocalDateTimeValue,
   formatAdminIncidentDateTime,
   getAdminIncidentReasonLabel,
   getAdminIncidentResolutionActionLabel,
@@ -34,6 +36,22 @@ function buildIncidentPreview(text, maxLength = 120) {
   return `${singleLine.slice(0, maxLength - 3)}...`;
 }
 
+function getIncidentDisplayCode(incident) {
+  return toCleanText(incident?.incidentCode) || toCleanText(incident?.id) || "-";
+}
+
+function createIncidentEditForm(incident = {}) {
+  return {
+    incidentType: toCleanText(incident?.incidentType),
+    incidentReason: toCleanText(incident?.incidentReason),
+    incidentDescription: toCleanText(incident?.incidentDescription),
+    happenedAt: incident?.happenedAt ? createAdminIncidentLocalDateTimeValue(incident.happenedAt) : "",
+    status: toCleanText(incident?.status).toUpperCase() || "ACKNOWLEDGED",
+    note: toCleanText(incident?.noteText),
+    reason: "",
+  };
+}
+
 export default function AdminIncidentReports() {
   const { user } = useAuth();
   const [filters, setFilters] = useState(() => createEmptyFilters());
@@ -47,6 +65,10 @@ export default function AdminIncidentReports() {
   const [detailError, setDetailError] = useState("");
   const [statusDraft, setStatusDraft] = useState("");
   const [isSavingStatus, setIsSavingStatus] = useState(false);
+  const [isEditingIncident, setIsEditingIncident] = useState(false);
+  const [incidentEditForm, setIncidentEditForm] = useState(() => createIncidentEditForm());
+  const [isSavingIncidentEdit, setIsSavingIncidentEdit] = useState(false);
+  const [isDeletingIncident, setIsDeletingIncident] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isResolveModalOpen, setIsResolveModalOpen] = useState(false);
   const [pageSuccess, setPageSuccess] = useState("");
@@ -98,6 +120,8 @@ export default function AdminIncidentReports() {
           setSelectedIncidentId("");
           setSelectedIncident(null);
           setStatusDraft("");
+          setIsEditingIncident(false);
+          setIncidentEditForm(createIncidentEditForm());
         }
       } catch (error) {
         if (!isCancelled) {
@@ -121,6 +145,8 @@ export default function AdminIncidentReports() {
       setSelectedIncident(null);
       setDetailError("");
       setStatusDraft("");
+      setIsEditingIncident(false);
+      setIncidentEditForm(createIncidentEditForm());
       return;
     }
 
@@ -136,6 +162,8 @@ export default function AdminIncidentReports() {
         const incident = response?.incident || null;
         setSelectedIncident(incident);
         setStatusDraft(toCleanText(incident?.status).toUpperCase());
+        setIncidentEditForm(createIncidentEditForm(incident || {}));
+        setIsEditingIncident(false);
       } catch (error) {
         if (!isCancelled) {
           setDetailError(toCleanText(error?.message) || "โหลดรายละเอียด incident ไม่สำเร็จ");
@@ -198,6 +226,125 @@ export default function AdminIncidentReports() {
     }
   }
 
+  function startIncidentEdit() {
+    if (!selectedIncident || selectedIncident?.deletedAt) return;
+    setIncidentEditForm(createIncidentEditForm(selectedIncident));
+    setDetailError("");
+    setIsEditingIncident(true);
+  }
+
+  function cancelIncidentEdit() {
+    setIncidentEditForm(createIncidentEditForm(selectedIncident || {}));
+    setDetailError("");
+    setIsEditingIncident(false);
+  }
+
+  function setIncidentEditField(field, value) {
+    setIncidentEditForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+    setDetailError("");
+  }
+
+  async function handleSaveIncidentEdit(event) {
+    event.preventDefault();
+    if (!selectedIncidentId || isSavingIncidentEdit) return;
+
+    const reason = toCleanText(incidentEditForm.reason);
+    if (!reason) {
+      setDetailError("กรุณาระบุเหตุผลในการแก้ไข incident เพื่อเก็บ audit");
+      return;
+    }
+
+    setIsSavingIncidentEdit(true);
+    setDetailError("");
+    setPageSuccess("");
+
+    try {
+      const response = await adminApi.updateIncident(selectedIncidentId, {
+        incidentType: incidentEditForm.incidentType,
+        incidentReason: incidentEditForm.incidentReason,
+        incidentDescription: incidentEditForm.incidentDescription,
+        happenedAt: incidentEditForm.happenedAt,
+        status: incidentEditForm.status,
+        note: incidentEditForm.note,
+        reason,
+      });
+      const incident = response?.incident || null;
+      const incidentId = toCleanText(incident?.id);
+      setSelectedIncident(incident);
+      setStatusDraft(toCleanText(incident?.status).toUpperCase());
+      setIncidentEditForm(createIncidentEditForm(incident || {}));
+      setIsEditingIncident(false);
+      setIncidents((current) =>
+        current.map((row) =>
+          toCleanText(row?.id) === incidentId
+            ? {
+                ...row,
+                incidentType: incident?.incidentType || row?.incidentType,
+                incidentReason: incident?.incidentReason || row?.incidentReason,
+                incidentDescription: incident?.incidentDescription || row?.incidentDescription,
+                happenedAt: incident?.happenedAt || row?.happenedAt,
+                status: incident?.status || row?.status,
+                deleteReasonText: incident?.deleteReasonText || row?.deleteReasonText,
+                deletedAt: incident?.deletedAt || row?.deletedAt,
+              }
+            : row
+        )
+      );
+      setPageSuccess(`อัปเดต incident ${getIncidentDisplayCode(incident || {})} สำเร็จ`);
+    } catch (error) {
+      setDetailError(toCleanText(error?.message) || "แก้ไข incident report ไม่สำเร็จ");
+    } finally {
+      setIsSavingIncidentEdit(false);
+    }
+  }
+
+  async function handleDeleteIncident() {
+    if (!selectedIncidentId || isDeletingIncident) return;
+    if (selectedIncident?.deletedAt) {
+      setDetailError("incident นี้ถูกลบ/ซ่อนไปแล้ว");
+      return;
+    }
+
+    const incidentCode = getIncidentDisplayCode(selectedIncident || {});
+    const reason = window.prompt(`ระบุเหตุผลในการลบ incident ${incidentCode}`);
+    if (reason === null) return;
+    const cleanReason = toCleanText(reason);
+    if (!cleanReason) {
+      setDetailError("กรุณาระบุเหตุผลก่อนลบ incident เพื่อเก็บ audit");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `ยืนยันลบ/ซ่อน incident ${incidentCode}?\nrecord จะยังอยู่ในฐานข้อมูลเพื่อ trace stock movements ที่อ้างอิง incident นี้`
+    );
+    if (!confirmed) return;
+
+    setIsDeletingIncident(true);
+    setDetailError("");
+    setPageSuccess("");
+    try {
+      const response = await adminApi.deleteIncident(selectedIncidentId, { reason: cleanReason });
+      const incident = response?.incident || selectedIncident;
+      const incidentCodeAfterDelete = getIncidentDisplayCode(incident || {});
+      setIncidents((current) =>
+        current.filter((row) => toCleanText(row?.id) !== toCleanText(selectedIncidentId))
+      );
+      setSelectedIncidentId("");
+      setSelectedIncident(null);
+      setStatusDraft("");
+      setIncidentEditForm(createIncidentEditForm());
+      setIsEditingIncident(false);
+      setPageSuccess(`ลบ/ซ่อน incident ${incidentCodeAfterDelete} สำเร็จ`);
+    } catch (error) {
+      setDetailError(toCleanText(error?.message) || "ลบ incident report ไม่สำเร็จ");
+    } finally {
+      setIsDeletingIncident(false);
+    }
+  }
+
   async function handleIncidentCreated(incident) {
     const incidentId = toCleanText(incident?.id);
     setPageSuccess(`บันทึก incident report สำเร็จ (${toCleanText(incident?.incidentCode) || incidentId})`);
@@ -217,6 +364,8 @@ export default function AdminIncidentReports() {
       setSelectedIncidentId(incidentId);
       setSelectedIncident(incident);
       setStatusDraft(toCleanText(incident?.status).toUpperCase());
+      setIncidentEditForm(createIncidentEditForm(incident || {}));
+      setIsEditingIncident(false);
     }
   }
 
@@ -229,6 +378,8 @@ export default function AdminIncidentReports() {
       setSelectedIncidentId(incidentId);
       setSelectedIncident(incident);
       setStatusDraft(toCleanText(incident?.status).toUpperCase());
+      setIncidentEditForm(createIncidentEditForm(incident || {}));
+      setIsEditingIncident(false);
     }
   }
 
@@ -413,6 +564,31 @@ export default function AdminIncidentReports() {
               <h2>Incident Detail</h2>
               <p>ดู metadata, item snapshots, corrective actions และอัปเดตสถานะของ incident</p>
             </div>
+            {selectedIncident ? (
+              <div className="admin-incident-page__detail-actions">
+                <button
+                  type="button"
+                  className="admin-incident-page__secondary"
+                  onClick={startIncidentEdit}
+                  disabled={
+                    isEditingIncident ||
+                    isSavingIncidentEdit ||
+                    isDeletingIncident ||
+                    Boolean(selectedIncident?.deletedAt)
+                  }
+                >
+                  แก้ไข
+                </button>
+                <button
+                  type="button"
+                  className="admin-incident-page__danger"
+                  onClick={() => void handleDeleteIncident()}
+                  disabled={isSavingIncidentEdit || isDeletingIncident || Boolean(selectedIncident?.deletedAt)}
+                >
+                  {isDeletingIncident ? "กำลังลบ..." : "ลบ"}
+                </button>
+              </div>
+            ) : null}
           </div>
 
           {detailError ? <div className="admin-incident-page__feedback admin-incident-page__feedback--error">{detailError}</div> : null}
@@ -485,6 +661,144 @@ export default function AdminIncidentReports() {
                   <span>{toCleanText(selectedIncident?.dispenseAttemptId) || "-"}</span>
                 </div>
               </div>
+
+              {selectedIncident?.deletedAt ? (
+                <section className="admin-incident-page__deleted-block">
+                  <strong>incident นี้ถูกลบ/ซ่อนแล้ว</strong>
+                  <span>
+                    ลบโดย{" "}
+                    {toCleanText(selectedIncident?.deletedByAdminName) ||
+                      toCleanText(selectedIncident?.deletedByAdminUsername) ||
+                      "-"}{" "}
+                    เมื่อ {formatAdminIncidentDateTime(selectedIncident?.deletedAt)}
+                  </span>
+                  <span>เหตุผล: {toCleanText(selectedIncident?.deleteReasonText) || "-"}</span>
+                </section>
+              ) : null}
+
+              {isEditingIncident ? (
+                <section className="admin-incident-page__detail-block admin-incident-page__edit-panel">
+                  <div className="admin-incident-page__detail-block-header">
+                    <h3>Edit incident metadata</h3>
+                    <button
+                      type="button"
+                      className="admin-incident-page__secondary"
+                      onClick={cancelIncidentEdit}
+                      disabled={isSavingIncidentEdit}
+                    >
+                      ยกเลิก
+                    </button>
+                  </div>
+                  <form className="admin-incident-page__edit-form" onSubmit={handleSaveIncidentEdit}>
+                    <div className="admin-incident-page__edit-grid">
+                      <label>
+                        <span>Incident type</span>
+                        <select
+                          value={incidentEditForm.incidentType}
+                          onChange={(event) => setIncidentEditField("incidentType", event.target.value)}
+                          required
+                        >
+                          {ADMIN_INCIDENT_TYPE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label>
+                        <span>Incident reason</span>
+                        <select
+                          value={incidentEditForm.incidentReason}
+                          onChange={(event) => setIncidentEditField("incidentReason", event.target.value)}
+                          required
+                        >
+                          {ADMIN_INCIDENT_REASON_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label>
+                        <span>Status</span>
+                        <select
+                          value={incidentEditForm.status}
+                          onChange={(event) => setIncidentEditField("status", event.target.value)}
+                          required
+                        >
+                          {ADMIN_INCIDENT_STATUS_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label>
+                        <span>Happened at</span>
+                        <input
+                          type="datetime-local"
+                          value={incidentEditForm.happenedAt}
+                          onChange={(event) => setIncidentEditField("happenedAt", event.target.value)}
+                          required
+                        />
+                      </label>
+                    </div>
+
+                    <label>
+                      <span>Description</span>
+                      <textarea
+                        value={incidentEditForm.incidentDescription}
+                        onChange={(event) =>
+                          setIncidentEditField("incidentDescription", event.target.value)
+                        }
+                        rows={4}
+                        required
+                      />
+                    </label>
+
+                    <label>
+                      <span>Note / reference</span>
+                      <textarea
+                        value={incidentEditForm.note}
+                        onChange={(event) => setIncidentEditField("note", event.target.value)}
+                        rows={3}
+                      />
+                    </label>
+
+                    <label>
+                      <span>เหตุผลในการแก้ไข</span>
+                      <textarea
+                        value={incidentEditForm.reason}
+                        onChange={(event) => setIncidentEditField("reason", event.target.value)}
+                        placeholder="ระบุเหตุผลเพื่อเก็บใน audit metadata"
+                        rows={3}
+                        required
+                      />
+                    </label>
+
+                    <div className="admin-incident-page__status-editor">
+                      <button
+                        type="button"
+                        className="admin-incident-page__secondary"
+                        onClick={cancelIncidentEdit}
+                        disabled={isSavingIncidentEdit}
+                      >
+                        ยกเลิก
+                      </button>
+                      <button
+                        type="submit"
+                        className="admin-incident-page__primary"
+                        disabled={isSavingIncidentEdit}
+                      >
+                        {isSavingIncidentEdit ? "กำลังบันทึก..." : "บันทึกการแก้ไข"}
+                      </button>
+                    </div>
+                  </form>
+                </section>
+              ) : null}
 
               <section className="admin-incident-page__detail-block">
                 <h3>Description</h3>

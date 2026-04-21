@@ -147,6 +147,85 @@ export const migrationManifest = {
       };
     },
   },
+  "0024_incident_report_admin_audits.sql": {
+    fileName: "0024_incident_report_admin_audits.sql",
+    description:
+      "Adds soft-delete metadata and admin audit rows for incident report edits/deletes while preserving movement traceability.",
+    checkMode: "schema-probe",
+    probeQuery: `
+      SELECT
+        to_regclass('public.incident_reports') IS NOT NULL AS has_incident_reports,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'incident_reports'
+            AND column_name = 'deleted_at'
+        ) AS has_deleted_at_column,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'incident_reports'
+            AND column_name = 'delete_reason_text'
+        ) AS has_delete_reason_text_column,
+        to_regclass('public.incident_report_admin_audits') IS NOT NULL AS has_admin_audits_table,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'incident_report_admin_audits'
+            AND column_name = 'previous_snapshot'
+        ) AS has_previous_snapshot_column,
+        EXISTS (
+          SELECT 1
+          FROM pg_indexes
+          WHERE schemaname = 'public'
+            AND indexname = 'idx_incident_report_admin_audits_incident_changed_at'
+        ) AS has_incident_changed_at_index
+    `,
+    interpretProbe(row) {
+      const prerequisitesMet = Boolean(row?.has_incident_reports);
+      const applied = Boolean(
+        row?.has_deleted_at_column &&
+          row?.has_delete_reason_text_column &&
+          row?.has_admin_audits_table &&
+          row?.has_previous_snapshot_column &&
+          row?.has_incident_changed_at_index
+      );
+
+      return {
+        applied,
+        prerequisitesMet,
+        details: [
+          {
+            label: "incident_reports table",
+            ok: prerequisitesMet,
+          },
+          {
+            label: "incident_reports.deleted_at column",
+            ok: Boolean(row?.has_deleted_at_column),
+          },
+          {
+            label: "incident_reports.delete_reason_text column",
+            ok: Boolean(row?.has_delete_reason_text_column),
+          },
+          {
+            label: "incident_report_admin_audits table",
+            ok: Boolean(row?.has_admin_audits_table),
+          },
+          {
+            label: "previous_snapshot column",
+            ok: Boolean(row?.has_previous_snapshot_column),
+          },
+          {
+            label: "incident-changed-at index",
+            ok: Boolean(row?.has_incident_changed_at_index),
+          },
+        ],
+      };
+    },
+  },
 };
 
 export function getManagedMigrationDefinition(fileName) {
