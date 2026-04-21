@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import AppLayout from "./layouts/AppLayout";
 import AdminIncidentReports from "./pages/AdminIncidentReports";
+import AdminPatients from "./pages/AdminPatients";
 import Deliver from "./pages/Deliver";
 import Home from "./pages/Home";
 import Login from "./pages/Login";
@@ -79,6 +80,14 @@ export default function App() {
           element={
             <RequireAdmin>
               <AdminIncidentReports />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="admin/patients"
+          element={
+            <RequireAdmin>
+              <AdminPatients />
             </RequireAdmin>
           }
         />

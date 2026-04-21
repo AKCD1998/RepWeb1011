@@ -743,6 +743,28 @@ export const adminApi = {
       params: Object.keys(params).length ? params : undefined,
     });
   },
+  listPatients(filters = {}) {
+    const params = {};
+    const search = String(filters?.q ?? filters?.search ?? "").trim();
+    const limit = Number(filters?.limit);
+    const offset = Number(filters?.offset);
+
+    if (search) {
+      params.q = search;
+    }
+    if (Number.isFinite(limit)) {
+      params.limit = String(limit);
+    }
+    if (Number.isFinite(offset)) {
+      params.offset = String(offset);
+    }
+
+    return requestJson({
+      method: "GET",
+      url: "/api/admin/patients",
+      params: Object.keys(params).length ? params : undefined,
+    });
+  },
   getIncident(id) {
     const incidentId = String(id || "").trim();
     if (!incidentId) {

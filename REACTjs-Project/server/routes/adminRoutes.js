@@ -9,11 +9,13 @@ import {
   updateIncidentReport,
   updateIncidentReportStatus,
 } from "../controllers/adminIncidentsController.js";
+import { listAdminPatients } from "../controllers/adminPatientsController.js";
 import { requireRole, verifyToken } from "../middleware/authMiddleware.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
 const router = Router();
 
+router.get("/patients", verifyToken, requireRole("ADMIN"), asyncHandler(listAdminPatients));
 router.get("/incidents", verifyToken, requireRole("ADMIN"), asyncHandler(listIncidentReports));
 router.get("/incidents/:id", verifyToken, requireRole("ADMIN"), asyncHandler(getIncidentReportById));
 router.post("/incidents", verifyToken, requireRole("ADMIN"), asyncHandler(createIncidentReport));

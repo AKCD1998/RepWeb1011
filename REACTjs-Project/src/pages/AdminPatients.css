@@ -1,0 +1,271 @@
+.admin-patients-page {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-patients-page .admin-patients-top {
+  grid-template-columns: minmax(280px, 1.1fr) minmax(420px, 1.4fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.admin-patients-page .admin-patients-hero,
+.admin-patients-page .admin-patients-search,
+.admin-patients-page .results-card {
+  background: #ffffff;
+  border: 1px solid #dbe4ee;
+}
+
+.admin-patients-page .section-header {
+  background: linear-gradient(180deg, #0f766e 0%, #115e59 100%);
+  margin: -8px -8px 14px;
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #f8fafc;
+}
+
+.admin-patients-page .admin-patients-hero p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.6;
+}
+
+.admin-patients-page .admin-patients-search-row {
+  display: grid;
+  grid-template-columns: 160px 1fr 140px;
+  gap: 12px;
+  align-items: center;
+}
+
+.admin-patients-page .admin-patients-search-row label {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.admin-patients-page .admin-patients-search-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.admin-patients-page .admin-patients-config-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.admin-patients-page .table-totals {
+  margin-left: auto;
+  color: #334155;
+  font-weight: 600;
+}
+
+.admin-patients-page .admin-patients-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-patients-page .admin-patients-table {
+  overflow: auto;
+}
+
+.admin-patients-page .admin-patients-table .thead,
+.admin-patients-page .admin-patients-table .row {
+  display: grid;
+  grid-template-columns: 72px minmax(220px, 1.4fr) 180px 130px 110px 160px;
+  align-items: center;
+}
+
+.admin-patients-page .admin-patients-table .thead {
+  background: #e2e8f0;
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.admin-patients-page .admin-patients-table .thead > div,
+.admin-patients-page .admin-patients-table .row > div {
+  padding: 12px 14px;
+  border-bottom: 1px solid #e2e8f0;
+  min-width: 0;
+}
+
+.admin-patients-page .admin-patients-table .row {
+  background: #ffffff;
+}
+
+.admin-patients-page .admin-patients-table .row:hover {
+  background: #f8fafc;
+}
+
+.admin-patients-page .center {
+  text-align: center;
+}
+
+.admin-patients-page .row--placeholder {
+  color: #64748b;
+}
+
+.admin-patients-page .admin-patients-name-cell {
+  min-width: 0;
+}
+
+.admin-patients-page .admin-patients-name-button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  color: #0f766e;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.admin-patients-page .admin-patients-name-button:hover {
+  color: #0f5f58;
+}
+
+.admin-patients-page .admin-patients-name-button:focus-visible {
+  outline: 2px solid rgba(15, 118, 110, 0.35);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.admin-patients-page .page-error,
+.admin-patients-page .admin-patients-copy-status {
+  color: #991b1b;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+.admin-patients-page .admin-patients-modal-card {
+  width: min(980px, 96vw);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+}
+
+.admin-patients-page .admin-patients-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-patients-page .admin-patients-modal-header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-patients-page .admin-patients-modal-header span {
+  color: rgba(248, 250, 252, 0.88);
+  font-size: 12px;
+}
+
+.admin-patients-page .admin-patients-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.admin-patients-page .admin-patients-detail-grid > div,
+.admin-patients-page .admin-patients-detail-section {
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #dbe4ee;
+  background: #f8fafc;
+}
+
+.admin-patients-page .admin-patients-detail-grid > div {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-patients-page .admin-patients-detail-grid span,
+.admin-patients-page .admin-patients-template-header span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.admin-patients-page .admin-patients-detail-grid strong,
+.admin-patients-page .admin-patients-detail-section h3 {
+  color: #0f172a;
+}
+
+.admin-patients-page .admin-patients-detail-section {
+  margin-top: 14px;
+}
+
+.admin-patients-page .admin-patients-detail-section h3,
+.admin-patients-page .admin-patients-detail-section p {
+  margin: 0;
+}
+
+.admin-patients-page .admin-patients-detail-section p {
+  margin-top: 8px;
+  color: #334155;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.admin-patients-page .admin-patients-template-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.admin-patients-page .admin-patients-template {
+  margin: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #e2e8f0;
+  white-space: pre-wrap;
+  overflow: auto;
+  font-family: "Consolas", "Courier New", monospace;
+  line-height: 1.6;
+}
+
+@media (max-width: 1100px) {
+  .admin-patients-page .admin-patients-top {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-patients-page .admin-patients-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 800px) {
+  .admin-patients-page .admin-patients-search-row {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-patients-page .table-totals {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .admin-patients-page .admin-patients-table .thead,
+  .admin-patients-page .admin-patients-table .row {
+    grid-template-columns: 72px minmax(190px, 1.2fr) 170px 120px 100px 150px;
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-patients-page .admin-patients-pager,
+  .admin-patients-page .admin-patients-template-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-patients-page .admin-patients-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}

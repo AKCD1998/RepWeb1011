@@ -10,6 +10,7 @@ import {
   FiMenu,
   FiMapPin,
   FiTruck,
+  FiUsers,
 } from "react-icons/fi";
 import { useOptionalAuth } from "../context/AuthContext";
 import { clearAuthStorage, logoutRequest } from "../lib/authApi";
@@ -40,6 +41,7 @@ export const navItems = [
   { to: "/", label: "หน้าหลัก", icon: FiHome, end: true },
   { to: "/reports", label: "หน้าเอกสารรายงาน", icon: FiFileText },
   { to: "/admin/incidents", label: "Incident Reports", icon: FiAlertTriangle, adminOnly: true },
+  { to: "/admin/patients", label: "รายชื่อผู้ป่วย", icon: FiUsers, adminOnly: true },
   { to: "/products", label: "จัดการสินค้า", icon: FiBox, adminOnly: true },
   { to: "/deliver", label: "หน้าส่งมอบยา", icon: PosScannerIcon },
   { to: "/patient-history", label: "ประวัติการจ่ายยา", icon: FiClock },
