@@ -2084,6 +2084,7 @@ export async function getMovements(req, res) {
         COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit') AS "movementUnitLabel",
         COALESCE(NULLIF(trim(sellable_pul.display_name), ''), sellable_pul.code, COALESCE(NULLIF(trim(pul.display_name), ''), pul.code, 'unit')) AS "sellableUnitLabel",
         COALESCE(base_pul.base_unit_symbol, 'base') AS "baseUnitLabel",
+        COALESCE(NULLIF(trim(pa.full_name), ''), '') AS "patientName",
         latest_correction.reason_text AS "occurredAtCorrectionReason",
         latest_correction.edited_at AS "occurredAtCorrectedAt",
         latest_correction.edited_by_name AS "occurredAtCorrectedByName",
@@ -2130,6 +2131,16 @@ export async function getMovements(req, res) {
       ) latest_correction ON true
       LEFT JOIN locations from_l ON from_l.id = sm.from_location_id
       LEFT JOIN locations to_l ON to_l.id = sm.to_location_id
+      LEFT JOIN dispense_lines dl ON dl.id = sm.dispense_line_id
+      LEFT JOIN dispense_headers dh
+        ON dh.id = COALESCE(
+          dl.header_id,
+          CASE
+            WHEN sm.source_ref_type = 'DISPENSE_HEADER' THEN sm.source_ref_id
+            ELSE NULL
+          END
+        )
+      LEFT JOIN patients pa ON pa.id = dh.patient_id
       LEFT JOIN incident_reports source_incident
         ON sm.source_ref_type = 'INCIDENT_REPORT'
        AND source_incident.id = sm.source_ref_id

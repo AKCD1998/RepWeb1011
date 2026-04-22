@@ -372,6 +372,11 @@
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.2px;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    filter 160ms ease,
+    border-color 160ms ease;
 }
 
 .receiving-page button.movement-type-badge {
@@ -381,20 +386,38 @@
   font-family: inherit;
   line-height: 1.15;
   cursor: pointer;
+  transform-origin: center;
+}
+
+@keyframes movement-badge-wiggle {
+  0% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-2px) rotate(-1deg);
+  }
+  100% {
+    transform: translateY(1px) rotate(1deg);
+  }
 }
 
 .receiving-page button.movement-type-badge:hover {
   filter: brightness(1.08);
+  box-shadow: 0 10px 22px rgba(8, 15, 29, 0.34);
+  animation: movement-badge-wiggle 620ms ease-in-out infinite alternate;
 }
 
 .receiving-page button.movement-type-badge:focus-visible {
   outline: 2px solid rgba(251, 191, 36, 0.64);
   outline-offset: 2px;
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(8, 15, 29, 0.34);
 }
 
 .receiving-page button.movement-type-badge:disabled {
   cursor: not-allowed;
   opacity: 0.68;
+  animation: none;
 }
 
 .receiving-page .movement-type-badge__meta {
@@ -543,6 +566,84 @@
   width: min(1080px, 96vw);
   max-height: calc(100vh - 40px);
   overflow: auto;
+}
+
+.receiving-page .movement-detail-card {
+  width: min(760px, 94vw);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+}
+
+.receiving-page .movement-detail-header {
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.receiving-page .movement-detail-header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.receiving-page .movement-detail-header span {
+  color: #9ccfda;
+  font-size: 12px;
+}
+
+.receiving-page .movement-detail-content,
+.receiving-page .movement-detail-note {
+  display: grid;
+  gap: 12px;
+}
+
+.receiving-page .movement-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.receiving-page .movement-detail-grid > div,
+.receiving-page .movement-detail-note {
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #294254;
+  background: #0b1424;
+}
+
+.receiving-page .movement-detail-grid > div {
+  display: grid;
+  gap: 5px;
+}
+
+.receiving-page .movement-detail-grid strong,
+.receiving-page .movement-detail-note strong {
+  color: #e6f7fb;
+  font-size: 12px;
+}
+
+.receiving-page .movement-detail-grid span,
+.receiving-page .movement-detail-note span {
+  color: #dbe8f4;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.receiving-page .movement-detail-value--accent {
+  color: #fef3c7;
+  font-weight: 700;
+}
+
+.receiving-page .movement-detail-actions {
+  margin-top: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .receiving-page .movement-type-badge {
+    transition: none;
+  }
+
+  .receiving-page button.movement-type-badge:hover {
+    animation: none;
+  }
 }
 
 .receiving-page .incident-detail-header {
@@ -1080,6 +1181,10 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .receiving-page .movement-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
   .receiving-page .movement-modal-card--editor,
   .receiving-page .movement-confirm-card {
     width: min(96vw, 820px);
@@ -1158,6 +1263,10 @@
 
   .receiving-page .incident-detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .receiving-page .movement-detail-card {
+    width: min(100%, 96vw);
   }
 
   .receiving-page .incident-admin-toolbar {

@@ -199,6 +199,13 @@ function buildLocationLabel(location) {
   return code || name || toCleanText(location?.id) || "-";
 }
 
+function formatMovementLocationLabel(code, name) {
+  const safeCode = toCleanText(code);
+  const safeName = getLocationDisplayName({ code: safeCode, name });
+  if (safeCode && safeName) return `${safeCode} : ${safeName}`;
+  return safeCode || safeName || "-";
+}
+
 function getLockedLocations(movementType, branchLocationId, isAdmin) {
   if (isAdmin) {
     return {
@@ -357,6 +364,7 @@ function mapMovementRecord(row) {
     productName: row?.tradeName || row?.productName || "-",
     productCode: row?.productCode || "-",
     lotNo: row?.lotNo || "-",
+    patientName: toCleanText(row?.patientName || row?.patient_name),
     movementType: String(row?.movementType || "").toUpperCase(),
     sourceRefType,
     sourceRefId: toCleanText(row?.sourceRefId || row?.source_ref_id),
@@ -365,6 +373,11 @@ function mapMovementRecord(row) {
       row?.sourceIncidentDescription || row?.source_incident_description
     ),
     sourceIncidentDeletedAt: toCleanText(row?.sourceIncidentDeletedAt || row?.source_incident_deleted_at),
+    fromBranchCode: toCleanText(row?.fromBranchCode || row?.from_branch_code),
+    fromBranchName: toCleanText(row?.fromBranchName || row?.from_branch_name),
+    toBranchCode: toCleanText(row?.toBranchCode || row?.to_branch_code),
+    toBranchName: toCleanText(row?.toBranchName || row?.to_branch_name),
+    noteText: toCleanText(row?.note || row?.noteText || row?.note_text),
     qtyValue: Number.isFinite(parsedQuantity) ? parsedQuantity : 0,
     qtyBaseValue: Number.isFinite(parsedQuantityBase) ? parsedQuantityBase : null,
     unit: String(row?.unitLabel || row?.unit || "").trim(),
@@ -546,6 +559,54 @@ function getOccurredAtTitle(movement) {
   return lines.join("\n");
 }
 
+function getMovementOccurredAtParts(movement) {
+  const rawValue = toCleanText(movement?.occurredAtRaw) || toCleanText(movement?.originalOccurredAtRaw);
+  if (!rawValue) return null;
+  return getBangkokDateTimeParts(rawValue);
+}
+
+function getMovementDateLabel(movement) {
+  const parts = getMovementOccurredAtParts(movement);
+  if (!parts) {
+    const displayValue = toCleanText(movement?.occurredAt);
+    if (!displayValue) return "-";
+    return displayValue.split(" ")[0] || displayValue;
+  }
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function getMovementTimeLabel(movement) {
+  const parts = getMovementOccurredAtParts(movement);
+  if (!parts) return "-";
+  return `${parts.hour}:${parts.minute}`;
+}
+
+function getMovementQuantitySummary(movement) {
+  const qtyValue = Number(movement?.qtyValue);
+  if (!Number.isFinite(qtyValue)) return "-";
+
+  const qtyMagnitude = Math.abs(qtyValue);
+  const primaryUnitLabel = getPrimaryMovementUnitLabel(movement);
+  const primaryText = formatQuantityWithUnit(qtyMagnitude, primaryUnitLabel);
+  const quantityBaseValue = Number(movement?.qtyBaseValue);
+
+  if (!Number.isFinite(quantityBaseValue)) {
+    return primaryText;
+  }
+
+  const qtyText = formatQty(qtyMagnitude);
+  const baseQtyText = formatQty(Math.abs(quantityBaseValue));
+  const baseUnitLabel = normalizeInlineText(movement?.baseUnitLabel);
+  const primaryUnitText = formatStructuredUnitLabel(primaryUnitLabel);
+  const shouldShowBase =
+    baseQtyText !== qtyText ||
+    (baseUnitLabel && !primaryUnitText.toLowerCase().includes(baseUnitLabel.toLowerCase()));
+
+  if (!shouldShowBase) return primaryText;
+
+  return `${primaryText} (${baseQtyText}${baseUnitLabel ? ` ${baseUnitLabel}` : ""} ฐาน)`;
+}
+
 export default function Receiving() {
   const { user } = useAuth();
   const userRole = normalizeRole(user?.role);
@@ -564,6 +625,7 @@ export default function Receiving() {
   const [isSavingMovement, setIsSavingMovement] = useState(false);
   const [isSavingOccurredAtCorrection, setIsSavingOccurredAtCorrection] = useState(false);
   const [isDeletingMovementId, setIsDeletingMovementId] = useState("");
+  const [movementDetailTarget, setMovementDetailTarget] = useState(null);
   const [incidentDetailId, setIncidentDetailId] = useState("");
   const [incidentDetailMovement, setIncidentDetailMovement] = useState(null);
   const [incidentDetail, setIncidentDetail] = useState(null);
@@ -922,12 +984,23 @@ export default function Receiving() {
     setIsDeletingIncident(false);
   }
 
+  function openMovementDetailModal(movement) {
+    if (!movement) return;
+    setMovementDetailTarget(movement);
+    setPageError("");
+  }
+
+  function closeMovementDetailModal() {
+    setMovementDetailTarget(null);
+  }
+
   useEffect(() => {
     if (
       !isMovementModalOpen &&
       !isMovementConfirmModalOpen &&
       !isOccurredAtCorrectionModalOpen &&
-      !incidentDetailId
+      !incidentDetailId &&
+      !movementDetailTarget
     ) {
       return undefined;
     }
@@ -946,13 +1019,23 @@ export default function Receiving() {
           closeIncidentDetailModal();
           return;
         }
+        if (movementDetailTarget) {
+          closeMovementDetailModal();
+          return;
+        }
         closeMovementModal();
       }
     }
 
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [incidentDetailId, isMovementConfirmModalOpen, isMovementModalOpen, isOccurredAtCorrectionModalOpen]);
+  }, [
+    incidentDetailId,
+    isMovementConfirmModalOpen,
+    isMovementModalOpen,
+    isOccurredAtCorrectionModalOpen,
+    movementDetailTarget,
+  ]);
 
   function resetTransferLotLookup() {
     transferLotRequestSeqRef.current += 1;
@@ -1255,27 +1338,18 @@ export default function Receiving() {
   function renderMovementTypeBadge(movement) {
     const label = MOVEMENT_TYPE_LABEL[movement?.movementType] || movement?.movementType || "-";
     const className = `movement-type-badge ${getMovementTypeClass(movement)}`;
-
-    if (!isCorrectiveDispenseMovement(movement)) {
-      return (
-        <span className={className} title={getMovementTypeTitle(movement)}>
-          {label}
-        </span>
-      );
-    }
-
     const incidentCode = getIncidentDisplayCode(movement);
-    const hasIncidentId = Boolean(toCleanText(movement?.sourceRefId));
+    const hasIncidentMeta = isCorrectiveDispenseMovement(movement) && incidentCode !== "-";
     return (
       <button
         type="button"
         className={`${className} movement-type-badge--button`}
-        title={getMovementTypeTitle(movement)}
-        onClick={() => openIncidentDetailModal(movement)}
-        disabled={!hasIncidentId}
+        title={`${getMovementTypeTitle(movement)}\nคลิกเพื่อดูรายละเอียดรายการ`}
+        onClick={() => openMovementDetailModal(movement)}
+        aria-haspopup="dialog"
       >
         <span>{label}</span>
-        <span className="movement-type-badge__meta">{incidentCode}</span>
+        {hasIncidentMeta ? <span className="movement-type-badge__meta">{incidentCode}</span> : null}
       </button>
     );
   }
@@ -2227,8 +2301,25 @@ export default function Receiving() {
     }
   }
 
+  function handleMovementDetailModalBackdropClick(event) {
+    if (event.target === event.currentTarget) {
+      closeMovementDetailModal();
+    }
+  }
+
   const incidentDetailCode = getIncidentDisplayCode(incidentDetail || incidentDetailMovement || {});
   const canManageIncidentDetail = Boolean(isAdmin && incidentDetail && !incidentDetail?.deletedAt);
+  const movementDetailTypeLabel =
+    MOVEMENT_TYPE_LABEL[movementDetailTarget?.movementType] ||
+    movementDetailTarget?.movementType ||
+    "รายการเคลื่อนไหว";
+  const isDispenseMovementDetail = movementDetailTarget?.movementType === "DISPENSE";
+  const movementDetailIncidentCode = getIncidentDisplayCode(movementDetailTarget || {});
+  const canOpenIncidentFromMovementDetail = Boolean(
+    movementDetailTarget &&
+      isCorrectiveDispenseMovement(movementDetailTarget) &&
+      toCleanText(movementDetailTarget?.sourceRefId)
+  );
 
   return (
     <div className="outerpad receiving-page">
@@ -3158,6 +3249,134 @@ export default function Receiving() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      ) : null}
+
+      {movementDetailTarget ? (
+        <div
+          className="modal"
+          aria-hidden="false"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="movement-detail-modal-title"
+          onClick={handleMovementDetailModalBackdropClick}
+        >
+          <div className="qcard modal-card movement-modal-card movement-detail-card">
+            <div className="section-header movement-detail-header">
+              <div>
+                <strong id="movement-detail-modal-title">รายละเอียด{movementDetailTypeLabel}</strong>
+                <span>บันทึกเมื่อ {movementDetailTarget?.occurredAt || "-"}</span>
+              </div>
+              <button className="btn" type="button" onClick={closeMovementDetailModal}>
+                ปิด
+              </button>
+            </div>
+
+            <div className="movement-detail-content">
+              <div className="movement-detail-grid">
+                {isDispenseMovementDetail ? (
+                  <>
+                    <div>
+                      <strong>ขายให้</strong>
+                      <span>{toCleanText(movementDetailTarget?.patientName) || "-"}</span>
+                    </div>
+                    <div>
+                      <strong>ชื่อยา</strong>
+                      <span className="movement-detail-value movement-detail-value--accent">
+                        {movementDetailTarget?.productName || "-"}
+                      </span>
+                    </div>
+                    <div>
+                      <strong>เลข IC</strong>
+                      <span>{movementDetailTarget?.productCode || "-"}</span>
+                    </div>
+                    <div>
+                      <strong>เลขล๊อต</strong>
+                      <span>{movementDetailTarget?.lotNo || "-"}</span>
+                    </div>
+                    <div>
+                      <strong>จำนวนที่จ่าย</strong>
+                      <span>{getMovementQuantitySummary(movementDetailTarget)}</span>
+                    </div>
+                    <div>
+                      <strong>วันที่</strong>
+                      <span>{getMovementDateLabel(movementDetailTarget)}</span>
+                    </div>
+                    <div>
+                      <strong>เวลา</strong>
+                      <span>{getMovementTimeLabel(movementDetailTarget)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <strong>ต้นทาง</strong>
+                      <span>
+                        {formatMovementLocationLabel(
+                          movementDetailTarget?.fromBranchCode,
+                          movementDetailTarget?.fromBranchName
+                        )}
+                      </span>
+                    </div>
+                    <div>
+                      <strong>ปลายทาง</strong>
+                      <span>
+                        {formatMovementLocationLabel(
+                          movementDetailTarget?.toBranchCode,
+                          movementDetailTarget?.toBranchName
+                        )}
+                      </span>
+                    </div>
+                    <div>
+                      <strong>สินค้า</strong>
+                      <span className="movement-detail-value movement-detail-value--accent">
+                        {movementDetailTarget?.productName || "-"}
+                      </span>
+                    </div>
+                    <div>
+                      <strong>เลข IC</strong>
+                      <span>{movementDetailTarget?.productCode || "-"}</span>
+                    </div>
+                    <div>
+                      <strong>เลขล๊อต</strong>
+                      <span>{movementDetailTarget?.lotNo || "-"}</span>
+                    </div>
+                    <div>
+                      <strong>จำนวนการเคลื่อนไหว</strong>
+                      <span>{getMovementQuantitySummary(movementDetailTarget)}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {canOpenIncidentFromMovementDetail ? (
+                <section className="movement-detail-note">
+                  <strong>อ้างอิง incident corrective action</strong>
+                  <span>Incident: {movementDetailIncidentCode}</span>
+                  <div className="modal-actions movement-detail-actions">
+                    <button
+                      className="btn btn--yellow"
+                      type="button"
+                      onClick={() => {
+                        const selectedMovement = movementDetailTarget;
+                        closeMovementDetailModal();
+                        openIncidentDetailModal(selectedMovement);
+                      }}
+                    >
+                      ดู incident report
+                    </button>
+                  </div>
+                </section>
+              ) : null}
+
+              {toCleanText(movementDetailTarget?.noteText) ? (
+                <section className="movement-detail-note">
+                  <strong>หมายเหตุ</strong>
+                  <span>{movementDetailTarget.noteText}</span>
+                </section>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : null}
