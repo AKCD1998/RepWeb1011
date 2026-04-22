@@ -183,9 +183,18 @@ function normalizeRole(value) {
   return toCleanText(value).toUpperCase();
 }
 
+function getLocationDisplayName(location) {
+  const code = toCleanText(location?.code).toUpperCase();
+  const name = toCleanText(location?.name);
+  if (code === "OFFICE_MAIN" || name.toUpperCase() === "HEAD OFFICE") {
+    return "สำนักงานใหญ่";
+  }
+  return name;
+}
+
 function buildLocationLabel(location) {
   const code = toCleanText(location?.code);
-  const name = toCleanText(location?.name);
+  const name = getLocationDisplayName(location);
   if (code && name) return `${code} : ${name}`;
   return code || name || toCleanText(location?.id) || "-";
 }

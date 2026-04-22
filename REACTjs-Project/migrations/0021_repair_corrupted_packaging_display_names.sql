@@ -60,40 +60,47 @@ resolved_parent AS (
       parent_pul.created_at ASC
     LIMIT 1
   ) parent_unit ON true
+),
+repair_candidates AS (
+  SELECT
+    unit_level_id,
+    product_id,
+    product_code,
+    code,
+    display_name AS corrupted_display_name,
+    parent_unit_level_id,
+    parent_display_name,
+    CASE
+      WHEN quantity_per_parent = trunc(quantity_per_parent) THEN trunc(quantity_per_parent)::text
+      ELSE trim(trailing '.' FROM trim(trailing '0' FROM quantity_per_parent::text))
+    END AS quantity_per_parent_text,
+    regexp_replace(btrim(parent_display_name), '^1[[:space:]]+', '') AS parent_display_name_without_leading_one,
+    unit_name_th
+  FROM resolved_parent
+  WHERE COALESCE(unit_name_th, '') <> ''
+    AND COALESCE(parent_display_name, '') <> ''
+    AND parent_level IS NOT NULL
+    AND parent_level > 0
+    AND quantity_per_parent IS NOT NULL
+    AND unit_name_th NOT LIKE '%?%'
+    AND parent_display_name NOT LIKE '%?%'
+    AND parent_display_name NOT LIKE '%' || U&'\FFFD' || '%'
 )
 SELECT
   unit_level_id,
   product_id,
   product_code,
   code,
-  display_name AS corrupted_display_name,
+  corrupted_display_name,
   parent_unit_level_id,
   parent_display_name,
   format(
     '1 %s x %s %s',
     unit_name_th,
-    COALESCE(
-      NULLIF(
-        regexp_replace(
-          regexp_replace(quantity_per_parent::text, E'(\\.\\d*?)0+$', E'\\1'),
-          E'\\.$',
-          ''
-        ),
-        ''
-      ),
-      '1'
-    ),
-    regexp_replace(btrim(parent_display_name), '^1[[:space:]]+', '')
+    COALESCE(NULLIF(quantity_per_parent_text, ''), '1'),
+    parent_display_name_without_leading_one
   ) AS repaired_display_name
-FROM resolved_parent
-WHERE COALESCE(unit_name_th, '') <> ''
-  AND COALESCE(parent_display_name, '') <> ''
-  AND parent_level IS NOT NULL
-  AND parent_level > 0
-  AND quantity_per_parent IS NOT NULL
-  AND unit_name_th NOT LIKE '%?%'
-  AND parent_display_name NOT LIKE '%?%'
-  AND parent_display_name NOT LIKE '%' || U&'\FFFD' || '%';
+FROM repair_candidates;
 
 SELECT COUNT(*) AS dry_run_corrupted_packaging_label_repair_rows
 FROM tmp_corrupted_packaging_label_repairs;
