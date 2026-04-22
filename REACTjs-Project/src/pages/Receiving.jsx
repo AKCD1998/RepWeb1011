@@ -3268,9 +3268,6 @@ export default function Receiving() {
                 <strong id="movement-detail-modal-title">รายละเอียด{movementDetailTypeLabel}</strong>
                 <span>บันทึกเมื่อ {movementDetailTarget?.occurredAt || "-"}</span>
               </div>
-              <button className="btn" type="button" onClick={closeMovementDetailModal}>
-                ปิด
-              </button>
             </div>
 
             <div className="movement-detail-content">
@@ -3377,6 +3374,16 @@ export default function Receiving() {
                 </section>
               ) : null}
             </div>
+
+            <div className="modal-actions">
+              <button
+                className="btn btn--yellow"
+                type="button"
+                onClick={closeMovementDetailModal}
+              >
+                ปิด
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -3398,9 +3405,6 @@ export default function Receiving() {
                   รายการส่งมอบลูกค้านี้ถูกสร้างจาก corrective action ของ incident report
                 </span>
               </div>
-              <button className="btn" type="button" onClick={closeIncidentDetailModal}>
-                ปิด
-              </button>
             </div>
 
             {incidentDetailError ? (
@@ -3731,6 +3735,16 @@ export default function Receiving() {
             ) : (
               <div className="incident-detail-state">ไม่พบรายละเอียด incident report</div>
             )}
+
+            <div className="modal-actions">
+              <button
+                className="btn btn--yellow"
+                type="button"
+                onClick={closeIncidentDetailModal}
+              >
+                ปิด
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

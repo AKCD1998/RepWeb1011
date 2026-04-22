@@ -79,8 +79,14 @@
 
 .receiving-page .btn--yellow {
   background: #facc15;
-  color: #111111;
-  border-color: #d1a30a;
+  color: #2a1b00;
+  border-color: #b78a00;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.receiving-page .btn--yellow:hover,
+.receiving-page .btn--yellow:focus-visible {
+  color: #2a1b00;
 }
 
 .receiving-page .btn--back {
