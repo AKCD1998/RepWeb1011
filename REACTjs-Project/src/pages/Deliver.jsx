@@ -26,6 +26,7 @@ import {
 } from "../utils/pendingDispenseQueue";
 import "./Deliver.css";
 
+const SHOW_PENDING_DISPENSE_UI = false;
 const toMoney = (value) => Number(value || 0).toFixed(2);
 const REPORT_TYPE_META = {
   KY10: "KY10 - ขย.10 ยาควบคุมพิเศษ",
@@ -2030,7 +2031,7 @@ export default function Deliver() {
                     <div className="pos-offline-status__error">{pendingLoadError}</div>
                   ) : null}
                 </div>
-                {pendingDispenses.length ? (
+                {SHOW_PENDING_DISPENSE_UI && pendingDispenses.length ? (
                   <button
                     type="button"
                     className="pos-offline-status__button"
@@ -2301,16 +2302,18 @@ export default function Deliver() {
                     : "บันทึกรายการรอส่ง"}
                 </button>
 
-                <button
-                  className="btn pos-pending-trigger"
-                  type="button"
-                  onClick={() => {
-                    void refreshPendingDispenses({ openWhenOnline: true });
-                  }}
-                  disabled={!pendingDispenses.length}
-                >
-                  รายการค้าง ({pendingDispenses.length})
-                </button>
+                {SHOW_PENDING_DISPENSE_UI ? (
+                  <button
+                    className="btn pos-pending-trigger"
+                    type="button"
+                    onClick={() => {
+                      void refreshPendingDispenses({ openWhenOnline: true });
+                    }}
+                    disabled={!pendingDispenses.length}
+                  >
+                    รายการค้าง ({pendingDispenses.length})
+                  </button>
+                ) : null}
 
                 {isAdmin ? (
                   <button
@@ -2425,7 +2428,7 @@ export default function Deliver() {
         }}
       />
 
-      {isPendingModalOpen ? (
+      {SHOW_PENDING_DISPENSE_UI && isPendingModalOpen ? (
         <div
           className="pos-modal"
           aria-hidden="false"
