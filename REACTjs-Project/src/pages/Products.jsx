@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatDateOnlyDisplay, normalizeDateOnlyInput } from "../lib/dateOnly";
-import { inventoryApi, productsApi } from "../lib/api";
+import ProductsStockModal from "../components/products/ProductsStockModal";
+import { productsApi } from "../lib/api";
 import "./Products.css";
 
 const EMPTY_INGREDIENT = {
@@ -408,120 +409,6 @@ function formatDateTimeDisplay(value) {
   return `${day}/${month}/${year} ${hours}:${minutes}`;
 }
 
-function formatStockQuantityNumber(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "-";
-  const normalized = Object.is(numeric, -0) ? 0 : numeric;
-  return new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 6,
-  }).format(normalized);
-}
-
-function formatStockQuantityWithUnit(value, unitLabel = "") {
-  const quantity = formatStockQuantityNumber(value);
-  const safeUnitLabel = String(unitLabel || "").trim();
-  if (quantity === "-") return quantity;
-  return safeUnitLabel ? `${quantity} ${safeUnitLabel}` : quantity;
-}
-
-function normalizeStockOnHandRows(rows) {
-  return (Array.isArray(rows) ? rows : [])
-    .map((row) => ({
-      branchCode: String(row?.branchCode ?? row?.branch_code ?? "").trim(),
-      branchName: String(row?.branchName ?? row?.branch_name ?? "").trim(),
-      productId: String(row?.productId ?? row?.product_id ?? "").trim(),
-      productCode: String(row?.productCode ?? row?.product_code ?? "").trim(),
-      tradeName: String(row?.tradeName ?? row?.trade_name ?? "").trim(),
-      lotId: String(row?.lotId ?? row?.lot_id ?? "").trim(),
-      lotNo: String(row?.lotNo ?? row?.lot_no ?? "").trim(),
-      expDate: String(row?.expDate ?? row?.exp_date ?? "").trim(),
-      quantity: Number(row?.quantity ?? row?.quantityBase ?? row?.quantity_base ?? 0),
-      unitLabel: String(row?.unitLabel ?? row?.unit_label ?? "").trim(),
-      baseUnitLabel: String(row?.baseUnitLabel ?? row?.base_unit_label ?? "").trim(),
-    }))
-    .filter((row) => Number.isFinite(row.quantity));
-}
-
-function summarizeStockRowsByLot(rows) {
-  const lotsByKey = new Map();
-  const branchCodes = new Set();
-  let totalQuantity = 0;
-  let totalUnitLabel = "";
-
-  for (const row of rows) {
-    const quantity = Number(row.quantity || 0);
-    const unitLabel = row.baseUnitLabel || row.unitLabel;
-    const branchKey = row.branchCode || row.branchName || "";
-
-    totalQuantity += quantity;
-    if (branchKey) {
-      branchCodes.add(branchKey);
-    }
-    if (!totalUnitLabel && unitLabel) {
-      totalUnitLabel = unitLabel;
-    }
-
-    const lotKey = row.lotId || `${row.lotNo || "__NO_LOT__"}|${row.expDate || "__NO_EXP__"}`;
-    if (!lotsByKey.has(lotKey)) {
-      lotsByKey.set(lotKey, {
-        key: lotKey,
-        lotId: row.lotId,
-        lotNo: row.lotNo,
-        expDate: row.expDate,
-        quantity: 0,
-        unitLabel,
-        branchMap: new Map(),
-      });
-    }
-
-    const lot = lotsByKey.get(lotKey);
-    lot.quantity += quantity;
-    if (!lot.unitLabel && unitLabel) {
-      lot.unitLabel = unitLabel;
-    }
-
-    const branchSummaryKey = branchKey || `__ROW__${lot.branchMap.size}`;
-    if (!lot.branchMap.has(branchSummaryKey)) {
-      lot.branchMap.set(branchSummaryKey, {
-        branchCode: row.branchCode,
-        branchName: row.branchName,
-        quantity: 0,
-      });
-    }
-    lot.branchMap.get(branchSummaryKey).quantity += quantity;
-  }
-
-  const lots = [...lotsByKey.values()]
-    .map((lot) => ({
-      key: lot.key,
-      lotId: lot.lotId,
-      lotNo: lot.lotNo,
-      expDate: lot.expDate,
-      quantity: lot.quantity,
-      unitLabel: lot.unitLabel,
-      branches: [...lot.branchMap.values()].sort((left, right) => {
-        const leftKey = `${left.branchCode}|${left.branchName}`;
-        const rightKey = `${right.branchCode}|${right.branchName}`;
-        return leftKey.localeCompare(rightKey);
-      }),
-    }))
-    .sort((left, right) => {
-      const leftExp = left.expDate || "9999-12-31";
-      const rightExp = right.expDate || "9999-12-31";
-      if (leftExp !== rightExp) return leftExp.localeCompare(rightExp);
-      return (left.lotNo || "").localeCompare(right.lotNo || "");
-    });
-
-  return {
-    lots,
-    totalQuantity,
-    totalUnitLabel,
-    lotCount: lots.length,
-    branchCount: branchCodes.size,
-  };
-}
-
 export default function Products() {
   const [items, setItems] = useState([]);
   const [reportGroups, setReportGroups] = useState([]);
@@ -566,13 +453,9 @@ export default function Products() {
   const [lotMetadataError, setLotMetadataError] = useState("");
   const [lotMetadataStatus, setLotMetadataStatus] = useState("");
   const [stockModalProduct, setStockModalProduct] = useState(null);
-  const [stockModalRows, setStockModalRows] = useState([]);
-  const [isLoadingStockModal, setIsLoadingStockModal] = useState(false);
-  const [stockModalError, setStockModalError] = useState("");
   const customGenericInputRef = useRef(null);
   const activeIngredientsCacheRef = useRef(new Map());
   const ingredientUnitsCacheRef = useRef(new Map());
-  const stockModalRequestSeqRef = useRef(0);
 
   const loadProducts = useCallback(async (searchValue) => {
     setLoading(true);
@@ -856,10 +739,6 @@ export default function Products() {
       lotWhitelistData.lots.find((lot) => lot.id === String(selectedLotWhitelistLotId || "").trim()) ||
       null,
     [lotWhitelistData.lots, selectedLotWhitelistLotId]
-  );
-  const stockModalSummary = useMemo(
-    () => summarizeStockRowsByLot(stockModalRows),
-    [stockModalRows]
   );
 
   useEffect(() => {
@@ -1454,55 +1333,14 @@ export default function Products() {
   };
 
   const handleCloseStockModal = useCallback(() => {
-    stockModalRequestSeqRef.current += 1;
     setStockModalProduct(null);
-    setStockModalRows([]);
-    setIsLoadingStockModal(false);
-    setStockModalError("");
   }, []);
 
   const handleOpenStockModal = useCallback((item) => {
     const nextProduct = item && typeof item === "object" ? item : null;
-    const productId = String(nextProduct?.id || "").trim();
-    if (!productId) return;
-
-    stockModalRequestSeqRef.current += 1;
-    const requestSeq = stockModalRequestSeqRef.current;
-
+    if (!String(nextProduct?.id || "").trim()) return;
     setStockModalProduct(nextProduct);
-    setStockModalRows([]);
-    setIsLoadingStockModal(true);
-    setStockModalError("");
-
-    void inventoryApi
-      .listStockOnHand({ productId })
-      .then((rows) => {
-        if (requestSeq !== stockModalRequestSeqRef.current) return;
-        const normalizedRows = normalizeStockOnHandRows(rows).filter((row) => {
-          return !row.productId || row.productId === productId;
-        });
-        setStockModalRows(normalizedRows);
-      })
-      .catch((error) => {
-        if (requestSeq !== stockModalRequestSeqRef.current) return;
-        setStockModalRows([]);
-        setStockModalError(normalizeApiError(error));
-      })
-      .finally(() => {
-        if (requestSeq === stockModalRequestSeqRef.current) {
-          setIsLoadingStockModal(false);
-        }
-      });
   }, []);
-
-  const handleStockModalBackdropClick = useCallback(
-    (event) => {
-      if (event.target === event.currentTarget) {
-        handleCloseStockModal();
-      }
-    },
-    [handleCloseStockModal]
-  );
 
   const handleEditClick = (item) => {
     const ingredientRows =
@@ -1553,21 +1391,6 @@ export default function Products() {
       setErrorText(normalizeApiError(error));
     }
   };
-
-  useEffect(() => {
-    if (!stockModalProduct) return undefined;
-
-    function handleWindowKeyDown(event) {
-      if (event.key === "Escape") {
-        handleCloseStockModal();
-      }
-    }
-
-    window.addEventListener("keydown", handleWindowKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleWindowKeyDown);
-    };
-  }, [handleCloseStockModal, stockModalProduct]);
 
   return (
     <section className="products-page page-placeholder">
@@ -2388,151 +2211,7 @@ export default function Products() {
         </table>
       </div>
 
-      {stockModalProduct ? (
-        <div
-          className="modal"
-          aria-hidden="false"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="products-stock-modal-title"
-          onClick={handleStockModalBackdropClick}
-        >
-          <div className="products-stock-modal">
-            <div className="products-stock-modal__header">
-              <div>
-                <h2 id="products-stock-modal-title">สรุป stock ตาม lot</h2>
-                <p>ดูยอดคงเหลือรวมทุกสาขาของสินค้านี้ แยกตาม lot ที่ยังมี stock อยู่</p>
-              </div>
-              <button
-                type="button"
-                className="products-btn secondary"
-                onClick={handleCloseStockModal}
-              >
-                ปิด
-              </button>
-            </div>
-
-            <div className="products-stock-modal__top">
-              <section className="products-stock-modal__product-panel">
-                <div className="products-stock-modal__product-copy">
-                  <h3>{stockModalProduct.tradeName || "-"}</h3>
-                  <p>{stockModalProduct.genericName || "ไม่ระบุชื่อสามัญ"}</p>
-                </div>
-
-                <div className="products-stock-modal__meta-grid">
-                  <div>
-                    <strong>รหัสสินค้า</strong>
-                    <span>{stockModalProduct.productCode || "-"}</span>
-                  </div>
-                  <div>
-                    <strong>บาร์โค้ด</strong>
-                    <span>{stockModalProduct.barcode || "-"}</span>
-                  </div>
-                  <div>
-                    <strong>ผู้ผลิต/ผู้นำเข้า</strong>
-                    <span>{stockModalProduct.manufacturerName || "-"}</span>
-                  </div>
-                  <div>
-                    <strong>ชนิดรายงาน</strong>
-                    <span>
-                      {Array.isArray(stockModalProduct.reportGroupCodes) &&
-                      stockModalProduct.reportGroupCodes.length
-                        ? stockModalProduct.reportGroupCodes.join(", ")
-                        : "-"}
-                    </span>
-                  </div>
-                  <div>
-                    <strong>รูปแบบยา</strong>
-                    <span>{stockModalProduct.dosageFormCode || "-"}</span>
-                  </div>
-                  <div>
-                    <strong>บรรจุภัณฑ์</strong>
-                    <span>
-                      {stockModalProduct.packagingSummary || stockModalProduct.packageSize || "-"}
-                    </span>
-                  </div>
-                </div>
-              </section>
-
-              <aside className="products-stock-modal__totals">
-                <span className="products-stock-modal__totals-label">คงเหลือรวมทั้งหมด</span>
-                <strong>
-                  {isLoadingStockModal
-                    ? "กำลังโหลด..."
-                    : formatStockQuantityWithUnit(
-                        stockModalSummary.totalQuantity,
-                        stockModalSummary.totalUnitLabel
-                      )}
-                </strong>
-                <div className="products-stock-modal__totals-meta">
-                  <span>{stockModalSummary.lotCount} lot</span>
-                  <span>{stockModalSummary.branchCount} สาขา</span>
-                </div>
-              </aside>
-            </div>
-
-            <section className="products-stock-modal__body">
-              <div className="products-stock-modal__body-header">
-                <h3>รายการคงเหลือแยกตาม lot</h3>
-                <p>จำนวนด้านล่างเป็นยอดรวมต่อ lot และแจกแจงว่าสาขาไหนถือ stock อยู่บ้าง</p>
-              </div>
-
-              {isLoadingStockModal ? (
-                <div className="products-stock-modal__empty">กำลังโหลด stock คงเหลือ...</div>
-              ) : stockModalError ? (
-                <div className="products-alert error">{stockModalError}</div>
-              ) : stockModalSummary.lots.length ? (
-                <div className="products-stock-modal__table-wrap">
-                  <table className="products-stock-table">
-                    <thead>
-                      <tr>
-                        <th>Lot</th>
-                        <th>วันหมดอายุ</th>
-                        <th>คงเหลือรวม</th>
-                        <th>กระจายอยู่ในสาขา</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {stockModalSummary.lots.map((lot) => (
-                        <tr key={lot.key}>
-                          <td>{lot.lotNo || "ไม่ระบุ lot"}</td>
-                          <td>{formatDateOnlyDisplay(lot.expDate) || "-"}</td>
-                          <td>{formatStockQuantityWithUnit(lot.quantity, lot.unitLabel)}</td>
-                          <td>
-                            {lot.branches.length ? (
-                              <div className="products-stock-table__branches">
-                                {lot.branches.map((branch) => (
-                                  <span
-                                    key={`${lot.key}-${branch.branchCode || branch.branchName || "branch"}`}
-                                    className="products-stock-table__branch-pill"
-                                  >
-                                    {(branch.branchCode || branch.branchName || "-") +
-                                      (branch.branchName && branch.branchCode
-                                        ? ` : ${branch.branchName}`
-                                        : "")}
-                                    {" • "}
-                                    {formatStockQuantityWithUnit(branch.quantity, lot.unitLabel)}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : (
-                              "-"
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="products-stock-modal__empty">
-                  สินค้านี้ยังไม่มี stock คงเหลือในระบบตอนนี้
-                </div>
-              )}
-            </section>
-          </div>
-        </div>
-      ) : null}
+      <ProductsStockModal product={stockModalProduct} onClose={handleCloseStockModal} />
     </section>
   );
 }
