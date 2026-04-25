@@ -409,6 +409,114 @@ function formatDateTimeDisplay(value) {
   return `${day}/${month}/${year} ${hours}:${minutes}`;
 }
 
+function formatProductPrice(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric.toFixed(2) : String(value);
+}
+
+function getProductReportGroups(item) {
+  return Array.isArray(item?.reportGroupCodes) && item.reportGroupCodes.length
+    ? item.reportGroupCodes.join(", ")
+    : "-";
+}
+
+function getProductExportRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((item) => ({
+    productCode: item?.productCode || "-",
+    barcode: item?.barcode || "-",
+    tradeName: item?.tradeName || "-",
+    manufacturerName: item?.manufacturerName || "-",
+    genericName: item?.genericName || "-",
+    packaging: item?.packagingSummary || item?.packageSize || "-",
+    price: formatProductPrice(item?.price),
+    reportGroup: getProductReportGroups(item),
+    reportReceiveUnit: item?.reportReceiveUnitShortLabel || item?.reportReceiveUnitLabel || "-",
+    dosageFormCode: item?.dosageFormCode || "-",
+    status: item?.isActive ? "ใช้งาน" : "ปิดใช้งาน",
+  }));
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildProductsExcelHtml(rows) {
+  const headers = [
+    "รหัส",
+    "บาร์โค้ด",
+    "ชื่อการค้า",
+    "ผู้ผลิต/ผู้นำเข้า",
+    "ชื่อสามัญ",
+    "บรรจุภัณฑ์",
+    "ราคา",
+    "ชนิดรายงาน",
+    "หน่วยรายงานจำนวนที่รับ",
+    "รูปแบบยา",
+    "สถานะ",
+  ];
+  const fields = [
+    "productCode",
+    "barcode",
+    "tradeName",
+    "manufacturerName",
+    "genericName",
+    "packaging",
+    "price",
+    "reportGroup",
+    "reportReceiveUnit",
+    "dosageFormCode",
+    "status",
+  ];
+  const bodyRows = getProductExportRows(rows)
+    .map(
+      (row) =>
+        `<tr>${fields.map((field) => `<td class="text">${escapeHtml(row[field])}</td>`).join("")}</tr>`
+    )
+    .join("");
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    table { border-collapse: collapse; }
+    th, td { border: 1px solid #999; padding: 6px; vertical-align: top; }
+    th { background: #e8eef7; font-weight: 700; }
+    .text { mso-number-format:"\\@"; }
+  </style>
+</head>
+<body>
+  <table>
+    <thead>
+      <tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr>
+    </thead>
+    <tbody>${bodyRows}</tbody>
+  </table>
+</body>
+</html>`;
+}
+
+function downloadProductsExcel(rows) {
+  const dateText = new Date().toISOString().slice(0, 10);
+  const blob = new Blob(["\ufeff", buildProductsExcelHtml(rows)], {
+    type: "application/vnd.ms-excel;charset=utf-8;",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `products-${dateText}.xls`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 export default function Products() {
   const [items, setItems] = useState([]);
   const [reportGroups, setReportGroups] = useState([]);
@@ -1392,6 +1500,17 @@ export default function Products() {
     }
   };
 
+  const handleExportProducts = () => {
+    if (!items.length) {
+      setErrorText("ไม่มีข้อมูลสินค้าให้ export");
+      return;
+    }
+
+    setErrorText("");
+    downloadProductsExcel(items);
+    setStatusText(`Export ข้อมูลยา ${items.length} รายการแล้ว`);
+  };
+
   return (
     <section className="products-page page-placeholder">
       <div className="products-header">
@@ -2111,6 +2230,20 @@ export default function Products() {
       {errorText ? <div className="products-alert error">{errorText}</div> : null}
       {statusText ? <div className="products-alert success">{statusText}</div> : null}
 
+      <div className="products-table-toolbar">
+        <div className="products-table-count">
+          {loading ? "กำลังโหลดรายการสินค้า..." : `รายการสินค้า ${items.length} รายการ`}
+        </div>
+        <button
+          type="button"
+          className="products-btn secondary"
+          onClick={handleExportProducts}
+          disabled={loading || !items.length}
+        >
+          Export Excel
+        </button>
+      </div>
+
       <div className="products-table-wrap">
         <table className="products-table">
           <thead>
@@ -2160,14 +2293,10 @@ export default function Products() {
                     {item.packagingSummary || item.packageSize || "-"}
                   </td>
                   <td>
-                    {item.price === null || item.price === undefined
-                      ? "-"
-                      : Number(item.price).toFixed(2)}
+                    {formatProductPrice(item.price)}
                   </td>
                   <td>
-                    {Array.isArray(item.reportGroupCodes) && item.reportGroupCodes.length
-                      ? item.reportGroupCodes.join(", ")
-                      : "-"}
+                    {getProductReportGroups(item)}
                   </td>
                   <td title={item.reportReceiveUnitLabel || "-"}>
                     {item.reportReceiveUnitShortLabel || item.reportReceiveUnitLabel || "-"}

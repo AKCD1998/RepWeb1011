@@ -610,6 +610,18 @@
   background: color-mix(in srgb, #22c55e 16%, var(--panel));
 }
 
+.products-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.products-table-count {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .products-table-wrap {
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -681,5 +693,10 @@
 
   .products-packaging-row {
     grid-template-columns: repeat(2, minmax(140px, 1fr));
+  }
+
+  .products-table-toolbar {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
