@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useOptionalAuth } from "../context/AuthContext";
 import { formatDateOnlyDisplay, normalizeDateOnlyInput } from "../lib/dateOnly";
 import ProductsStockModal from "../components/products/ProductsStockModal";
-import { productsApi } from "../lib/api";
+import { inventoryApi, productsApi } from "../lib/api";
+import { formatDisplayNumber } from "../lib/productUnits";
 import "./Products.css";
 
 const EMPTY_INGREDIENT = {
@@ -517,7 +519,222 @@ function downloadProductsExcel(rows) {
   URL.revokeObjectURL(url);
 }
 
+function normalizeRole(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function normalizeLocationRows(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      id: String(row?.id || "").trim(),
+      code: String(row?.code || "").trim(),
+      name: String(row?.name || "").trim(),
+      type: String(row?.type || row?.locationType || row?.location_type || "").trim().toUpperCase(),
+      isActive: Boolean(row?.isActive ?? row?.is_active ?? true),
+    }))
+    .filter((row) => row.code && row.type === "BRANCH");
+}
+
+function normalizeStockOnHandRows(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .map((row) => ({
+      branchCode: String(row?.branchCode ?? row?.branch_code ?? "").trim(),
+      branchName: String(row?.branchName ?? row?.branch_name ?? "").trim(),
+      productId: String(row?.productId ?? row?.product_id ?? "").trim(),
+      productCode: String(row?.productCode ?? row?.product_code ?? "").trim(),
+      tradeName: String(row?.tradeName ?? row?.trade_name ?? "").trim(),
+      lotId: String(row?.lotId ?? row?.lot_id ?? "").trim(),
+      lotNo: String(row?.lotNo ?? row?.lot_no ?? "").trim(),
+      expDate: String(row?.expDate ?? row?.exp_date ?? "").trim(),
+      quantity: Number(row?.quantity ?? row?.quantityBase ?? row?.quantity_base ?? 0),
+      unitLabel: String(row?.baseUnitLabel ?? row?.base_unit_label ?? row?.unitLabel ?? row?.unit_label ?? "").trim(),
+    }))
+    .filter((row) => row.productId && Number.isFinite(row.quantity) && row.quantity > 0);
+}
+
+function formatStockQuantity(quantity, unitLabel) {
+  const qtyText = formatDisplayNumber(quantity);
+  if (qtyText === "-") return "-";
+  const unit = String(unitLabel || "").trim();
+  return unit ? `${qtyText} ${unit}` : qtyText;
+}
+
+function buildProductsById(rows) {
+  const map = new Map();
+  (Array.isArray(rows) ? rows : []).forEach((product) => {
+    const id = String(product?.id || product?.productId || "").trim();
+    if (id && !map.has(id)) {
+      map.set(id, product);
+    }
+  });
+  return map;
+}
+
+function buildBranchStockExportRows(stockRows, productsById) {
+  const grouped = new Map();
+
+  normalizeStockOnHandRows(stockRows).forEach((row) => {
+    if (!grouped.has(row.productId)) {
+      const product = productsById.get(row.productId) || {};
+      grouped.set(row.productId, {
+        product,
+        productId: row.productId,
+        productCode: product.productCode || row.productCode || "-",
+        barcode: product.barcode || "-",
+        tradeName: product.tradeName || row.tradeName || "-",
+        manufacturerName: product.manufacturerName || "-",
+        genericName: product.genericName || "-",
+        packaging: product.packagingSummary || product.packageSize || "-",
+        price: formatProductPrice(product.price),
+        reportGroup: getProductReportGroups(product),
+        reportReceiveUnit: product.reportReceiveUnitShortLabel || product.reportReceiveUnitLabel || "-",
+        dosageFormCode: product.dosageFormCode || "-",
+        status: product.isActive === false ? "ปิดใช้งาน" : "ใช้งาน",
+        totalQuantity: 0,
+        unitLabel: row.unitLabel,
+        lots: new Map(),
+      });
+    }
+
+    const productGroup = grouped.get(row.productId);
+    productGroup.totalQuantity += row.quantity;
+    if (!productGroup.unitLabel && row.unitLabel) {
+      productGroup.unitLabel = row.unitLabel;
+    }
+
+    const lotKey = row.lotId || `${row.lotNo || "__NO_LOT__"}|${row.expDate || "__NO_EXP__"}`;
+    if (!productGroup.lots.has(lotKey)) {
+      productGroup.lots.set(lotKey, {
+        lotNo: row.lotNo,
+        expDate: row.expDate,
+        quantity: 0,
+        unitLabel: row.unitLabel,
+      });
+    }
+
+    const lot = productGroup.lots.get(lotKey);
+    lot.quantity += row.quantity;
+    if (!lot.unitLabel && row.unitLabel) {
+      lot.unitLabel = row.unitLabel;
+    }
+  });
+
+  return [...grouped.values()]
+    .map((group) => {
+      const lots = [...group.lots.values()].sort((left, right) => {
+        const leftExp = left.expDate || "9999-12-31";
+        const rightExp = right.expDate || "9999-12-31";
+        if (leftExp !== rightExp) return leftExp.localeCompare(rightExp);
+        return (left.lotNo || "").localeCompare(right.lotNo || "");
+      });
+
+      return {
+        ...group,
+        totalQuantityText: formatStockQuantity(group.totalQuantity, group.unitLabel),
+        lotCount: lots.length,
+        lotBreakdown: lots
+          .map((lot) => {
+            const lotNo = lot.lotNo || "ไม่ระบุ lot";
+            const expText = lot.expDate ? ` exp ${formatDateOnlyDisplay(lot.expDate) || lot.expDate}` : "";
+            return `${lotNo}${expText}: ${formatStockQuantity(lot.quantity, lot.unitLabel || group.unitLabel)}`;
+          })
+          .join("\n"),
+      };
+    })
+    .sort((left, right) => {
+      if (left.tradeName !== right.tradeName) return left.tradeName.localeCompare(right.tradeName, "th");
+      return left.productCode.localeCompare(right.productCode);
+    });
+}
+
+function buildBranchStockExcelHtml(rows, branchLabel) {
+  const headers = [
+    "สาขา",
+    "รหัส",
+    "บาร์โค้ด",
+    "ชื่อการค้า",
+    "ผู้ผลิต/ผู้นำเข้า",
+    "ชื่อสามัญ",
+    "บรรจุภัณฑ์",
+    "ราคา",
+    "ชนิดรายงาน",
+    "หน่วยรายงานจำนวนที่รับ",
+    "รูปแบบยา",
+    "สถานะ",
+    "จำนวนรวมในสาขา",
+    "จำนวน lot",
+    "รายละเอียด lot",
+  ];
+  const fields = [
+    "branchLabel",
+    "productCode",
+    "barcode",
+    "tradeName",
+    "manufacturerName",
+    "genericName",
+    "packaging",
+    "price",
+    "reportGroup",
+    "reportReceiveUnit",
+    "dosageFormCode",
+    "status",
+    "totalQuantityText",
+    "lotCount",
+    "lotBreakdown",
+  ];
+  const exportRows = rows.map((row) => ({ ...row, branchLabel }));
+  const bodyRows = exportRows
+    .map(
+      (row) =>
+        `<tr>${fields
+          .map((field) => `<td class="text">${escapeHtml(row[field]).replace(/\n/g, "<br />")}</td>`)
+          .join("")}</tr>`
+    )
+    .join("");
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    table { border-collapse: collapse; }
+    th, td { border: 1px solid #999; padding: 6px; vertical-align: top; }
+    th { background: #e8eef7; font-weight: 700; }
+    .text { mso-number-format:"\\@"; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <table>
+    <thead>
+      <tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr>
+    </thead>
+    <tbody>${bodyRows}</tbody>
+  </table>
+</body>
+</html>`;
+}
+
+function downloadBranchStockExcel(rows, branch) {
+  const dateText = new Date().toISOString().slice(0, 10);
+  const branchCode = String(branch?.code || "branch").trim();
+  const branchLabel = `${branchCode}${branch?.name ? ` ${branch.name}` : ""}`.trim();
+  const blob = new Blob(["\ufeff", buildBranchStockExcelHtml(rows, branchLabel)], {
+    type: "application/vnd.ms-excel;charset=utf-8;",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `branch-stock-${branchCode}-${dateText}.xls`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 export default function Products() {
+  const auth = useOptionalAuth();
+  const isAdmin = normalizeRole(auth?.user?.role) === "ADMIN";
+  const userBranchCode = String(auth?.user?.branchCode || auth?.user?.branch_code || "").trim();
   const [items, setItems] = useState([]);
   const [reportGroups, setReportGroups] = useState([]);
   const [genericNameOptions, setGenericNameOptions] = useState([]);
@@ -561,6 +778,12 @@ export default function Products() {
   const [lotMetadataError, setLotMetadataError] = useState("");
   const [lotMetadataStatus, setLotMetadataStatus] = useState("");
   const [stockModalProduct, setStockModalProduct] = useState(null);
+  const [isBranchExportModalOpen, setIsBranchExportModalOpen] = useState(false);
+  const [branchExportOptions, setBranchExportOptions] = useState([]);
+  const [selectedBranchExportCode, setSelectedBranchExportCode] = useState("");
+  const [isLoadingBranchExportOptions, setIsLoadingBranchExportOptions] = useState(false);
+  const [isExportingBranchStock, setIsExportingBranchStock] = useState(false);
+  const [branchExportError, setBranchExportError] = useState("");
   const customGenericInputRef = useRef(null);
   const activeIngredientsCacheRef = useRef(new Map());
   const ingredientUnitsCacheRef = useRef(new Map());
@@ -781,6 +1004,44 @@ export default function Products() {
   useEffect(() => {
     loadIngredientUnits("");
   }, [loadIngredientUnits]);
+
+  useEffect(() => {
+    if (!isBranchExportModalOpen) return undefined;
+
+    let active = true;
+    setIsLoadingBranchExportOptions(true);
+    setBranchExportError("");
+
+    inventoryApi
+      .listLocations({ includeInactive: false, locationType: "BRANCH" })
+      .then((rows) => {
+        if (!active) return;
+        const normalized = normalizeLocationRows(rows);
+        setBranchExportOptions(normalized);
+        setSelectedBranchExportCode((current) => {
+          if (current && normalized.some((branch) => branch.code === current)) return current;
+          if (!isAdmin && userBranchCode && normalized.some((branch) => branch.code === userBranchCode)) {
+            return userBranchCode;
+          }
+          return normalized[0]?.code || "";
+        });
+      })
+      .catch((error) => {
+        if (!active) return;
+        setBranchExportOptions([]);
+        setSelectedBranchExportCode("");
+        setBranchExportError(normalizeApiError(error));
+      })
+      .finally(() => {
+        if (active) {
+          setIsLoadingBranchExportOptions(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isAdmin, isBranchExportModalOpen, userBranchCode]);
 
   useEffect(() => {
     syncGenericControls(form.genericName, genericNameOptions);
@@ -1511,6 +1772,60 @@ export default function Products() {
     setStatusText(`Export ข้อมูลยา ${items.length} รายการแล้ว`);
   };
 
+  const handleOpenBranchExportModal = () => {
+    setErrorText("");
+    setStatusText("");
+    setBranchExportError("");
+    setIsBranchExportModalOpen(true);
+  };
+
+  const handleCloseBranchExportModal = () => {
+    if (isExportingBranchStock) return;
+    setIsBranchExportModalOpen(false);
+    setBranchExportError("");
+  };
+
+  const handleBranchExportBackdrop = (event) => {
+    if (event.target === event.currentTarget) {
+      handleCloseBranchExportModal();
+    }
+  };
+
+  const handleExportBranchStock = async () => {
+    const branch = branchExportOptions.find((option) => option.code === selectedBranchExportCode);
+    if (!branch) {
+      setBranchExportError("กรุณาเลือกสาขาก่อนส่งออกข้อมูล");
+      return;
+    }
+
+    setIsExportingBranchStock(true);
+    setBranchExportError("");
+    setErrorText("");
+    setStatusText("");
+
+    try {
+      const [stockRows, allProducts] = await Promise.all([
+        inventoryApi.listStockOnHand({ branchCode: branch.code }),
+        productsApi.list(""),
+      ]);
+      const productsById = buildProductsById([...items, ...(Array.isArray(allProducts) ? allProducts : [])]);
+      const exportRows = buildBranchStockExportRows(stockRows, productsById);
+
+      if (!exportRows.length) {
+        setBranchExportError("สาขานี้ไม่มีสินค้าที่ stock มากกว่า 0");
+        return;
+      }
+
+      downloadBranchStockExcel(exportRows, branch);
+      setStatusText(`Export stock สาขา ${branch.code} จำนวน ${exportRows.length} รายการแล้ว`);
+      setIsBranchExportModalOpen(false);
+    } catch (error) {
+      setBranchExportError(normalizeApiError(error));
+    } finally {
+      setIsExportingBranchStock(false);
+    }
+  };
+
   return (
     <section className="products-page page-placeholder">
       <div className="products-header">
@@ -2234,14 +2549,24 @@ export default function Products() {
         <div className="products-table-count">
           {loading ? "กำลังโหลดรายการสินค้า..." : `รายการสินค้า ${items.length} รายการ`}
         </div>
-        <button
-          type="button"
-          className="products-btn secondary"
-          onClick={handleExportProducts}
-          disabled={loading || !items.length}
-        >
-          Export Excel
-        </button>
+        <div className="products-table-toolbar-actions">
+          <button
+            type="button"
+            className="products-btn secondary"
+            onClick={handleExportProducts}
+            disabled={loading || !items.length}
+          >
+            ส่งออก Excel ตัวยาทั้งหมด
+          </button>
+          <button
+            type="button"
+            className="products-btn secondary"
+            onClick={handleOpenBranchExportModal}
+            disabled={isExportingBranchStock}
+          >
+            ส่งออก Excel สินค้าปัจจุบันของสาขา
+          </button>
+        </div>
       </div>
 
       <div className="products-table-wrap">
@@ -2339,6 +2664,81 @@ export default function Products() {
           </tbody>
         </table>
       </div>
+
+      {isBranchExportModalOpen ? (
+        <div
+          className="products-export-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="products-branch-export-title"
+          onMouseDown={handleBranchExportBackdrop}
+        >
+          <div className="products-export-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="products-export-modal__header">
+              <div>
+                <h2 id="products-branch-export-title">ส่งออก Excel สินค้าปัจจุบันของสาขา</h2>
+                <p>ไฟล์จะรวมเฉพาะสินค้าที่มี stock คงเหลือมากกว่า 0 และแจกแจงจำนวนแยกตาม lot</p>
+              </div>
+              <button
+                type="button"
+                className="products-btn small secondary"
+                onClick={handleCloseBranchExportModal}
+                disabled={isExportingBranchStock}
+              >
+                ปิด
+              </button>
+            </div>
+
+            <label className="products-export-modal__field">
+              เลือกสาขา
+              <select
+                value={selectedBranchExportCode}
+                onChange={(event) => setSelectedBranchExportCode(event.target.value)}
+                disabled={isLoadingBranchExportOptions || isExportingBranchStock || !isAdmin}
+              >
+                {branchExportOptions.map((branch) => (
+                  <option key={branch.code} value={branch.code}>
+                    {branch.code}
+                    {branch.name ? ` : ${branch.name}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {!isAdmin ? (
+              <div className="products-export-modal__note">บัญชีนี้ส่งออกได้เฉพาะสาขาของตัวเอง</div>
+            ) : null}
+            {isLoadingBranchExportOptions ? (
+              <div className="products-export-modal__note">กำลังโหลดรายการสาขา...</div>
+            ) : null}
+            {branchExportError ? <div className="products-alert error">{branchExportError}</div> : null}
+
+            <div className="products-export-modal__actions">
+              <button
+                type="button"
+                className="products-btn"
+                onClick={handleExportBranchStock}
+                disabled={
+                  isLoadingBranchExportOptions ||
+                  isExportingBranchStock ||
+                  !selectedBranchExportCode ||
+                  !branchExportOptions.length
+                }
+              >
+                {isExportingBranchStock ? "กำลังส่งออก..." : "ตกลง"}
+              </button>
+              <button
+                type="button"
+                className="products-btn secondary"
+                onClick={handleCloseBranchExportModal}
+                disabled={isExportingBranchStock}
+              >
+                ยกเลิก
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <ProductsStockModal product={stockModalProduct} onClose={handleCloseStockModal} />
     </section>
