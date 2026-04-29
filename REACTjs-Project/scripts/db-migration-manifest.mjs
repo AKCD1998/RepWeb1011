@@ -226,6 +226,73 @@ export const migrationManifest = {
       };
     },
   },
+  "0025_product_lot_normalization_audits.sql": {
+    fileName: "0025_product_lot_normalization_audits.sql",
+    description:
+      "Adds product_lot_normalization_audits so admin lot rename/merge operations keep a traceable reason and moved-reference counts.",
+    checkMode: "schema-probe",
+    probeQuery: `
+      SELECT
+        to_regclass('public.product_lots') IS NOT NULL AS has_product_lots,
+        to_regclass('public.product_lot_normalization_audits') IS NOT NULL AS has_normalization_audits_table,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'product_lot_normalization_audits'
+            AND column_name = 'operation_type'
+        ) AS has_operation_type_column,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'product_lot_normalization_audits'
+            AND column_name = 'stock_movement_rows_updated'
+        ) AS has_stock_movement_rows_updated_column,
+        EXISTS (
+          SELECT 1
+          FROM pg_indexes
+          WHERE schemaname = 'public'
+            AND indexname = 'idx_product_lot_normalization_audits_product_at'
+        ) AS has_product_at_index
+    `,
+    interpretProbe(row) {
+      const prerequisitesMet = Boolean(row?.has_product_lots);
+      const applied = Boolean(
+        row?.has_normalization_audits_table &&
+          row?.has_operation_type_column &&
+          row?.has_stock_movement_rows_updated_column &&
+          row?.has_product_at_index
+      );
+
+      return {
+        applied,
+        prerequisitesMet,
+        details: [
+          {
+            label: "product_lots table",
+            ok: prerequisitesMet,
+          },
+          {
+            label: "product_lot_normalization_audits table",
+            ok: Boolean(row?.has_normalization_audits_table),
+          },
+          {
+            label: "operation_type column",
+            ok: Boolean(row?.has_operation_type_column),
+          },
+          {
+            label: "stock_movement_rows_updated column",
+            ok: Boolean(row?.has_stock_movement_rows_updated_column),
+          },
+          {
+            label: "product-at index",
+            ok: Boolean(row?.has_product_at_index),
+          },
+        ],
+      };
+    },
+  },
 };
 
 export function getManagedMigrationDefinition(fileName) {

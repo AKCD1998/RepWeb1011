@@ -27,6 +27,7 @@ const INGREDIENT_UNIT_TYPE_CODES = [
   "INHALATION",
 ];
 let hasProductLotEditAuditsTableCache = null;
+let hasProductLotNormalizationAuditsTableCache = null;
 
 function buildProductUnitLevelsIsActiveSelect(alias, outputAlias = "isActive") {
   return `${productUnitLevelsIsActiveCompatExpression(alias)} AS "${outputAlias}"`;
@@ -101,6 +102,38 @@ async function hasProductLotEditAuditsTable(db) {
   return false;
 }
 
+async function hasProductLotNormalizationAuditsTable(db) {
+  if (hasProductLotNormalizationAuditsTableCache === true) {
+    return true;
+  }
+
+  const result = await db.query(
+    `
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = 'product_lot_normalization_audits'
+      LIMIT 1
+    `
+  );
+
+  if (result.rows[0]) {
+    hasProductLotNormalizationAuditsTableCache = true;
+    return true;
+  }
+
+  return false;
+}
+
+async function hasPublicTable(db, tableName) {
+  const safeTableName = toCleanText(tableName);
+  if (!safeTableName) return false;
+  const result = await db.query(`SELECT to_regclass($1) IS NOT NULL AS "exists"`, [
+    `public.${safeTableName}`,
+  ]);
+  return Boolean(result.rows[0]?.exists);
+}
+
 function normalizeLotMetadataUpdateInput(body = {}) {
   const lotNo = toCleanText(body?.lotNo ?? body?.lot_no);
   const mfgDate =
@@ -124,6 +157,47 @@ function normalizeLotMetadataUpdateInput(body = {}) {
     lotNo,
     mfgDate,
     expDate,
+    reason,
+  };
+}
+
+function normalizeLotNormalizationInput(body = {}) {
+  const sourceLotId = toCleanText(body?.sourceLotId ?? body?.source_lot_id ?? body?.lotId ?? body?.lot_id);
+  const targetLotId = toCleanText(body?.targetLotId ?? body?.target_lot_id);
+  const targetLotNo = toCleanText(body?.targetLotNo ?? body?.target_lot_no ?? body?.lotNo ?? body?.lot_no);
+  const targetMfgDate =
+    parseDateOnlyInput(body?.targetMfgDate ?? body?.target_mfg_date ?? body?.mfgDate ?? body?.mfg_date, "targetMfgDate", {
+      allowEmpty: true,
+    }) || null;
+  const targetExpDate = parseDateOnlyInput(
+    body?.targetExpDate ?? body?.target_exp_date ?? body?.expDate ?? body?.exp_date,
+    "targetExpDate",
+    { allowEmpty: false }
+  );
+  const reason = toCleanText(body?.reason ?? body?.reasonText ?? body?.reason_text);
+
+  if (!sourceLotId || !isUuid(sourceLotId)) {
+    throw httpError(400, "sourceLotId must be a valid UUID");
+  }
+  if (targetLotId && !isUuid(targetLotId)) {
+    throw httpError(400, "targetLotId must be a valid UUID");
+  }
+  if (!targetLotNo) {
+    throw httpError(400, "targetLotNo is required");
+  }
+  if (targetMfgDate && targetExpDate < targetMfgDate) {
+    throw httpError(400, "targetExpDate must be the same date or later than targetMfgDate");
+  }
+  if (!reason) {
+    throw httpError(400, "reason is required");
+  }
+
+  return {
+    sourceLotId,
+    targetLotId,
+    targetLotNo,
+    targetMfgDate,
+    targetExpDate,
     reason,
   };
 }
@@ -2272,8 +2346,8 @@ export async function listProducts(req, res) {
 
 export async function getProductUnitLevels(req, res) {
   const productId = toCleanText(req.params.id || req.params.productId);
-  if (!productId) {
-    throw httpError(400, "product id is required");
+  if (!productId || !isUuid(productId)) {
+    throw httpError(400, "product id must be a valid UUID");
   }
 
   const lotId = toCleanText(req.query.lotId || req.query.lot_id);
@@ -2371,8 +2445,8 @@ export async function getProductUnitLevels(req, res) {
 
 export async function getProductLotWhitelists(req, res) {
   const productId = toCleanText(req.params.id || req.params.productId);
-  if (!productId) {
-    throw httpError(400, "product id is required");
+  if (!productId || !isUuid(productId)) {
+    throw httpError(400, "product id must be a valid UUID");
   }
 
   const productResult = await query(
@@ -2752,6 +2826,506 @@ export async function updateProductLotMetadata(req, res) {
       expDateDisplay: formatDateOnlyDisplay(result.expDate),
       manufacturerName: toCleanText(result.manufacturerName),
     },
+  });
+}
+
+export async function normalizeProductLot(req, res) {
+  const productId = toCleanText(req.params.id || req.params.productId);
+  const normalizedByUserId = toCleanText(req.user?.id);
+
+  if (!productId || !isUuid(productId)) {
+    throw httpError(400, "product id must be a valid UUID");
+  }
+  if (!normalizedByUserId || !isUuid(normalizedByUserId)) {
+    throw httpError(401, "Authentication required");
+  }
+  if (!(await hasProductLotNormalizationAuditsTable({ query }))) {
+    throw httpError(
+      409,
+      "Lot normalization audit table requires migration 0025_product_lot_normalization_audits.sql"
+    );
+  }
+
+  const input = normalizeLotNormalizationInput(req.body);
+
+  const result = await withTransaction(async (client) => {
+    const sourceLotResult = await client.query(
+      `
+        SELECT
+          id,
+          product_id AS "productId",
+          lot_no AS "lotNo",
+          mfg_date::text AS "mfgDate",
+          exp_date::text AS "expDate",
+          manufacturer_name AS "manufacturerName"
+        FROM product_lots
+        WHERE id = $1::uuid
+          AND product_id = $2::uuid
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [input.sourceLotId, productId]
+    );
+    const sourceLot = sourceLotResult.rows[0];
+    if (!sourceLot) {
+      throw httpError(404, "Source product lot not found");
+    }
+
+    let targetLot = null;
+    if (input.targetLotId && input.targetLotId !== input.sourceLotId) {
+      const targetByIdResult = await client.query(
+        `
+          SELECT
+            id,
+            product_id AS "productId",
+            lot_no AS "lotNo",
+            mfg_date::text AS "mfgDate",
+            exp_date::text AS "expDate",
+            manufacturer_name AS "manufacturerName"
+          FROM product_lots
+          WHERE id = $1::uuid
+            AND product_id = $2::uuid
+          LIMIT 1
+          FOR UPDATE
+        `,
+        [input.targetLotId, productId]
+      );
+      targetLot = targetByIdResult.rows[0] || null;
+      if (!targetLot) {
+        throw httpError(404, "Target product lot not found");
+      }
+    }
+
+    if (!targetLot) {
+      const targetByMetadataResult = await client.query(
+        `
+          SELECT
+            id,
+            product_id AS "productId",
+            lot_no AS "lotNo",
+            mfg_date::text AS "mfgDate",
+            exp_date::text AS "expDate",
+            manufacturer_name AS "manufacturerName"
+          FROM product_lots
+          WHERE product_id = $1::uuid
+            AND lot_no = $2
+            AND exp_date = $3::date
+            AND id <> $4::uuid
+          LIMIT 1
+          FOR UPDATE
+        `,
+        [productId, input.targetLotNo, input.targetExpDate, input.sourceLotId]
+      );
+      targetLot = targetByMetadataResult.rows[0] || null;
+    }
+
+    if (!targetLot) {
+      const hasChange =
+        input.targetLotNo !== toCleanText(sourceLot.lotNo) ||
+        input.targetMfgDate !== (toCleanText(sourceLot.mfgDate) || null) ||
+        input.targetExpDate !== toCleanText(sourceLot.expDate);
+
+      if (!hasChange) {
+        throw httpError(400, "No lot normalization change detected");
+      }
+
+      const updatedLotResult = await client.query(
+        `
+          UPDATE product_lots
+          SET lot_no = $2,
+              mfg_date = $3::date,
+              exp_date = $4::date
+          WHERE id = $1::uuid
+          RETURNING
+            id,
+            product_id AS "productId",
+            lot_no AS "lotNo",
+            mfg_date::text AS "mfgDate",
+            exp_date::text AS "expDate",
+            manufacturer_name AS "manufacturerName"
+        `,
+        [input.sourceLotId, input.targetLotNo, input.targetMfgDate, input.targetExpDate]
+      );
+      const updatedLot = updatedLotResult.rows[0];
+
+      if (await hasProductLotEditAuditsTable(client)) {
+        await client.query(
+          `
+            INSERT INTO product_lot_edit_audits (
+              product_lot_id,
+              product_id,
+              previous_lot_no,
+              new_lot_no,
+              previous_mfg_date,
+              new_mfg_date,
+              previous_exp_date,
+              new_exp_date,
+              reason_text,
+              edited_by
+            )
+            VALUES (
+              $1::uuid,
+              $2::uuid,
+              $3,
+              $4,
+              $5::date,
+              $6::date,
+              $7::date,
+              $8::date,
+              $9,
+              $10::uuid
+            )
+          `,
+          [
+            input.sourceLotId,
+            productId,
+            sourceLot.lotNo,
+            input.targetLotNo,
+            sourceLot.mfgDate || null,
+            input.targetMfgDate,
+            sourceLot.expDate,
+            input.targetExpDate,
+            input.reason,
+            normalizedByUserId,
+          ]
+        );
+      }
+
+      await client.query(
+        `
+          INSERT INTO product_lot_normalization_audits (
+            product_id,
+            operation_type,
+            source_lot_id,
+            target_lot_id,
+            source_lot_no,
+            target_lot_no,
+            source_mfg_date,
+            target_mfg_date,
+            source_exp_date,
+            target_exp_date,
+            reason_text,
+            normalized_by
+          )
+          VALUES ($1::uuid, 'RENAME', $2::uuid, $2::uuid, $3, $4, $5::date, $6::date, $7::date, $8::date, $9, $10::uuid)
+        `,
+        [
+          productId,
+          input.sourceLotId,
+          sourceLot.lotNo,
+          updatedLot.lotNo,
+          sourceLot.mfgDate || null,
+          updatedLot.mfgDate || null,
+          sourceLot.expDate,
+          updatedLot.expDate,
+          input.reason,
+          normalizedByUserId,
+        ]
+      );
+
+      return {
+        operation: "RENAME",
+        sourceLot,
+        targetLot: updatedLot,
+        counts: {
+          stockOnHandRowsRebuilt: 0,
+          stockMovementRowsUpdated: 0,
+          dispenseLineRowsUpdated: 0,
+          transferRequestRowsUpdated: 0,
+          incidentItemRowsUpdated: 0,
+          incidentResolutionRowsUpdated: 0,
+          stockMovementDeleteAuditRowsUpdated: 0,
+          lotWhitelistRowsRemoved: 0,
+        },
+      };
+    }
+
+    if (toCleanText(targetLot.id) === toCleanText(sourceLot.id)) {
+      throw httpError(400, "Source and target lot are the same");
+    }
+
+    const stockOnHandRebuildResult = await client.query(
+      `
+        INSERT INTO stock_on_hand (
+          branch_id,
+          product_id,
+          lot_id,
+          base_unit_level_id,
+          quantity_on_hand,
+          updated_at
+        )
+        SELECT
+          branch_id,
+          product_id,
+          $3::uuid AS lot_id,
+          base_unit_level_id,
+          SUM(quantity_on_hand) AS quantity_on_hand,
+          now() AS updated_at
+        FROM stock_on_hand
+        WHERE product_id = $1::uuid
+          AND lot_id = $2::uuid
+        GROUP BY branch_id, product_id, base_unit_level_id
+        ON CONFLICT (branch_id, product_id, lot_id, base_unit_level_id)
+        DO UPDATE
+          SET quantity_on_hand = stock_on_hand.quantity_on_hand + EXCLUDED.quantity_on_hand,
+              updated_at = now()
+        RETURNING id
+      `,
+      [productId, sourceLot.id, targetLot.id]
+    );
+
+    await client.query(
+      `
+        DELETE FROM stock_on_hand
+        WHERE product_id = $1::uuid
+          AND lot_id = $2::uuid
+      `,
+      [productId, sourceLot.id]
+    );
+
+    const stockMovementResult = await client.query(
+      `
+        UPDATE stock_movements
+        SET lot_id = $3::uuid
+        WHERE product_id = $1::uuid
+          AND lot_id = $2::uuid
+      `,
+      [productId, sourceLot.id, targetLot.id]
+    );
+
+    const dispenseLineResult = await client.query(
+      `
+        UPDATE dispense_lines
+        SET lot_id = $3::uuid
+        WHERE product_id = $1::uuid
+          AND lot_id = $2::uuid
+      `,
+      [productId, sourceLot.id, targetLot.id]
+    );
+
+    const transferRequestResult = await client.query(
+      `
+        UPDATE inventory_transfer_requests
+        SET lot_id = $3::uuid
+        WHERE product_id = $1::uuid
+          AND lot_id = $2::uuid
+      `,
+      [productId, sourceLot.id, targetLot.id]
+    );
+
+    const incidentItemResult = await client.query(
+      `
+        UPDATE incident_report_items
+        SET lot_id = $3::uuid
+        WHERE product_id = $1::uuid
+          AND lot_id = $2::uuid
+      `,
+      [productId, sourceLot.id, targetLot.id]
+    );
+
+    let incidentResolutionRowsUpdated = 0;
+    if (await hasPublicTable(client, "incident_report_resolution_actions")) {
+      const incidentResolutionResult = await client.query(
+        `
+          UPDATE incident_report_resolution_actions
+          SET lot_id = $3::uuid
+          WHERE product_id = $1::uuid
+            AND lot_id = $2::uuid
+        `,
+        [productId, sourceLot.id, targetLot.id]
+      );
+      incidentResolutionRowsUpdated = incidentResolutionResult.rowCount;
+    }
+
+    let stockMovementDeleteAuditRowsUpdated = 0;
+    if (await hasPublicTable(client, "stock_movement_delete_audits")) {
+      const deleteAuditResult = await client.query(
+        `
+          UPDATE stock_movement_delete_audits
+          SET lot_id = $3::uuid
+          WHERE product_id = $1::uuid
+            AND lot_id = $2::uuid
+        `,
+        [productId, sourceLot.id, targetLot.id]
+      );
+      stockMovementDeleteAuditRowsUpdated = deleteAuditResult.rowCount;
+    }
+
+    let lotWhitelistRowsRemoved = 0;
+    if (await hasProductLotAllowedUnitLevelsTable(client)) {
+      await client.query(
+        `
+          WITH target_default AS (
+            SELECT EXISTS (
+              SELECT 1
+              FROM product_lot_allowed_unit_levels
+              WHERE product_lot_id = $3::uuid
+                AND is_active = true
+                AND is_default = true
+            ) AS has_default
+          )
+          INSERT INTO product_lot_allowed_unit_levels (
+            product_id,
+            product_lot_id,
+            unit_level_id,
+            is_default,
+            is_active,
+            source_type,
+            note_text,
+            created_at,
+            updated_at
+          )
+          SELECT
+            plaul.product_id,
+            $3::uuid,
+            plaul.unit_level_id,
+            CASE
+              WHEN plaul.is_default = true
+                AND (SELECT has_default FROM target_default) = false
+              THEN true
+              ELSE false
+            END,
+            plaul.is_active,
+            'LOT_NORMALIZATION',
+            CONCAT('Copied from merged lot ', $2::text),
+            now(),
+            now()
+          FROM product_lot_allowed_unit_levels plaul
+          WHERE plaul.product_id = $1::uuid
+            AND plaul.product_lot_id = $2::uuid
+            AND plaul.is_active = true
+          ON CONFLICT (product_lot_id, unit_level_id) DO NOTHING
+        `,
+        [productId, sourceLot.id, targetLot.id]
+      );
+
+      const deleteWhitelistResult = await client.query(
+        `
+          DELETE FROM product_lot_allowed_unit_levels
+          WHERE product_id = $1::uuid
+            AND product_lot_id = $2::uuid
+        `,
+        [productId, sourceLot.id]
+      );
+      lotWhitelistRowsRemoved = deleteWhitelistResult.rowCount;
+    }
+
+    await client.query(
+      `
+        DELETE FROM product_lots
+        WHERE product_id = $1::uuid
+          AND id = $2::uuid
+      `,
+      [productId, sourceLot.id]
+    );
+
+    const counts = {
+      stockOnHandRowsRebuilt: stockOnHandRebuildResult.rowCount,
+      stockMovementRowsUpdated: stockMovementResult.rowCount,
+      dispenseLineRowsUpdated: dispenseLineResult.rowCount,
+      transferRequestRowsUpdated: transferRequestResult.rowCount,
+      incidentItemRowsUpdated: incidentItemResult.rowCount,
+      incidentResolutionRowsUpdated,
+      stockMovementDeleteAuditRowsUpdated,
+      lotWhitelistRowsRemoved,
+    };
+
+    await client.query(
+      `
+        INSERT INTO product_lot_normalization_audits (
+          product_id,
+          operation_type,
+          source_lot_id,
+          target_lot_id,
+          source_lot_no,
+          target_lot_no,
+          source_mfg_date,
+          target_mfg_date,
+          source_exp_date,
+          target_exp_date,
+          reason_text,
+          stock_on_hand_rows_rebuilt,
+          stock_movement_rows_updated,
+          dispense_line_rows_updated,
+          transfer_request_rows_updated,
+          incident_item_rows_updated,
+          incident_resolution_rows_updated,
+          stock_movement_delete_audit_rows_updated,
+          lot_whitelist_rows_removed,
+          normalized_by
+        )
+        VALUES (
+          $1::uuid,
+          'MERGE',
+          $2::uuid,
+          $3::uuid,
+          $4,
+          $5,
+          $6::date,
+          $7::date,
+          $8::date,
+          $9::date,
+          $10,
+          $11,
+          $12,
+          $13,
+          $14,
+          $15,
+          $16,
+          $17,
+          $18,
+          $19::uuid
+        )
+      `,
+      [
+        productId,
+        sourceLot.id,
+        targetLot.id,
+        sourceLot.lotNo,
+        targetLot.lotNo,
+        sourceLot.mfgDate || null,
+        targetLot.mfgDate || null,
+        sourceLot.expDate,
+        targetLot.expDate,
+        input.reason,
+        counts.stockOnHandRowsRebuilt,
+        counts.stockMovementRowsUpdated,
+        counts.dispenseLineRowsUpdated,
+        counts.transferRequestRowsUpdated,
+        counts.incidentItemRowsUpdated,
+        counts.incidentResolutionRowsUpdated,
+        counts.stockMovementDeleteAuditRowsUpdated,
+        counts.lotWhitelistRowsRemoved,
+        normalizedByUserId,
+      ]
+    );
+
+    return {
+      operation: "MERGE",
+      sourceLot,
+      targetLot,
+      counts,
+    };
+  });
+
+  return res.json({
+    ok: true,
+    productId,
+    operation: result.operation,
+    sourceLot: {
+      id: toCleanText(result.sourceLot.id),
+      lotNo: toCleanText(result.sourceLot.lotNo),
+      mfgDate: toCleanText(result.sourceLot.mfgDate),
+      expDate: toCleanText(result.sourceLot.expDate),
+    },
+    targetLot: {
+      id: toCleanText(result.targetLot.id),
+      lotNo: toCleanText(result.targetLot.lotNo),
+      mfgDate: toCleanText(result.targetLot.mfgDate),
+      expDate: toCleanText(result.targetLot.expDate),
+      expDateDisplay: formatDateOnlyDisplay(result.targetLot.expDate),
+    },
+    counts: result.counts,
   });
 }
 

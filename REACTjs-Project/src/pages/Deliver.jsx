@@ -1208,7 +1208,8 @@ export default function Deliver() {
       const selectedProduct = product || selectedDeliverSearchProduct;
       if (!selectedProduct) return;
 
-      handleAddProduct(selectedProduct, 1);
+      const qtyToAdd = pendingMultiplier ?? 1;
+      handleAddProduct(selectedProduct, qtyToAdd);
       setPendingMultiplier(null);
       setIsProductSearchModalOpen(false);
       setSelectedDeliverSearchProductId("");
@@ -1223,7 +1224,7 @@ export default function Deliver() {
         barcodeInputRef.current.focus();
       }
     },
-    [handleAddProduct, selectedDeliverSearchProduct, syncProductMeta]
+    [handleAddProduct, pendingMultiplier, selectedDeliverSearchProduct, syncProductMeta]
   );
 
   const handleBarcodeKeyDown = useCallback(

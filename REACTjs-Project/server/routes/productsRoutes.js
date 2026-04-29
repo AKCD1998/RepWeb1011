@@ -10,6 +10,7 @@ import {
   getProductsSnapshot,
   getProductsVersion,
   listProducts,
+  normalizeProductLot,
   updateProductLotMetadata,
   updateProductLotWhitelist,
   updateProduct,
@@ -39,6 +40,12 @@ router.put(
   verifyToken,
   requireRole("ADMIN"),
   asyncHandler(updateProductLotWhitelist)
+);
+router.post(
+  "/:id/lots/normalize",
+  verifyToken,
+  requireRole("ADMIN"),
+  asyncHandler(normalizeProductLot)
 );
 router.put(
   "/:id/lots/:lotId/metadata",

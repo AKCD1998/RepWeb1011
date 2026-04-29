@@ -292,6 +292,48 @@ export const productsApi = {
       },
     });
   },
+  normalizeLot(productId, payload = {}) {
+    const id = String(productId || "").trim();
+    const sourceLotId = String(payload?.sourceLotId ?? payload?.source_lot_id ?? "").trim();
+    const targetLotId = String(payload?.targetLotId ?? payload?.target_lot_id ?? "").trim();
+    const targetLotNo = String(payload?.targetLotNo ?? payload?.target_lot_no ?? "").trim();
+    const targetMfgDate = normalizeDateOnlyInput(
+      payload?.targetMfgDate ?? payload?.target_mfg_date ?? payload?.mfgDate ?? payload?.mfg_date
+    ) || null;
+    const targetExpDate = normalizeDateOnlyInput(
+      payload?.targetExpDate ?? payload?.target_exp_date ?? payload?.expDate ?? payload?.exp_date
+    );
+    const reason = String(payload?.reason ?? payload?.reasonText ?? payload?.reason_text ?? "").trim();
+
+    if (!id) {
+      throw new Error("productId is required");
+    }
+    if (!sourceLotId) {
+      throw new Error("sourceLotId is required");
+    }
+    if (!targetLotNo) {
+      throw new Error("targetLotNo is required");
+    }
+    if (!targetExpDate) {
+      throw new Error("targetExpDate is required");
+    }
+    if (!reason) {
+      throw new Error("reason is required");
+    }
+
+    return requestJson({
+      method: "POST",
+      url: `/api/products/${encodeURIComponent(id)}/lots/normalize`,
+      data: {
+        sourceLotId,
+        targetLotId: targetLotId || undefined,
+        targetLotNo,
+        targetMfgDate,
+        targetExpDate,
+        reason,
+      },
+    });
+  },
   reportGroups() {
     return requestJson({
       method: "GET",

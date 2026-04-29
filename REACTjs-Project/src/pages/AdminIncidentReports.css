@@ -117,7 +117,10 @@
 .admin-incident-page__status-editor select,
 .admin-incident-page__edit-form input,
 .admin-incident-page__edit-form select,
-.admin-incident-page__edit-form textarea {
+.admin-incident-page__edit-form textarea,
+.admin-incident-page__lot-form input,
+.admin-incident-page__lot-form select,
+.admin-incident-page__lot-form textarea {
   width: 100%;
   box-sizing: border-box;
   padding: 1px 12px;
@@ -129,7 +132,8 @@
   box-shadow: inset 0 1px #ffffff0d;
 }
 
-.admin-incident-page__edit-form textarea {
+.admin-incident-page__edit-form textarea,
+.admin-incident-page__lot-form textarea {
   min-height: 96px;
   padding-top: 10px;
   resize: vertical;
@@ -144,7 +148,10 @@
 .admin-incident-page__status-editor select:focus,
 .admin-incident-page__edit-form input:focus,
 .admin-incident-page__edit-form select:focus,
-.admin-incident-page__edit-form textarea:focus {
+.admin-incident-page__edit-form textarea:focus,
+.admin-incident-page__lot-form input:focus,
+.admin-incident-page__lot-form select:focus,
+.admin-incident-page__lot-form textarea:focus {
   outline: none;
   border-color: rgba(251, 191, 36, 0.5);
   box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
@@ -392,6 +399,97 @@
   font-size: 12px;
 }
 
+.admin-incident-page__lot-tool {
+  padding: 7px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.admin-incident-page__modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(2, 6, 23, 0.72);
+}
+
+.admin-incident-page__lot-modal {
+  width: min(720px, 100%);
+  max-height: min(86vh, 760px);
+  overflow: auto;
+  padding: 20px;
+  border-radius: 22px;
+  border: 1px solid rgba(251, 191, 36, 0.26);
+  background:
+    radial-gradient(circle at top right, rgba(245, 158, 11, 0.18), transparent 42%),
+    linear-gradient(160deg, rgba(15, 23, 42, 0.98) 0%, rgba(17, 37, 64, 0.96) 100%);
+  color: var(--incident-text-strong);
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.48);
+}
+
+.admin-incident-page__lot-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.admin-incident-page__lot-modal-header h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.admin-incident-page__lot-modal-header p {
+  margin: 0;
+  color: var(--incident-text-body);
+  line-height: 1.5;
+}
+
+.admin-incident-page__lot-form {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-incident-page__lot-form label {
+  display: grid;
+  gap: 8px;
+  color: rgba(226, 232, 240, 0.92);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.admin-incident-page__lot-product {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--incident-panel-bg);
+  border: 1px solid var(--incident-panel-border);
+}
+
+.admin-incident-page__lot-product span {
+  color: var(--incident-text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.admin-incident-page__lot-grid {
+  display: grid;
+  grid-template-columns: 1.2fr repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-incident-page__lot-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .admin-incident-page__feedback,
 .admin-incident-page__state {
   padding: 14px 16px;
@@ -453,6 +551,13 @@
   font-weight: 700;
 }
 
+.admin-incident-page__secondary.admin-incident-page__lot-tool {
+  padding: 7px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
 .admin-incident-page__primary:hover {
   filter: brightness(1.04);
 }
@@ -493,7 +598,14 @@
 
   .admin-incident-page__filters,
   .admin-incident-page__edit-grid,
-  .admin-incident-page__detail-grid {
+  .admin-incident-page__detail-grid,
+  .admin-incident-page__lot-grid {
     grid-template-columns: 1fr;
+  }
+
+  .admin-incident-page__lot-modal-header,
+  .admin-incident-page__lot-actions {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
