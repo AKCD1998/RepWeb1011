@@ -17,7 +17,7 @@ function PageSheet({ meta, lot, rows }) {
 
         <div className="page-branch">
           <span>
-            <b>ศิริชัยเภสัช สาขา:</b> {branchName}
+            <b>ศิริชัยเภสัช</b> {branchName}
           </span>
         </div>
         <div className="page-branch-note">(ชื่อสถานที่ขายยา)</div>

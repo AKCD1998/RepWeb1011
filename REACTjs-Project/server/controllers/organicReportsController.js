@@ -65,6 +65,34 @@ function formatQuantityText(quantity, unitLabel) {
   return `${formatted} ${safeUnitLabel}`;
 }
 
+function isStripUnitLabel(unitLabel) {
+  const normalized = toCleanText(unitLabel).toLowerCase();
+  return normalized.includes("แผง") || /\bstrips?\b/u.test(normalized);
+}
+
+function splitDispenseReportQuantities(quantity, unitLabel) {
+  const numeric = Number(quantity);
+  if (
+    !Number.isFinite(numeric) ||
+    !Number.isInteger(numeric) ||
+    numeric <= 2 ||
+    !isStripUnitLabel(unitLabel)
+  ) {
+    return [numeric];
+  }
+
+  const chunks = [];
+  let remaining = numeric;
+  while (remaining > 2) {
+    chunks.push(2);
+    remaining -= 2;
+  }
+  if (remaining > 0) {
+    chunks.push(remaining);
+  }
+  return chunks;
+}
+
 function extractPackagingContainerLabel(unitLabel) {
   const normalized = toCleanText(unitLabel).replace(/\s+/g, " ");
   if (!normalized) return "";
@@ -563,16 +591,22 @@ export async function getOrganicDispenseLedgerReport(req, res) {
       });
     }
 
-    pagesByLotKey.get(lotKey).rows.push({
-      date: row.dispensedAt,
-      qty: Number(row.quantity || 0),
-      qtyText: formatQuantityText(row.quantity, row.unitLabel),
-      unitLabel: toCleanText(row.unitLabel) || "unit",
-      name: toCleanText(row.patientName) || "-",
-      pid: toCleanText(row.pid) || "-",
-      pharmacistName: toCleanText(row.pharmacistName) || "",
-      note: combineNotes(row.lineNote, row.headerNote),
-    });
+    const unitLabel = toCleanText(row.unitLabel) || "unit";
+    const reportQuantities = splitDispenseReportQuantities(row.quantity, unitLabel);
+    const note = combineNotes(row.lineNote, row.headerNote);
+
+    for (const reportQuantity of reportQuantities) {
+      pagesByLotKey.get(lotKey).rows.push({
+        date: row.dispensedAt,
+        qty: reportQuantity,
+        qtyText: formatQuantityText(reportQuantity, unitLabel),
+        unitLabel,
+        name: toCleanText(row.patientName) || "-",
+        pid: toCleanText(row.pid) || "-",
+        pharmacistName: toCleanText(row.pharmacistName) || "",
+        note,
+      });
+    }
   }
 
   const pages = [...pagesByLotKey.values()].sort((left, right) => {
