@@ -593,8 +593,9 @@ input[readonly] {
 }
 
 .page {
-  background: var(--panel);
-  border: 1px solid var(--border);
+  background: #fff;
+  color: #000;
+  border: 1px solid #000;
   border-radius: 12px;
   padding: 24px;
   box-shadow: var(--shadow);
