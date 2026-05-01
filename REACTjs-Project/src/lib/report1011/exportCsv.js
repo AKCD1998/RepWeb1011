@@ -1,4 +1,5 @@
 import { formatReportLocationName } from "./utils";
+import { sanitizeReportNoteForDocument } from "./reportNotes";
 
 const toCSV = (rows) => {
   const bom = "\uFEFF";
@@ -50,7 +51,7 @@ export const buildReportCsv = ({ pages, meta }) => {
         row.qty,
         row.name,
         row.pid,
-        row.note || "",
+        sanitizeReportNoteForDocument(row.note),
         lot.batch || "",
         fmtDateForCsv(lot.date || ""),
         lot.boxes || "",

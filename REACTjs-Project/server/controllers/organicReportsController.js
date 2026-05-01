@@ -92,9 +92,13 @@ function resolveQuantityPerBase(value, unitLabel, isBase) {
 }
 
 const REPORT_METADATA_TAG_PATTERN =
-  /\[(?:[^\]]*?(?:reportType|source|lotNo)=[^\]]*?)\]/gi;
+  /\[(?:[^\]]*?(?:reportType|source|lotNo|incidentCode|actionType)=[^\]]*?)\]/gi;
+
+const INCIDENT_REPORT_NOTE_PATTERN =
+  /\bINC-\d{6,}\b|incidentCode\s*=|source\s*=\s*INCIDENT_RESOLUTION|actionType\s*=\s*RETROSPECTIVE_DISPENSE|(?:สร้าง)?ย้อนหลังจาก\s*incident/iu;
 
 const RECIPIENT_PROFILE_LABELS = [
+  "ผู้รับมอบยา",
   "ชื่อผู้รับมอบยา",
   "เลขประจำตัวประชาชน",
   "ชื่อภาษาอังกฤษ",
@@ -117,6 +121,7 @@ function normalizeInlineWhitespace(value) {
 function sanitizeReportNoteText(value) {
   let text = toCleanText(value);
   if (!text) return "";
+  if (INCIDENT_REPORT_NOTE_PATTERN.test(text)) return "";
 
   text = text.replace(REPORT_METADATA_TAG_PATTERN, " ");
   text = text.replace(RECIPIENT_PROFILE_PATTERN, " ");

@@ -1,4 +1,5 @@
 import { fmtThai, formatReportLocationList, formatReportLocationName } from "../../lib/report1011/utils";
+import { sanitizeReportNoteForDocument } from "../../lib/report1011/reportNotes";
 
 const ROWS_PER_PAGE = 10;
 
@@ -80,7 +81,7 @@ function PageSheet({ meta, lot, rows }) {
               <td className="left">{row.name}</td>
               <td>{row.pid}</td>
               <td />
-              <td>{row.note || ""}</td>
+              <td>{sanitizeReportNoteForDocument(row.note)}</td>
             </tr>
           ))}
           {rows.length < ROWS_PER_PAGE

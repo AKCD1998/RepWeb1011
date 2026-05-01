@@ -1,4 +1,5 @@
 import { formatReportLocationList, formatReportLocationName } from "./utils";
+import { sanitizeReportNoteForDocument } from "./reportNotes";
 
 const ORGANIC_CSV_COLUMNS = [
   "ลำดับ",
@@ -58,7 +59,7 @@ function buildOrganicReportCsvRows({ pages, meta }) {
         row?.name || "",
         row?.pid || "",
         row?.pharmacistName || "",
-        row?.note || "",
+        sanitizeReportNoteForDocument(row?.note),
         lot?.batch || "",
         fmtDateForCsv(lot?.date),
         lot?.receivedQuantityText || "",
