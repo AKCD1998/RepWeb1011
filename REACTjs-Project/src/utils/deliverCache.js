@@ -1,5 +1,5 @@
 import { getApiBase } from "./deliverApiBase";
-import { authApiClient } from "../lib/authApi";
+import { authApiClient, withApiPrefix } from "../lib/authApi";
 
 const API_BASE = getApiBase();
 const CACHE_DB = "rx1011-pos-cache";
@@ -10,6 +10,10 @@ const LOT_CACHE_TTL_MS = DELIVERY_METADATA_CACHE_TTL_MS;
 const PRODUCT_STORE = "products";
 const META_STORE = "meta";
 const LOT_STORE = "productLots";
+
+function buildApiUrl(path) {
+  return `${API_BASE}${withApiPrefix(path)}`;
+}
 
 function openCacheDb() {
   if (typeof indexedDB === "undefined") return Promise.resolve(null);
@@ -334,7 +338,7 @@ function toLotResult(record, source, maxAgeMs = LOT_CACHE_TTL_MS) {
 
 async function fetchProductFromServer(barcode) {
   const res = await fetch(
-    `${API_BASE}/api/products?barcode=${encodeURIComponent(barcode)}`
+    `${buildApiUrl("/api/products")}?barcode=${encodeURIComponent(barcode)}`
   );
   if (!res.ok) return null;
   const data = await res.json();
@@ -344,7 +348,7 @@ async function fetchProductFromServer(barcode) {
 async function fetchProductsBySearch(search) {
   const term = String(search || "").trim();
   if (!term) return [];
-  const res = await fetch(`${API_BASE}/api/products?search=${encodeURIComponent(term)}`);
+  const res = await fetch(`${buildApiUrl("/api/products")}?search=${encodeURIComponent(term)}`);
   if (!res.ok) return [];
   const rows = await res.json();
   if (!Array.isArray(rows)) return [];
@@ -390,14 +394,14 @@ function pickExactLookupCandidate(candidates, input) {
 }
 
 async function fetchSnapshot() {
-  const res = await fetch(`${API_BASE}/api/products/snapshot`);
+  const res = await fetch(buildApiUrl("/api/products/snapshot"));
   if (!res.ok) throw new Error("snapshot failed");
   const data = await res.json();
   return (Array.isArray(data) ? data : []).map(normalizeProduct).filter(Boolean);
 }
 
 async function fetchVersion() {
-  const res = await fetch(`${API_BASE}/api/products/version`);
+  const res = await fetch(buildApiUrl("/api/products/version"));
   if (!res.ok) return null;
   const data = await res.json();
   return data?.version || null;

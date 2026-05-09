@@ -55,6 +55,7 @@ Copy `.env.example` to `.env`:
 
 ```env
 VITE_API_BASE=http://localhost:5050
+VITE_API_PREFIX=
 VITE_API_PROXY_TARGET=http://localhost:5050
 VITE_SMARTCARD_MQTT_URL=ws://localhost:10884/mqtt
 VITE_SMARTCARD_MQTT_TOPIC=moph/ict/mqtt
@@ -70,6 +71,7 @@ Vite dev server proxies `/api` to the backend target from `VITE_API_PROXY_TARGET
 Production note:
 - The frontend now uses `HashRouter`, so deployed URLs look like `/#/deliver` and avoid 404 on static hosting without rewrite rules.
 - For deployed frontend builds, set `VITE_API_BASE=https://your-backend-service.onrender.com`
+- If using the currentSC shared backend, also set `VITE_API_PREFIX=/api/rx1011`
 - For deployed smartcard usage, `VITE_SMARTCARD_MQTT_URL` must point to a browser-reachable local bridge on the end-user machine.
 - For GitHub Pages deployment, store `VITE_API_BASE` as a repository variable and `VITE_API_KEY` as a repository secret.
 - Vite proxy is only for local development, not for production.

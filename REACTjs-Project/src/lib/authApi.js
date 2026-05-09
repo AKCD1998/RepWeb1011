@@ -4,6 +4,22 @@ const rawApiBase = String(
   import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_BASE_URL || ""
 ).trim();
 const apiBase = rawApiBase.replace(/\/+$/, "");
+const rawApiPrefix = String(import.meta.env.VITE_API_PREFIX || "").trim();
+
+function normalizeApiPrefix(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const normalized = `/${text.replace(/^\/+|\/+$/g, "")}`;
+  return normalized === "/api" ? "" : normalized;
+}
+
+export const apiPrefix = normalizeApiPrefix(rawApiPrefix);
+
+export function withApiPrefix(url) {
+  const text = String(url || "");
+  if (!apiPrefix || !text.startsWith("/api")) return text;
+  return text.replace(/^\/api(?=\/|$)/, apiPrefix);
+}
 
 export const AUTH_TOKEN_KEY = "rx1011_auth_token";
 export const AUTH_USER_KEY = "rx1011_auth_user";
@@ -46,6 +62,10 @@ export const authApiClient = axios.create({
 });
 
 authApiClient.interceptors.request.use((config) => {
+  if (typeof config.url === "string") {
+    config.url = withApiPrefix(config.url);
+  }
+
   const token = readStoredToken();
   if (token) {
     config.headers = config.headers || {};
@@ -59,8 +79,8 @@ authApiClient.interceptors.response.use(
   (error) => {
     const status = Number(error?.response?.status || 0);
     const requestUrl = String(error?.config?.url || "");
-    const isLoginRequest = requestUrl.includes("/api/auth/login");
-    const isLogoutRequest = requestUrl.includes("/api/auth/logout");
+    const isLoginRequest = requestUrl.includes("/auth/login");
+    const isLogoutRequest = requestUrl.includes("/auth/logout");
 
     if (status === 401 && !isLoginRequest && !isLogoutRequest) {
       clearAuthStorage();
