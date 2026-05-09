@@ -70,10 +70,12 @@ Vite dev server proxies `/api` to the backend target from `VITE_API_PROXY_TARGET
 
 Production note:
 - The frontend now uses `HashRouter`, so deployed URLs look like `/#/deliver` and avoid 404 on static hosting without rewrite rules.
-- For deployed frontend builds, set `VITE_API_BASE=https://your-backend-service.onrender.com`
-- If using the currentSC shared backend, also set `VITE_API_PREFIX=/api/rx1011`
+- GitHub Pages builds are pinned to the shared currentSC backend:
+  - `VITE_API_BASE=https://sc-official-website.onrender.com`
+  - `VITE_API_PREFIX=/api/rx1011`
+- Do not point GitHub Pages builds at `https://repweb1011.onrender.com` unless the standalone RepWeb1011 Render service is intentionally kept running.
 - For deployed smartcard usage, `VITE_SMARTCARD_MQTT_URL` must point to a browser-reachable local bridge on the end-user machine.
-- For GitHub Pages deployment, store `VITE_API_BASE` as a repository variable and `VITE_API_KEY` as a repository secret.
+- For GitHub Pages deployment, store `VITE_API_KEY` as a repository secret if API-key behavior is needed.
 - Vite proxy is only for local development, not for production.
 
 Smartcard note:
@@ -190,12 +192,14 @@ GitHub Actions:
 - On push / pull request, it runs `npm ci` and `npm run ci` inside `REACTjs-Project`
 - `npm run ci` currently runs backend syntax checks and frontend production build
 - On push to `main`, the same workflow deploys the frontend `dist/` folder to GitHub Pages after CI passes
-- Required GitHub repository variable for Pages builds:
-  - `VITE_API_BASE`
+- Pages deploy builds are pinned to the shared currentSC backend:
+  - `VITE_API_BASE=https://sc-official-website.onrender.com`
+  - `VITE_API_PREFIX=/api/rx1011`
+- The workflow fails if the built assets still reference `repweb1011.onrender.com`.
 - Optional GitHub repository secret for Pages builds:
   - `VITE_API_KEY`
 
-Render backend deployment:
+Standalone Render backend deployment:
 - Blueprint file is at `../render.yaml`
 - Backend service name is `rx1011-api`
 - Backend service uses `branch: main` and `rootDir: REACTjs-Project`
@@ -203,6 +207,7 @@ Render backend deployment:
 - Keep Render `Pre-Deploy Command` empty for now
 - Do not configure `RENDER_DEPLOY_HOOK_URL` when using Render auto-deploy for this service
 - Render PostgreSQL remains the only live database source of truth for the deployed app
+- This standalone service is optional if GitHub Pages is using the shared currentSC backend.
 - Recommended Render environment variables:
   - `RX1011_DATABASE_URL`
   - `RX1011_JWT_SECRET`

@@ -80,26 +80,35 @@ jobs:
           cache: npm
           cache-dependency-path: REACTjs-Project/package-lock.json
 
-      - name: Validate frontend deploy environment
-        env:
-          VITE_API_BASE: ${{ vars.VITE_API_BASE }}
-          VITE_API_PREFIX: ${{ vars.VITE_API_PREFIX }}
+      - name: Declare frontend deploy environment
         run: |
-          if [ -z "$VITE_API_BASE" ]; then
-            echo "Missing repository variable VITE_API_BASE"
-            exit 1
-          fi
-          echo "VITE_API_PREFIX=${VITE_API_PREFIX:-<empty>}"
+          echo "VITE_API_BASE=https://sc-official-website.onrender.com"
+          echo "VITE_API_PREFIX=/api/rx1011"
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build frontend
         env:
-          VITE_API_BASE: ${{ vars.VITE_API_BASE }}
-          VITE_API_PREFIX: ${{ vars.VITE_API_PREFIX }}
+          VITE_API_BASE: https://sc-official-website.onrender.com
+          VITE_API_PREFIX: /api/rx1011
           VITE_API_KEY: ${{ secrets.VITE_API_KEY }}
         run: npm run build
+
+      - name: Validate built API target
+        run: |
+          if grep -R "repweb1011.onrender.com" dist; then
+            echo "Build still points at deprecated RepWeb1011 backend"
+            exit 1
+          fi
+          if ! grep -R "sc-official-website.onrender.com" dist >/dev/null; then
+            echo "Build is missing shared currentSC backend URL"
+            exit 1
+          fi
+          if ! grep -R "/api/rx1011" dist >/dev/null; then
+            echo "Build is missing Rx1011 API prefix"
+            exit 1
+          fi
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
