@@ -577,9 +577,9 @@ function buildWhereClauses(options, productId) {
 async function fetchExportData(options) {
   dotenv.config({ path: path.join(projectRoot, "server", ".env") });
 
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = process.env.RX1011_DATABASE_URL || process.env.DATABASE_URL;
   if (!connectionString) {
-    throw new Error("DATABASE_URL is not set in server/.env");
+    throw new Error("RX1011_DATABASE_URL or DATABASE_URL is not set in server/.env");
   }
 
   const pool = new Pool({

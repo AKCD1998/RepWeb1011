@@ -18,9 +18,9 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20
-      - key: DATABASE_URL
+      - key: RX1011_DATABASE_URL
         sync: false
-      - key: JWT_SECRET
+      - key: RX1011_JWT_SECRET
         generateValue: true
-      - key: CORS_ORIGIN
+      - key: RX1011_CORS_ORIGIN
         sync: false

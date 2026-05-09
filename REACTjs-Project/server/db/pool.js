@@ -1,9 +1,9 @@
 import { Pool } from "pg";
 
-// Each runtime process talks to exactly one PostgreSQL database via DATABASE_URL.
-// Render's DATABASE_URL is the canonical live source of truth; local simulation
-// scripts inject a separate localhost DATABASE_URL before the server starts.
-const connectionString = process.env.DATABASE_URL;
+// Prefer namespaced keys when this backend shares a web service with another app.
+// DATABASE_URL remains as a fallback for standalone/local compatibility.
+const connectionString = process.env.RX1011_DATABASE_URL || process.env.DATABASE_URL;
+const missingDatabaseMessage = "RX1011_DATABASE_URL or DATABASE_URL is not set";
 
 function shouldUseSsl(url) {
   if (!url) return false;
@@ -26,14 +26,14 @@ export function hasDatabase() {
 
 export async function query(text, params = []) {
   if (!pool) {
-    throw new Error("DATABASE_URL is not set");
+    throw new Error(missingDatabaseMessage);
   }
   return pool.query(text, params);
 }
 
 export async function getClient() {
   if (!pool) {
-    throw new Error("DATABASE_URL is not set");
+    throw new Error(missingDatabaseMessage);
   }
   return pool.connect();
 }
@@ -61,7 +61,7 @@ export async function healthCheck() {
   if (!pool) {
     return {
       ok: false,
-      message: "DATABASE_URL is not set",
+      message: missingDatabaseMessage,
     };
   }
 

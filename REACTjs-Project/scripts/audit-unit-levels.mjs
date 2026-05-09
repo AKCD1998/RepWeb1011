@@ -31,7 +31,7 @@ function parseArgs(argv) {
 }
 
 if (!hasDatabase()) {
-  throw new Error("DATABASE_URL is not configured.");
+  throw new Error("RX1011_DATABASE_URL or DATABASE_URL is not configured.");
 }
 
 const args = parseArgs(process.argv.slice(2));

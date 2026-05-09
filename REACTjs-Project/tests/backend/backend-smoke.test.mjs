@@ -13,7 +13,9 @@ const serverEntry = path.join(projectRoot, "server", "index.js");
 jest.setTimeout(30000);
 
 process.env.DATABASE_URL = "";
+process.env.RX1011_DATABASE_URL = "";
 process.env.JWT_SECRET = "test-only-secret";
+process.env.RX1011_JWT_SECRET = "";
 process.env.AUTH_JWT_SECRET = "";
 
 function getFreePort() {
@@ -89,7 +91,7 @@ function stopServer(child) {
 }
 
 describe("backend module smoke imports", () => {
-  test("database connection layer imports safely without DATABASE_URL", async () => {
+  test("database connection layer imports safely without a database URL", async () => {
     const db = await import("../../server/db/pool.js");
 
     expect(db.pool).toBeNull();
@@ -137,10 +139,12 @@ describe("backend HTTP baseline", () => {
       env: {
         ...process.env,
         DATABASE_URL: "",
+        RX1011_DATABASE_URL: "",
         JWT_SECRET: "test-only-secret",
+        RX1011_JWT_SECRET: "",
         AUTH_JWT_SECRET: "",
         PORT: String(port),
-        CORS_ORIGIN: "http://localhost:5173",
+        RX1011_CORS_ORIGIN: "http://localhost:5173",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -160,7 +164,7 @@ describe("backend HTTP baseline", () => {
     expect(response.body).toEqual({ error: "Not found" });
   });
 
-  test("health endpoint reports missing DATABASE_URL without crashing", async () => {
+  test("health endpoint reports missing database URL without crashing", async () => {
     const response = await api.get("/api/health");
 
     expect(response.status).toBe(503);
@@ -168,7 +172,7 @@ describe("backend HTTP baseline", () => {
       ok: false,
       database: {
         ok: false,
-        message: "DATABASE_URL is not set",
+        message: "RX1011_DATABASE_URL or DATABASE_URL is not set",
       },
     });
   });

@@ -114,11 +114,13 @@ export function loadProductionDatabaseEnv({ requireDatabase = true } = {}) {
     envFiles.push(rootEnv);
   }
 
-  const databaseUrl = normalizeDatabaseUrl(process.env.DATABASE_URL);
+  const databaseUrl = normalizeDatabaseUrl(
+    process.env.RX1011_DATABASE_URL || process.env.DATABASE_URL
+  );
 
   if (requireDatabase && !databaseUrl) {
     throw new Error(
-      "DATABASE_URL is not configured for production-live checks. Set it in the environment or provide server/.env."
+      "RX1011_DATABASE_URL or DATABASE_URL is not configured for production-live checks. Set it in the environment or provide server/.env."
     );
   }
 

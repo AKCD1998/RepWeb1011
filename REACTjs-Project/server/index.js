@@ -32,7 +32,9 @@ const reportingRoutes = (await import("./routes/reportingRoutes.js")).default;
 const app = express();
 const PORT = Number(process.env.PORT || 5050);
 
-const corsOrigins = String(process.env.CORS_ORIGIN || "http://localhost:5173")
+const corsOrigins = String(
+  process.env.RX1011_CORS_ORIGIN || process.env.CORS_ORIGIN || "http://localhost:5173"
+)
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);
@@ -75,7 +77,10 @@ app.get("/api/patients", async (_req, res, next) => {
       return res.json(result.rows);
     }
 
-    const csvPath = process.env.PATIENTS_CSV_PATH || path.join(projectRoot, "patients_rows.csv");
+    const csvPath =
+      process.env.RX1011_PATIENTS_CSV_PATH ||
+      process.env.PATIENTS_CSV_PATH ||
+      path.join(projectRoot, "patients_rows.csv");
     if (!fs.existsSync(csvPath)) {
       return res.status(500).json({
         error: "Patients source not available",
@@ -128,7 +133,7 @@ app.use((error, _req, res, _next) => {
 });
 
 app.listen(PORT, () => {
-  const dbState = hasDatabase() ? "ready" : "missing DATABASE_URL";
+  const dbState = hasDatabase() ? "ready" : "missing RX1011_DATABASE_URL or DATABASE_URL";
   console.log(`Server listening on http://localhost:${PORT} (${dbState})`);
   console.log(`Loaded env from: ${envPath}`);
 });

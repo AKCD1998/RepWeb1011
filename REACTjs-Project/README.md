@@ -5,7 +5,7 @@
 | Question | Use this |
 |---|---|
 | What DB should I use for local dev? | `local-simulation` at `localhost:55433/rx1011_local` |
-| What DB should I use for live/prod/staging? | `render-live` via `DATABASE_URL` |
+| What DB should I use for live/prod/staging? | `render-live` via `RX1011_DATABASE_URL` |
 | Which DB should receive migrations during testing? | `local-simulation` |
 | Which DB should never be confused with production? | `local-simulation`, `legacy-local-5433`, and any stale `55432` setup |
 
@@ -17,15 +17,15 @@ See also: [docs/local-db-standardization-20260408.md](/C:/Users/scgro/Desktop/We
 Copy `server/.env.example` to `server/.env` and set:
 
 ```env
-DATABASE_URL=postgresql://...
+RX1011_DATABASE_URL=postgresql://...
 PORT=5050
-CORS_ORIGIN=http://localhost:5173,https://your-frontend-host.example
-JWT_SECRET=change-me
+RX1011_CORS_ORIGIN=http://localhost:5173,https://your-frontend-host.example
+RX1011_JWT_SECRET=change-me
 ```
 
 Notes:
-- Backend runtime uses exactly one PostgreSQL connection target via `DATABASE_URL`.
-- `server/.env` is the `render-live` backend env shape. On Render, `DATABASE_URL` is the canonical live source of truth.
+- Backend runtime uses exactly one PostgreSQL connection target via `RX1011_DATABASE_URL` or fallback `DATABASE_URL`.
+- `server/.env` is the `render-live` backend env shape. On shared services, `RX1011_DATABASE_URL` is the canonical live source of truth.
 - Backend loads env from `server/.env` first.
 - If `server/.env` does not exist, backend falls back to project root `.env`.
 - Do not reuse `server/.env` for local simulation.
@@ -110,7 +110,7 @@ Notes:
 ## 4) Database strategy and migrations
 
 Canonical database strategy:
-- `render-live` = Render PostgreSQL via `DATABASE_URL`
+- `render-live` = Render PostgreSQL via `RX1011_DATABASE_URL`
 - `local-simulation` = `localhost:55433/rx1011_local` for dev/test only
 - `legacy-local-5433` = non-standard local PostgreSQL, optional/manual only
 - old `55432` Docker setups = legacy and not part of the default workflow
@@ -130,7 +130,7 @@ Important:
 
 Manual production/live migration policy:
 - Do not auto-run migrations from Render.
-- Review the target migration, then run it manually against the live `DATABASE_URL`.
+- Review the target migration, then run it manually against the live `RX1011_DATABASE_URL`.
 - As of `2026-04-08`, Render live still needs `migrations/0022_incident_report_resolution_actions.sql`.
 - Use the production status/apply helpers for reviewed one-off migrations:
 
@@ -149,13 +149,13 @@ npm run db:schema:diff:render-vs-localsim
 - PowerShell example:
 
 ```powershell
-psql $env:DATABASE_URL --set ON_ERROR_STOP=1 --file migrations/0022_incident_report_resolution_actions.sql
+psql $env:RX1011_DATABASE_URL --set ON_ERROR_STOP=1 --file migrations/0022_incident_report_resolution_actions.sql
 ```
 
 - Bash example:
 
 ```bash
-psql "$DATABASE_URL" --set ON_ERROR_STOP=1 --file migrations/0022_incident_report_resolution_actions.sql
+psql "$RX1011_DATABASE_URL" --set ON_ERROR_STOP=1 --file migrations/0022_incident_report_resolution_actions.sql
 ```
 
 Seed login accounts after applying the auth migrations:
@@ -202,9 +202,9 @@ Render backend deployment:
 - Do not configure `RENDER_DEPLOY_HOOK_URL` when using Render auto-deploy for this service
 - Render PostgreSQL remains the only live database source of truth for the deployed app
 - Recommended Render environment variables:
-  - `DATABASE_URL`
-  - `JWT_SECRET`
-  - `CORS_ORIGIN`
+  - `RX1011_DATABASE_URL`
+  - `RX1011_JWT_SECRET`
+  - `RX1011_CORS_ORIGIN`
 
 Database migrations:
 - Migrations remain manual in this setup. Do not auto-run them from Render yet.
