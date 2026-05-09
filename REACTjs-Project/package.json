@@ -8,6 +8,8 @@
     "dev:full": "concurrently -k \"npm run server\" \"npm run dev\"",
     "dev:local-sim": "node scripts/dev-mock.mjs",
     "dev:mock": "npm run dev:local-sim",
+    "test": "npm run test:backend",
+    "test:backend": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand",
     "server": "node server/index.js",
     "start": "node server/index.js",
     "db:local-sim:init": "node scripts/db-local-init.mjs",
@@ -53,6 +55,8 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.0",
     "concurrently": "^9.0.1",
+    "jest": "^30.4.2",
+    "supertest": "^7.2.2",
     "vite": "^7.3.1"
   }
 }
