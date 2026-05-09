@@ -426,6 +426,7 @@ Env loading order in `server/index.js`:
 |---|---|---|
 | `VITE_API_BASE` | Frontend API clients, GitHub Pages build | Deployed or local backend base URL |
 | `VITE_API_BASE_URL` | Some frontend API helpers | Alternate backend base URL name |
+| `VITE_RX1011_API_PREFIX` | Frontend API clients, GitHub Pages build | Project-scoped API namespace such as `/api/rx1011` |
 | `VITE_API_PROXY_TARGET` | `vite.config.js` | Local Vite `/api` proxy target; defaults to `http://localhost:5050` |
 | `VITE_API_KEY` | `Report1011Page.jsx`, GitHub Pages build | Frontend API key used by report page logic |
 | `VITE_SMARTCARD_MQTT_URL` | `Deliver.jsx` | Smartcard MQTT-over-WebSocket URL |
@@ -516,7 +517,7 @@ Primary deployment:
   - Runs CI for changes under `REACTjs-Project`, the workflow file, or `render.yaml`.
   - Runs `npm ci` and `npm run ci` in `REACTjs-Project`.
   - Deploys the frontend `dist` folder to GitHub Pages on pushes to `main`.
-  - Requires GitHub variable `VITE_API_BASE` for frontend deploy.
+  - Requires GitHub variable `VITE_API_BASE` and project-scoped prefix `VITE_RX1011_API_PREFIX` for frontend deploy.
   - Uses GitHub secret `VITE_API_KEY` during frontend build.
 
 Local deployment/simulation:

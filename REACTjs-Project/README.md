@@ -36,11 +36,11 @@ Copy `server/.env.local-simulation.example` to `server/.env.local-simulation`.
 Repo standard `local-simulation` target:
 
 ```env
-DATABASE_URL=postgresql://rx1011:rx1011@localhost:55433/rx1011_local
+DATABASE_URL=<LOCAL_RX1011_DATABASE_URL>
 PGHOST=localhost
 PGPORT=55433
 PGUSER=rx1011
-PGPASSWORD=rx1011
+PGPASSWORD=<LOCAL_RX1011_DB_PASSWORD>
 PGDATABASE=rx1011_local
 ```
 
@@ -55,7 +55,7 @@ Copy `.env.example` to `.env`:
 
 ```env
 VITE_API_BASE=http://localhost:5050
-VITE_API_PREFIX=
+VITE_RX1011_API_PREFIX=
 VITE_API_PROXY_TARGET=http://localhost:5050
 VITE_SMARTCARD_MQTT_URL=ws://localhost:10884/mqtt
 VITE_SMARTCARD_MQTT_TOPIC=moph/ict/mqtt
@@ -72,7 +72,7 @@ Production note:
 - The frontend now uses `HashRouter`, so deployed URLs look like `/#/deliver` and avoid 404 on static hosting without rewrite rules.
 - GitHub Pages builds are pinned to the shared currentSC backend:
   - `VITE_API_BASE=https://sc-official-website.onrender.com`
-  - `VITE_API_PREFIX=/api/rx1011`
+  - `VITE_RX1011_API_PREFIX=/api/rx1011`
 - Do not point GitHub Pages builds at `https://repweb1011.onrender.com` unless the standalone RepWeb1011 Render service is intentionally kept running.
 - For deployed smartcard usage, `VITE_SMARTCARD_MQTT_URL` must point to a browser-reachable local bridge on the end-user machine.
 - For GitHub Pages deployment, store `VITE_API_KEY` as a repository secret if API-key behavior is needed.
@@ -194,7 +194,7 @@ GitHub Actions:
 - On push to `main`, the same workflow deploys the frontend `dist/` folder to GitHub Pages after CI passes
 - Pages deploy builds are pinned to the shared currentSC backend:
   - `VITE_API_BASE=https://sc-official-website.onrender.com`
-  - `VITE_API_PREFIX=/api/rx1011`
+  - `VITE_RX1011_API_PREFIX=/api/rx1011`
 - The workflow fails if the built assets still reference `repweb1011.onrender.com`.
 - Optional GitHub repository secret for Pages builds:
   - `VITE_API_KEY`

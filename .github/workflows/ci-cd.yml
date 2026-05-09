@@ -83,7 +83,7 @@ jobs:
       - name: Declare frontend deploy environment
         run: |
           echo "VITE_API_BASE=https://sc-official-website.onrender.com"
-          echo "VITE_API_PREFIX=/api/rx1011"
+          echo "VITE_RX1011_API_PREFIX=/api/rx1011"
 
       - name: Install dependencies
         run: npm ci
@@ -91,7 +91,7 @@ jobs:
       - name: Build frontend
         env:
           VITE_API_BASE: https://sc-official-website.onrender.com
-          VITE_API_PREFIX: /api/rx1011
+          VITE_RX1011_API_PREFIX: /api/rx1011
           VITE_API_KEY: ${{ secrets.VITE_API_KEY }}
         run: npm run build
 

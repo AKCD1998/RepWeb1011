@@ -4,7 +4,9 @@ const rawApiBase = String(
   import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_BASE_URL || ""
 ).trim();
 const apiBase = rawApiBase.replace(/\/+$/, "");
-const rawApiPrefix = String(import.meta.env.VITE_API_PREFIX || "").trim();
+const rawApiPrefix = String(
+  import.meta.env.VITE_RX1011_API_PREFIX || import.meta.env.VITE_API_PREFIX || ""
+).trim();
 
 function normalizeApiPrefix(value) {
   const text = String(value || "").trim();
