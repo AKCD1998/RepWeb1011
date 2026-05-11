@@ -27,6 +27,7 @@ import {
 import "./Deliver.css";
 
 const SHOW_PENDING_DISPENSE_UI = false;
+const ENABLE_THAID_MOCK_UI = false;
 const toMoney = (value) => Number(value || 0).toFixed(2);
 const REPORT_TYPE_META = {
   KY10: "KY10 - ขย.10 ยาควบคุมพิเศษ",
@@ -40,6 +41,21 @@ const SMARTCARD_TOPIC =
   toCleanText(import.meta.env.VITE_SMARTCARD_MQTT_TOPIC) ||
   SMARTCARD_DEFAULTS.topic;
 const SMARTCARD_DUPLICATE_WINDOW_MS = 10000;
+const IDENTITY_SOURCES = Object.freeze({
+  SMARTCARD_MQTT: "SMARTCARD_MQTT",
+  THAID: "THAID",
+});
+const THAID_MODAL_STATES = Object.freeze({
+  IDLE: "idle",
+  CREATING_SESSION: "creating_session",
+  WAITING_FOR_SCAN: "waiting_for_scan",
+  VERIFIED: "verified",
+  EXPIRED: "expired",
+  CANCELLED: "cancelled",
+});
+const THAID_MOCK_SESSION_DURATION_MS = 3 * 60 * 1000;
+const THAID_MOCK_SESSION_CREATE_DELAY_MS = 700;
+const THAID_MOCK_SUCCESS_CLOSE_DELAY_MS = 450;
 const THAI_KEYBOARD_TO_QWERTY_MAP = new Map(
   Object.entries({
     "ๅ": "1",
@@ -141,6 +157,78 @@ const THAI_KEYBOARD_LAYOUT_PATTERN =
 
 function toCleanText(value) {
   return String(value || "").trim();
+}
+
+function buildSmartcardIdentity(normalized = {}) {
+  const fields = normalized?.fields || {};
+  const fullName = toCleanText(fields.thaiName || fields.fullName || fields.englishName);
+  const verifiedAt = new Date().toISOString();
+  const topic = toCleanText(normalized?.topic);
+  return {
+    source: IDENTITY_SOURCES.SMARTCARD_MQTT,
+    pid: toCleanText(fields.cid),
+    firstName: toCleanText(fields.firstName),
+    lastName: toCleanText(fields.lastName),
+    fullName,
+    birthDate: toCleanText(fields.birthDate),
+    address: toCleanText(fields.address),
+    verifiedAt,
+    verificationRef: `mqtt:${topic || "unknown"}:${verifiedAt}`,
+    rawPayload: normalized,
+  };
+}
+
+function buildDeliverNotesFromIdentity(identity = {}) {
+  return buildDeliverNotesFromCard({
+    cid: identity.pid,
+    thaiName: identity.fullName,
+    fullName: identity.fullName,
+    birthDate: identity.birthDate,
+    gender: identity.sex || identity.gender,
+    address: identity.address,
+  });
+}
+
+function buildMockThaiDIdentity(session = {}) {
+  const verifiedAt = new Date().toISOString();
+  const sessionId = toCleanText(session?.id) || `mock-thaid-${Date.now()}`;
+  return {
+    source: IDENTITY_SOURCES.THAID,
+    pid: "1234567890123",
+    firstName: "ทดสอบ",
+    lastName: "ThaiD",
+    fullName: "นาย ทดสอบ ThaiD",
+    birthDate: "1977-01-31",
+    address: "ที่อยู่ทดสอบสำหรับ mock ThaiD",
+    verifiedAt,
+    verificationRef: `mock:thaid:${sessionId}`,
+    rawPayload: {
+      mock: true,
+      sessionId,
+      note: "Temporary Deliver ThaiD UI mock. Not a production ThaiD verification.",
+    },
+  };
+}
+
+function getIdentityStatusText(identity = null) {
+  const source = toCleanText(identity?.source);
+  if (source === IDENTITY_SOURCES.SMARTCARD_MQTT) return "ยืนยันด้วย smartcard แล้ว";
+  if (ENABLE_THAID_MOCK_UI && source === IDENTITY_SOURCES.THAID) return "ยืนยันด้วย ThaiD แล้ว";
+  return "ยังไม่มีข้อมูลยืนยันตัวตน";
+}
+
+function getIdentitySourceLabel(identity = null) {
+  const source = toCleanText(identity?.source);
+  if (source === IDENTITY_SOURCES.SMARTCARD_MQTT) return "smartcard";
+  if (ENABLE_THAID_MOCK_UI && source === IDENTITY_SOURCES.THAID) return "ThaiD";
+  return "-";
+}
+
+function formatCountdown(valueMs) {
+  const totalSeconds = Math.max(0, Math.ceil(Number(valueMs || 0) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function normalizeScannerKeyboardLayout(value) {
@@ -373,6 +461,7 @@ function buildLineNote(item, fallbackReportType = "") {
 }
 
 function normalizeUnitLevelOption(row) {
+  const quantityPerBase = Number(row?.quantityPerBase ?? row?.quantity_per_base);
   return {
     id: toCleanText(row?.id),
     code: toCleanText(row?.code),
@@ -383,7 +472,91 @@ function normalizeUnitLevelOption(row) {
     barcode: toCleanText(row?.barcode),
     unitTypeCode: toCleanText(row?.unitTypeCode || row?.unit_type_code).toUpperCase(),
     unitTypeLabel: toCleanText(row?.unitTypeLabel || row?.unit_type_label),
+    quantityPerBase: Number.isFinite(quantityPerBase) && quantityPerBase > 0 ? quantityPerBase : null,
   };
+}
+
+function getDispenseSubmitValidationErrors(payload = {}) {
+  const errors = [];
+  const patient = payload?.patient || {};
+  const lines = Array.isArray(payload?.lines) ? payload.lines : [];
+
+  if (!toCleanText(patient?.pid)) {
+    errors.push("ไม่พบ patient.pid จาก smartcard");
+  }
+  if (!toCleanText(patient?.fullName)) {
+    errors.push("ไม่พบ patient.fullName จาก smartcard");
+  }
+  if (!lines.length) {
+    errors.push("ไม่มี lines สำหรับส่งเข้า dispense API");
+  }
+
+  lines.forEach((line, index) => {
+    const rowLabel = `รายการที่ ${index + 1}`;
+    const qty = Number(line?.qty);
+    const reportType = toCleanText(line?.reportType || payload?.reportType).toUpperCase();
+
+    if (!toCleanText(line?.productId)) {
+      errors.push(`${rowLabel} ไม่มี productId`);
+    }
+    if (!Number.isFinite(qty) || qty <= 0) {
+      errors.push(`${rowLabel} qty ต้องมากกว่า 0`);
+    }
+    if (!toCleanText(line?.unitLabel)) {
+      errors.push(`${rowLabel} ไม่มี unitLabel`);
+    }
+    if (!toCleanText(line?.unitLevelId || line?.unit_level_id)) {
+      errors.push(`${rowLabel} ไม่มี unitLevelId ที่ resolve แล้ว`);
+    }
+    if (SUPPORTED_REPORT_TYPES.has(reportType) && !toCleanText(line?.lotId || line?.lotNo)) {
+      errors.push(`${rowLabel} ต้องมี lotId หรือ lotNo สำหรับ ${reportType}`);
+    }
+  });
+
+  return errors;
+}
+
+function buildDispenseSubmitDiagnostics(payload = {}) {
+  const lines = Array.isArray(payload?.lines) ? payload.lines : [];
+  const patient = payload?.patient || {};
+
+  return {
+    branchCode: toCleanText(payload?.branchCode) || null,
+    reportType: toCleanText(payload?.reportType) || null,
+    actionSource: toCleanText(payload?.actionSource) || null,
+    hasPatientPid: Boolean(toCleanText(patient?.pid)),
+    patientPidLength: toCleanText(patient?.pid).length || 0,
+    hasPatientFullName: Boolean(toCleanText(patient?.fullName)),
+    lineCount: lines.length,
+    lines: lines.map((line, index) => ({
+      index: index + 1,
+      productId: toCleanText(line?.productId) || null,
+      productCode: toCleanText(line?.productCode) || null,
+      qty: Number(line?.qty),
+      unitLabel: toCleanText(line?.unitLabel) || null,
+      unitLevelId: toCleanText(line?.unitLevelId || line?.unit_level_id) || null,
+      lotId: toCleanText(line?.lotId) || null,
+      lotNo: toCleanText(line?.lotNo) || null,
+      expDate: toCleanText(line?.lotExpDate || line?.expDate || line?.exp_date) || null,
+      reportType: toCleanText(line?.reportType || payload?.reportType).toUpperCase() || null,
+    })),
+  };
+}
+
+function formatDispenseSubmitValidationError(errors = []) {
+  return `ข้อมูลสำหรับบันทึกการส่งมอบยังไม่ครบ: ${errors.join(" / ")}`;
+}
+
+function getSubmitErrorMessage(error, fallback) {
+  const message = error?.message || fallback;
+  const details = error?.payload?.details;
+  if (Array.isArray(details) && details.length) {
+    return `${message}: ${details.join(" / ")}`;
+  }
+  if (typeof details === "string" && details.trim()) {
+    return `${message}: ${details.trim()}`;
+  }
+  return message;
 }
 
 function compareUnitLevelOptions(a, b, defaultUnitLevelId = "") {
@@ -473,6 +646,11 @@ export default function Deliver() {
     message: "กำลังเริ่ม smartcard listener",
   });
   const [hasCapturedSmartcardData, setHasCapturedSmartcardData] = useState(false);
+  const [verifiedIdentity, setVerifiedIdentity] = useState(null);
+  const [thaidModalState, setThaidModalState] = useState(THAID_MODAL_STATES.IDLE);
+  const [thaidCountdownMs, setThaidCountdownMs] = useState(THAID_MOCK_SESSION_DURATION_MS);
+  const [thaidSession, setThaidSession] = useState(null);
+  const [thaidError, setThaidError] = useState("");
   const [isOnline, setIsOnline] = useState(isBrowserOnline);
   const [pendingDispenses, setPendingDispenses] = useState([]);
   const [pendingLoadError, setPendingLoadError] = useState("");
@@ -489,6 +667,8 @@ export default function Deliver() {
   const deliverNotesRef = useRef("");
   const lastAutoFilledNotesRef = useRef("");
   const lastSmartcardFillRef = useRef({ signature: "", at: 0 });
+  const thaidCreateTimerRef = useRef(null);
+  const thaidCloseTimerRef = useRef(null);
 
   const parsedNotes = useMemo(() => parseDeliverNotes(deliverNotes), [deliverNotes]);
 
@@ -561,6 +741,42 @@ export default function Deliver() {
   useEffect(() => {
     deliverNotesRef.current = deliverNotes;
   }, [deliverNotes]);
+
+  useEffect(() => {
+    return () => {
+      if (thaidCreateTimerRef.current) {
+        window.clearTimeout(thaidCreateTimerRef.current);
+      }
+      if (thaidCloseTimerRef.current) {
+        window.clearTimeout(thaidCloseTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (thaidModalState !== THAID_MODAL_STATES.WAITING_FOR_SCAN) {
+      return undefined;
+    }
+
+    const countdownTimer = window.setInterval(() => {
+      setThaidCountdownMs((currentValue) => {
+        const nextValue = Math.max(0, currentValue - 1000);
+        if (nextValue <= 0) {
+          window.clearInterval(countdownTimer);
+          setThaidModalState((currentState) =>
+            currentState === THAID_MODAL_STATES.WAITING_FOR_SCAN
+              ? THAID_MODAL_STATES.EXPIRED
+              : currentState
+          );
+        }
+        return nextValue;
+      });
+    }, 1000);
+
+    return () => {
+      window.clearInterval(countdownTimer);
+    };
+  }, [thaidModalState]);
 
   useEffect(() => {
     setSelectedBranchCode(userBranchCode);
@@ -639,6 +855,7 @@ export default function Deliver() {
     lastAutoFilledNotesRef.current = nextNotes;
     deliverNotesRef.current = nextNotes;
     setDeliverNotes(nextNotes);
+    setVerifiedIdentity(buildSmartcardIdentity(normalized));
     const patientName = toCleanText(
       normalized?.fields?.thaiName ||
         normalized?.fields?.fullName ||
@@ -670,6 +887,83 @@ export default function Deliver() {
       stopSmartcardListener();
     };
   }, [handleSmartcardData]);
+
+  const handleStartThaiDVerification = useCallback(() => {
+    if (!ENABLE_THAID_MOCK_UI) {
+      return;
+    }
+
+    if (thaidCreateTimerRef.current) {
+      window.clearTimeout(thaidCreateTimerRef.current);
+    }
+    if (thaidCloseTimerRef.current) {
+      window.clearTimeout(thaidCloseTimerRef.current);
+    }
+
+    const now = Date.now();
+    const nextSession = {
+      id: `mock-thaid-${now}`,
+      createdAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + THAID_MOCK_SESSION_DURATION_MS).toISOString(),
+    };
+
+    setSubmitError("");
+    setThaidError("");
+    setThaidSession(nextSession);
+    setThaidCountdownMs(THAID_MOCK_SESSION_DURATION_MS);
+    setThaidModalState(THAID_MODAL_STATES.CREATING_SESSION);
+
+    thaidCreateTimerRef.current = window.setTimeout(() => {
+      setThaidModalState((currentState) =>
+        currentState === THAID_MODAL_STATES.CREATING_SESSION
+          ? THAID_MODAL_STATES.WAITING_FOR_SCAN
+          : currentState
+      );
+    }, THAID_MOCK_SESSION_CREATE_DELAY_MS);
+  }, []);
+
+  const handleCloseThaiDModal = useCallback(() => {
+    if (thaidCreateTimerRef.current) {
+      window.clearTimeout(thaidCreateTimerRef.current);
+      thaidCreateTimerRef.current = null;
+    }
+    if (thaidCloseTimerRef.current) {
+      window.clearTimeout(thaidCloseTimerRef.current);
+      thaidCloseTimerRef.current = null;
+    }
+    setThaidModalState(THAID_MODAL_STATES.CANCELLED);
+    setThaidError("");
+    setThaidCountdownMs(THAID_MOCK_SESSION_DURATION_MS);
+  }, []);
+
+  const handleMockThaiDSuccess = useCallback(() => {
+    if (!ENABLE_THAID_MOCK_UI) {
+      return;
+    }
+
+    const identity = buildMockThaiDIdentity(thaidSession);
+    const nextNotes = buildDeliverNotesFromIdentity(identity);
+    if (!nextNotes) {
+      setThaidError("Mock ThaiD identity ไม่สามารถสร้างข้อมูลผู้รับมอบยาได้");
+      return;
+    }
+
+    if (thaidCloseTimerRef.current) {
+      window.clearTimeout(thaidCloseTimerRef.current);
+    }
+
+    lastAutoFilledNotesRef.current = nextNotes;
+    deliverNotesRef.current = nextNotes;
+    setDeliverNotes(nextNotes);
+    setVerifiedIdentity(identity);
+    setSubmitError("");
+    setThaidError("");
+    setThaidModalState(THAID_MODAL_STATES.VERIFIED);
+
+    thaidCloseTimerRef.current = window.setTimeout(() => {
+      setThaidModalState(THAID_MODAL_STATES.IDLE);
+    }, THAID_MOCK_SUCCESS_CLOSE_DELAY_MS);
+  }, [thaidSession]);
 
   const loadBranchOptions = useCallback(async () => {
     if (!isAdmin) {
@@ -1405,7 +1699,20 @@ export default function Deliver() {
     deliverNotesRef.current = "";
     lastAutoFilledNotesRef.current = "";
     lastSmartcardFillRef.current = { signature: "", at: 0 };
+    if (thaidCreateTimerRef.current) {
+      window.clearTimeout(thaidCreateTimerRef.current);
+      thaidCreateTimerRef.current = null;
+    }
+    if (thaidCloseTimerRef.current) {
+      window.clearTimeout(thaidCloseTimerRef.current);
+      thaidCloseTimerRef.current = null;
+    }
     setHasCapturedSmartcardData(false);
+    setVerifiedIdentity(null);
+    setThaidModalState(THAID_MODAL_STATES.IDLE);
+    setThaidCountdownMs(THAID_MOCK_SESSION_DURATION_MS);
+    setThaidSession(null);
+    setThaidError("");
     setReportTypeOptions([]);
     setSelectedReportType("");
     setLotOptions([]);
@@ -1546,8 +1853,17 @@ export default function Deliver() {
     const patient = parsedNotes?.patient || {};
     const reportType = toCleanText(selectedReportType).toUpperCase();
     const branchCode = effectiveBranchCode;
-    const patientName = toCleanText(patient?.fullName);
-    const patientPid = toCleanText(patient?.pid);
+    const identitySource = toCleanText(verifiedIdentity?.source);
+    const verifiedIdentityPid = toCleanText(verifiedIdentity?.pid);
+    const verifiedIdentityName = toCleanText(verifiedIdentity?.fullName);
+    const hasVerifiedIdentity = Boolean(
+      (identitySource === IDENTITY_SOURCES.SMARTCARD_MQTT ||
+        (ENABLE_THAID_MOCK_UI && identitySource === IDENTITY_SOURCES.THAID)) &&
+        verifiedIdentityPid &&
+        verifiedIdentityName
+    );
+    const patientName = toCleanText(patient?.fullName) || verifiedIdentityName;
+    const patientPid = toCleanText(patient?.pid) || verifiedIdentityPid;
     const hasRecipientNotes = Boolean(toCleanText(parsedNotes?.rawText));
 
     if (isAdmin) {
@@ -1573,17 +1889,17 @@ export default function Deliver() {
       };
     }
 
+    if (!hasVerifiedIdentity) {
+      return {
+        payload: null,
+        error: "ต้องอ่านข้อมูลจาก smartcard ก่อนยืนยันการส่งมอบยา",
+      };
+    }
+
     if (!patientName) {
       return {
         payload: null,
         error: "ข้อมูล smartcard ยังไม่สมบูรณ์: ไม่พบชื่อผู้รับมอบยา",
-      };
-    }
-
-    if (!hasCapturedSmartcardData) {
-      return {
-        payload: null,
-        error: "ต้องอ่านข้อมูลจาก smartcard ก่อนยืนยันการส่งมอบยา",
       };
     }
 
@@ -1603,14 +1919,19 @@ export default function Deliver() {
         note: parsedNotes?.rawText || null,
         deliverNotesRaw: parsedNotes?.rawText || null,
         patient: {
-          pid: toCleanText(patient?.pid) || null,
-          fullName: toCleanText(patient?.fullName) || null,
-          birthDate: patient?.birthDate || null,
+          pid: patientPid || null,
+          fullName: patientName || null,
+          birthDate: patient?.birthDate || verifiedIdentity?.birthDate || null,
           sex: patient?.sex || null,
           cardIssuePlace: toCleanText(patient?.cardIssuePlace) || null,
           cardIssuedDate: patient?.cardIssuedDate || null,
           cardExpiryDate: patient?.cardExpiryDate || null,
-          addressText: toCleanText(patient?.addressText) || null,
+          addressText: toCleanText(patient?.addressText || verifiedIdentity?.address) || null,
+        },
+        identity: {
+          source: identitySource,
+          verifiedAt: verifiedIdentity?.verifiedAt || null,
+          verificationRef: verifiedIdentity?.verificationRef || null,
         },
         lines,
       },
@@ -1618,7 +1939,6 @@ export default function Deliver() {
     };
   }, [
     effectiveBranchCode,
-    hasCapturedSmartcardData,
     isAdmin,
     isOnline,
     isLoadingBranches,
@@ -1626,6 +1946,7 @@ export default function Deliver() {
     parsedNotes,
     selectedReportType,
     userBranchCode,
+    verifiedIdentity,
   ]);
 
   const resolveDispenseLinesForSubmit = useCallback(async (rawLines = []) => {
@@ -1701,6 +2022,7 @@ export default function Deliver() {
 
     setIsSubmitting(true);
     setSubmitError("");
+    let lastSubmitPayload = payload;
 
     try {
       if (!isOnline) {
@@ -1714,10 +2036,23 @@ export default function Deliver() {
       }
 
       const resolvedLines = await resolveDispenseLinesForSubmit(payload.lines);
-      const response = await dispenseApi.create({
+      const requestPayload = {
         ...payload,
         lines: resolvedLines,
-      });
+      };
+      lastSubmitPayload = requestPayload;
+      const validationErrors = getDispenseSubmitValidationErrors(requestPayload);
+      console.debug("[deliver-submit] dispense payload diagnostics", buildDispenseSubmitDiagnostics(requestPayload));
+      if (validationErrors.length) {
+        console.warn("[deliver-submit] blocked invalid dispense payload before POST", {
+          validationErrors,
+          diagnostics: buildDispenseSubmitDiagnostics(requestPayload),
+        });
+        setSubmitError(formatDispenseSubmitValidationError(validationErrors));
+        return;
+      }
+
+      const response = await dispenseApi.create(requestPayload);
       const lineCount = Number(response?.lineCount || resolvedLines.length);
       const referenceId = toCleanText(response?.headerId);
       const successMessage = referenceId
@@ -1743,7 +2078,13 @@ export default function Deliver() {
           );
         }
       } else {
-        setSubmitError(error?.message || "บันทึกการส่งมอบไม่สำเร็จ");
+        console.warn("[deliver-submit] backend rejected dispense request", {
+          status: error?.status || null,
+          message: error?.message || "",
+          response: error?.payload || null,
+          diagnostics: buildDispenseSubmitDiagnostics(lastSubmitPayload),
+        });
+        setSubmitError(getSubmitErrorMessage(error, "บันทึกการส่งมอบไม่สำเร็จ"));
       }
     } finally {
       setIsSubmitting(false);
@@ -1925,6 +2266,7 @@ export default function Deliver() {
 
     setIsSyncingPending(true);
     setPendingReviewError("");
+    let lastSubmitPayload = payload;
     try {
       await updatePendingDispense(localTxnId, {
         payload: clonePendingPayload({
@@ -1933,10 +2275,26 @@ export default function Deliver() {
         }),
       });
       const resolvedLines = await resolveDispenseLinesForSubmit(payload.lines);
-      const response = await dispenseApi.create({
+      const requestPayload = {
         ...payload,
         lines: resolvedLines,
-      });
+      };
+      lastSubmitPayload = requestPayload;
+      const validationErrors = getDispenseSubmitValidationErrors(requestPayload);
+      console.debug(
+        "[deliver-submit] pending dispense payload diagnostics",
+        buildDispenseSubmitDiagnostics(requestPayload)
+      );
+      if (validationErrors.length) {
+        console.warn("[deliver-submit] blocked invalid pending dispense payload before POST", {
+          validationErrors,
+          diagnostics: buildDispenseSubmitDiagnostics(requestPayload),
+        });
+        setPendingReviewError(formatDispenseSubmitValidationError(validationErrors));
+        return;
+      }
+
+      const response = await dispenseApi.create(requestPayload);
       await removePendingDispense(localTxnId);
       const rows = await refreshPendingDispenses();
       const lineCount = Number(response?.lineCount || resolvedLines.length);
@@ -1951,7 +2309,13 @@ export default function Deliver() {
         setIsPendingModalOpen(false);
       }
     } catch (error) {
-      setPendingReviewError(error?.message || "ยืนยันรายการค้างไม่สำเร็จ");
+      console.warn("[deliver-submit] backend rejected pending dispense request", {
+        status: error?.status || null,
+        message: error?.message || "",
+        response: error?.payload || null,
+        diagnostics: buildDispenseSubmitDiagnostics(lastSubmitPayload),
+      });
+      setPendingReviewError(getSubmitErrorMessage(error, "ยืนยันรายการค้างไม่สำเร็จ"));
     } finally {
       setIsSyncingPending(false);
     }
@@ -2001,6 +2365,19 @@ export default function Deliver() {
       0
     );
   }, [pendingReviewLines]);
+  const identityStatusText = getIdentityStatusText(verifiedIdentity);
+  const identitySourceLabel = getIdentitySourceLabel(verifiedIdentity);
+  const hasVerifiedRecipientIdentity = Boolean(
+    toCleanText(verifiedIdentity?.pid) && toCleanText(verifiedIdentity?.fullName)
+  );
+  const isThaiDOverlayOpen =
+    ENABLE_THAID_MOCK_UI &&
+    [
+      THAID_MODAL_STATES.CREATING_SESSION,
+      THAID_MODAL_STATES.WAITING_FOR_SCAN,
+      THAID_MODAL_STATES.VERIFIED,
+      THAID_MODAL_STATES.EXPIRED,
+    ].includes(thaidModalState);
 
   const handleModalBackdrop = useCallback(
     (event) => {
@@ -2020,8 +2397,8 @@ export default function Deliver() {
     const defaultResolutionActionType = hasPatientIdentity
       ? "RETROSPECTIVE_DISPENSE"
       : "STOCK_OUT";
-    const incidentType = hasCapturedSmartcardData ? "PROCESS_DEVIATION" : "SMARTCARD_EXCEPTION";
-    const incidentReason = hasCapturedSmartcardData
+    const incidentType = hasVerifiedRecipientIdentity ? "PROCESS_DEVIATION" : "SMARTCARD_EXCEPTION";
+    const incidentReason = hasVerifiedRecipientIdentity
       ? "STAFF_PROCESS_MISSED"
       : "DISPENSE_BEFORE_SMARTCARD";
 
@@ -2034,7 +2411,8 @@ export default function Deliver() {
       happenedAt: new Date().toISOString(),
       incidentDescription: [
         "สร้างจากหน้า Deliver เพื่อบันทึกเหตุผิดปกติแยกจาก dispense",
-        `สถานะ smartcard: ${hasCapturedSmartcardData ? "อ่านข้อมูลแล้ว" : "ยังไม่มีข้อมูลจาก smartcard"}`,
+        `สถานะยืนยันตัวตน: ${identityStatusText}`,
+        `แหล่งยืนยันตัวตน: ${identitySourceLabel}`,
         `ผู้รับมอบยาที่เห็นในหน้าจอ: ${recipientName || "-"}`,
         `ประเภทรายงาน: ${selectedReportType || "-"}`,
       ].join("\n"),
@@ -2076,7 +2454,9 @@ export default function Deliver() {
     setIsIncidentModalOpen(true);
   }, [
     effectiveBranchCode,
-    hasCapturedSmartcardData,
+    hasVerifiedRecipientIdentity,
+    identitySourceLabel,
+    identityStatusText,
     items,
     parsedNotes,
     selectedBranchLabel,
@@ -2276,16 +2656,42 @@ export default function Deliver() {
                           {smartcardStatus.message}
                         </div>
 
-                        <div className="pos-smartcard-policy">
-                          <div className="pos-smartcard-policy__title">Smartcard policy</div>
-                          <div className="pos-notes-help">
-                            ทุกบทบาทต้องอ่านข้อมูลจาก smartcard ก่อนยืนยันการส่งมอบยา
-                            หากไม่มีบัตรหรือข้อมูลบัตรไม่ครบ ระบบจะไม่ finalize รายการนี้
+                        <div
+                          className={`pos-identity-options${
+                            ENABLE_THAID_MOCK_UI ? "" : " pos-identity-options--single"
+                          }`}
+                        >
+                          <div className="pos-smartcard-policy pos-smartcard-policy--compact">
+                            <div className="pos-smartcard-policy__title">Smartcard policy</div>
+                            <div className="pos-notes-help">
+                              ทุกบทบาทต้องอ่านข้อมูลจาก smartcard ก่อนยืนยันการส่งมอบยา
+                              หากไม่มีบัตรหรือข้อมูลบัตรไม่ครบ ระบบจะไม่ finalize รายการนี้
+                            </div>
+                            <div className="pos-smartcard-policy__status">
+                              <strong>สถานะยืนยันตัวตน:</strong> {identityStatusText}
+                            </div>
+                            <div className="pos-smartcard-policy__status">
+                              <strong>สถานะ smartcard:</strong>{" "}
+                              {hasCapturedSmartcardData ? "อ่านข้อมูลแล้ว" : "ยังไม่มีข้อมูลจาก smartcard"}
+                            </div>
                           </div>
-                          <div className="pos-smartcard-policy__status">
-                            <strong>สถานะ smartcard:</strong>{" "}
-                            {hasCapturedSmartcardData ? "อ่านข้อมูลแล้ว" : "ยังไม่มีข้อมูลจาก smartcard"}
-                          </div>
+
+                          {ENABLE_THAID_MOCK_UI ? (
+                            <div className="pos-thaid-card">
+                              <div className="pos-thaid-card__brand">ThaiD</div>
+                              <div className="pos-thaid-card__text">
+                                Mock/stub สำหรับ flow ยืนยันตัวตนผ่าน ThaiD ในอนาคต
+                              </div>
+                              <button
+                                type="button"
+                                className="pos-thaid-button"
+                                onClick={handleStartThaiDVerification}
+                                disabled={thaidModalState === THAID_MODAL_STATES.CREATING_SESSION}
+                              >
+                                ยืนยันตัวตนด้วย ThaiD
+                              </button>
+                            </div>
+                          ) : null}
                         </div>
                       </div>
 
@@ -2496,7 +2902,8 @@ export default function Deliver() {
               <div>ยอดรวม: {toMoney(grandTotal)} บาท</div>
               <div>สาขาที่ทำรายการ: {selectedBranchLabel}</div>
               <div>ประเภทรายงาน: {selectedReportType || "-"}</div>
-              <div>Smartcard: {hasCapturedSmartcardData ? "อ่านข้อมูลแล้ว" : "ไม่มีข้อมูลในรายการนี้"}</div>
+              <div>ยืนยันตัวตน: {identityStatusText}</div>
+              <div>แหล่งข้อมูล: {identitySourceLabel}</div>
               <div>
                 ผู้รับมอบยา: {toCleanText(parsedNotes?.patient?.fullName) || "-"}
               </div>
@@ -2522,6 +2929,95 @@ export default function Deliver() {
                 {isSubmitting ? "กำลังยืนยัน..." : isOnline ? "ยืนยัน" : "บันทึกรายการค้าง"}
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isThaiDOverlayOpen ? (
+        <div className="pos-thaid-overlay" aria-hidden="false">
+          <div
+            className="pos-thaid-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="deliver-thaid-title"
+          >
+            <button
+              type="button"
+              className="pos-thaid-close"
+              onClick={handleCloseThaiDModal}
+              aria-label="ปิดหน้าต่าง ThaiD"
+            >
+              X
+            </button>
+
+            {thaidModalState === THAID_MODAL_STATES.CREATING_SESSION ? (
+              <div className="pos-thaid-loading" aria-live="polite">
+                <div className="pos-thaid-spinner" aria-hidden="true" />
+                <h2 id="deliver-thaid-title">กำลังสร้าง ThaiD verification session</h2>
+                <p>Mock/stub ชั่วคราว ยังไม่เชื่อมต่อ production ThaiD API</p>
+              </div>
+            ) : null}
+
+            {thaidModalState === THAID_MODAL_STATES.WAITING_FOR_SCAN ? (
+              <>
+                <div className="pos-thaid-branding">
+                  <div className="pos-thaid-branding__mark">ThaiD</div>
+                  <div>
+                    <h2 id="deliver-thaid-title">ThaiD identity verification</h2>
+                    <p>Mock/stub สำหรับทดสอบหน้าจอเท่านั้น</p>
+                  </div>
+                </div>
+
+                <div className="pos-thaid-qr-box" aria-label="Mock ThaiD QR code placeholder">
+                  <div className="pos-thaid-qr-pattern" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                  <strong>QR</strong>
+                  <small>{toCleanText(thaidSession?.id) || "mock-thaid-session"}</small>
+                </div>
+
+                <p className="pos-thaid-instruction">
+                  สแกน QR Code ด้วยแอป ThaiD ภายใน 3 นาที
+                </p>
+                <div className="pos-thaid-countdown" aria-live="polite">
+                  {formatCountdown(thaidCountdownMs)}
+                </div>
+                {thaidError ? (
+                  <div className="pos-thaid-error">{thaidError}</div>
+                ) : null}
+                <button
+                  type="button"
+                  className="pos-thaid-dev-button"
+                  onClick={handleMockThaiDSuccess}
+                >
+                  จำลองยืนยันสำเร็จ (ทดสอบเท่านั้น)
+                </button>
+              </>
+            ) : null}
+
+            {thaidModalState === THAID_MODAL_STATES.VERIFIED ? (
+              <div className="pos-thaid-loading" aria-live="polite">
+                <h2 id="deliver-thaid-title">ยืนยัน ThaiD mock สำเร็จ</h2>
+                <p>ระบบกำลังกรอกข้อมูลผู้รับมอบยาและปิดหน้าต่างนี้</p>
+              </div>
+            ) : null}
+
+            {thaidModalState === THAID_MODAL_STATES.EXPIRED ? (
+              <div className="pos-thaid-loading" aria-live="polite">
+                <h2 id="deliver-thaid-title">ThaiD session หมดเวลา</h2>
+                <p>ยังไม่มีการยืนยันตัวตนจาก mock ThaiD ภายในเวลาที่กำหนด</p>
+                <button
+                  type="button"
+                  className="pos-thaid-dev-button"
+                  onClick={handleStartThaiDVerification}
+                >
+                  สร้าง session ใหม่
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -2562,7 +3058,7 @@ export default function Deliver() {
                   รายการส่งมอบที่รอเข้าระบบ
                 </h2>
                 <p className="pos-confirm-body">
-                  ตรวจสอบข้อมูลจาก smartcard และแก้ได้เฉพาะจำนวนยา รายการยาในบิล และเลข lot ก่อนยืนยันส่งเข้าระบบ
+                  ตรวจสอบข้อมูลยืนยันตัวตนและแก้ได้เฉพาะจำนวนยา รายการยาในบิล และเลข lot ก่อนยืนยันส่งเข้าระบบ
                 </p>
               </div>
               <div className={`pos-pending-online${isOnline ? " is-online" : " is-offline"}`}>

@@ -90,7 +90,14 @@ export default function TransferNotifications() {
       setRequests(Array.isArray(rows) ? rows : []);
       setLoadError("");
     } catch (error) {
-      setLoadError(error?.message || "ไม่สามารถโหลดรายการโอนรอยืนยันได้");
+      setRequests([]);
+      if (Number(error?.status || 0) === 401) {
+        setLoadError(
+          "ไม่สามารถโหลดแจ้งเตือนการโอนได้: session หมดอายุหรือไม่มี token สำหรับ endpoint นี้ แต่ไม่กระทบการส่งมอบยา"
+        );
+      } else {
+        setLoadError(error?.message || "ไม่สามารถโหลดรายการโอนรอยืนยันได้");
+      }
     } finally {
       if (!silent) {
         setIsLoading(false);

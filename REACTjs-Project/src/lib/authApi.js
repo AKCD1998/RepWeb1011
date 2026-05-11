@@ -84,7 +84,11 @@ authApiClient.interceptors.response.use(
     const isLoginRequest = requestUrl.includes("/auth/login");
     const isLogoutRequest = requestUrl.includes("/auth/logout");
 
-    if (status === 401 && !isLoginRequest && !isLogoutRequest) {
+    const suppressUnauthorizedEvent =
+      error?.config?.suppressUnauthorizedEvent === true ||
+      error?.config?.skipGlobalUnauthorized === true;
+
+    if (status === 401 && !isLoginRequest && !isLogoutRequest && !suppressUnauthorizedEvent) {
       clearAuthStorage();
       emitUnauthorized();
     }

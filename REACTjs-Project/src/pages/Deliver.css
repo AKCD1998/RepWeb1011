@@ -310,6 +310,255 @@
   color: rgba(226, 232, 240, 0.86);
 }
 
+.pos-identity-options {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.9fr);
+  gap: 10px;
+  align-items: stretch;
+  margin-top: 8px;
+}
+
+.pos-identity-options--single {
+  grid-template-columns: 1fr;
+}
+
+.pos-smartcard-policy--compact {
+  gap: 6px;
+  min-height: 100%;
+  padding: 8px;
+}
+
+.pos-smartcard-policy--compact .pos-notes-help {
+  margin-top: 0;
+}
+
+.pos-thaid-card {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-height: 100%;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(45, 212, 191, 0.35);
+  background: rgba(20, 184, 166, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.pos-thaid-card__brand {
+  color: #99f6e4;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.pos-thaid-card__text {
+  color: rgba(226, 232, 240, 0.82);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.pos-thaid-button,
+.pos-thaid-dev-button {
+  appearance: none;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  min-height: 38px;
+  padding: 8px 12px;
+  transition: transform 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.pos-thaid-button {
+  align-self: end;
+  background: #2dd4bf;
+  color: #06251f;
+  box-shadow: 0 10px 22px rgba(45, 212, 191, 0.2);
+}
+
+.pos-thaid-button:hover:not(:disabled),
+.pos-thaid-dev-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.pos-thaid-button:disabled,
+.pos-thaid-dev-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.pos-thaid-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10020;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(2, 6, 23, 0.72);
+}
+
+.pos-thaid-modal {
+  position: relative;
+  width: min(92vw, 460px);
+  padding: 22px;
+  border-radius: 14px;
+  border: 1px solid rgba(45, 212, 191, 0.35);
+  background: #0f1f34;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+  color: #e2e8f0;
+}
+
+.pos-thaid-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: #dc2626;
+  color: #fff;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.pos-thaid-close:hover,
+.pos-thaid-close:focus {
+  background: #b91c1c;
+}
+
+.pos-thaid-loading {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  padding: 20px 8px 8px;
+  text-align: center;
+}
+
+.pos-thaid-loading h2,
+.pos-thaid-branding h2 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.pos-thaid-loading p,
+.pos-thaid-branding p,
+.pos-thaid-instruction {
+  margin: 0;
+  color: rgba(226, 232, 240, 0.82);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.pos-thaid-spinner {
+  width: 42px;
+  height: 42px;
+  border: 4px solid rgba(148, 163, 184, 0.25);
+  border-top-color: #2dd4bf;
+  border-radius: 50%;
+  animation: pos-thaid-spin 900ms linear infinite;
+}
+
+.pos-thaid-branding {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  gap: 14px;
+  align-items: center;
+  padding-right: 36px;
+}
+
+.pos-thaid-branding__mark {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  border-radius: 16px;
+  background: #2dd4bf;
+  color: #06251f;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.pos-thaid-qr-box {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  width: min(72vw, 230px);
+  min-height: 230px;
+  margin: 22px auto 14px;
+  padding: 18px;
+  border-radius: 12px;
+  border: 8px solid #fff;
+  background: #f8fafc;
+  color: #0f172a;
+  text-align: center;
+}
+
+.pos-thaid-qr-box strong {
+  font-size: 38px;
+  letter-spacing: 0;
+}
+
+.pos-thaid-qr-box small {
+  max-width: 100%;
+  color: #334155;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.pos-thaid-qr-pattern {
+  display: grid;
+  grid-template-columns: repeat(2, 42px);
+  gap: 34px;
+  margin-top: 6px;
+}
+
+.pos-thaid-qr-pattern span {
+  width: 42px;
+  height: 42px;
+  background: #0f172a;
+}
+
+.pos-thaid-instruction {
+  text-align: center;
+}
+
+.pos-thaid-countdown {
+  margin: 10px auto 14px;
+  color: #fef3c7;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-align: center;
+}
+
+.pos-thaid-error {
+  margin-bottom: 10px;
+  color: #fecaca;
+  font-size: 13px;
+  text-align: center;
+}
+
+.pos-thaid-dev-button {
+  display: block;
+  width: 100%;
+  background: #facc15;
+  color: #422006;
+}
+
+@keyframes pos-thaid-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -1166,6 +1415,10 @@
   .pos-notes-grid {
     grid-template-columns: 1fr;
   }
+
+  .pos-identity-options {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 480px) {
@@ -1204,5 +1457,17 @@
 
   .pos-search-stock {
     grid-column: 1 / -1;
+  }
+
+  .pos-thaid-branding {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding-right: 0;
+    text-align: center;
+  }
+
+  .pos-thaid-branding__mark {
+    width: 64px;
+    height: 64px;
   }
 }

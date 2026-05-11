@@ -496,6 +496,7 @@ export const inventoryApi = {
       method: "GET",
       url: "/api/inventory/transfer-requests",
       params: Object.keys(params).length ? params : undefined,
+      suppressUnauthorizedEvent: true,
     });
   },
   async acceptTransferRequest(id, payload = {}) {

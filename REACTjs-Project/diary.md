@@ -1436,3 +1436,23 @@ Start with Deliver line-model refactor to support multiple rows for the same pro
   - `npm run check:server` passed
   - `npm run build` passed
   - post-migration DB check confirmed `48 / 48` active products now have `report_receive_unit_level_id`
+
+## 2026-05-10 15:27:55 +07:00 - Added Deliver ThaiD mock identity option beside smartcard
+- Goal:
+  - prepare Deliver identity capture for either existing smartcard/MQTT or future ThaiD verification
+  - keep the current MQTT smartcard listener and note autofill behavior intact
+- Frontend:
+  - updated `src/pages/Deliver.jsx`
+  - added normalized `verifiedIdentity` state with source values `SMARTCARD_MQTT` and `THAID`
+  - smartcard data now also records a normalized identity object while preserving the existing MQTT flow
+  - added a clearly marked mock ThaiD QR/session modal with loading, 3-minute countdown, close button, expired/retry state, and test-only success button
+  - updated finalize validation to require verified identity from smartcard or ThaiD, not smartcard only
+  - updated recipient placeholder, policy copy, confirm summary, and pending-review wording from smartcard-only to identity-source-neutral
+- Styling:
+  - updated `src/pages/Deliver.css`
+  - added compact identity option layout with smartcard policy/status on the left and ThaiD mock card/button on the right
+  - added ThaiD mock overlay/modal, QR placeholder, countdown, loading, and mobile responsive styles
+- Intentionally not changed:
+  - no real ThaiD API, credentials, endpoints, or production callback flow added
+  - no backend behavior changed
+  - no MQTT broker/topic defaults changed
