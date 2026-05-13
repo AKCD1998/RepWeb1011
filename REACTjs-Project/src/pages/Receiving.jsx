@@ -376,6 +376,7 @@ function mapMovementRecord(row) {
   const sourceRefType = toCleanText(row?.sourceRefType || row?.source_ref_type).toUpperCase();
   return {
     id: row?.id || `row-${Math.random().toString(36).slice(2)}`,
+    dispenseLineId: toCleanText(row?.dispenseLineId || row?.dispense_line_id),
     occurredAt: formatOccurredAtDisplay(occurredAtRaw),
     occurredAtRaw,
     originalOccurredAt: formatOccurredAtDisplay(originalOccurredAtRaw),
@@ -3350,7 +3351,7 @@ export default function Receiving() {
                       >
                         คัดลอก dispense line id
                       </button>
-                      <span>{movementDetailCopyStatus || movementDetailDispenseLineId || "-"}</span>
+                      {movementDetailCopyStatus ? <span>{movementDetailCopyStatus}</span> : null}
                     </div>
                   </>
                 ) : (
