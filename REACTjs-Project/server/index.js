@@ -39,11 +39,74 @@ const corsOrigins = String(
   .map((value) => value.trim())
   .filter(Boolean);
 
+function normalizeOrigin(origin) {
+  const text = String(origin || "").trim();
+  if (!text) return "";
+
+  try {
+    const url = new URL(text);
+    const protocol = url.protocol.toLowerCase();
+    const hostname = url.hostname.toLowerCase();
+    const port =
+      url.port || (protocol === "https:" ? "443" : protocol === "http:" ? "80" : "");
+    return `${protocol}//${hostname}:${port}`;
+  } catch {
+    return text.replace(/\/+$/, "").toLowerCase();
+  }
+}
+
+function isLoopbackHost(hostname) {
+  const value = String(hostname || "").trim().toLowerCase();
+  return value === "localhost" || value === "127.0.0.1" || value === "::1";
+}
+
+function isLoopbackOrigin(origin) {
+  try {
+    const url = new URL(String(origin || "").trim());
+    return url.protocol === "http:" && isLoopbackHost(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function buildAllowedOrigins(origins) {
+  const allowed = new Set();
+
+  origins.forEach((origin) => {
+    const normalized = normalizeOrigin(origin);
+    if (!normalized) return;
+    allowed.add(normalized);
+
+    try {
+      const url = new URL(origin);
+      const protocol = url.protocol.toLowerCase();
+      const port =
+        url.port || (protocol === "https:" ? "443" : protocol === "http:" ? "80" : "");
+
+      if (isLoopbackHost(url.hostname)) {
+        ["localhost", "127.0.0.1", "::1"].forEach((host) => {
+          allowed.add(`${protocol}//${host.toLowerCase()}:${port}`);
+        });
+      }
+    } catch {
+      // Ignore malformed origin entries; they simply won't get loopback aliases.
+    }
+  });
+
+  return allowed;
+}
+
+const allowedCorsOrigins = buildAllowedOrigins(corsOrigins);
+
 app.use(
   cors({
     origin(origin, callback) {
       if (!origin) return callback(null, true);
-      if (!corsOrigins.length || corsOrigins.includes(origin)) {
+      if (
+        !allowedCorsOrigins.size ||
+        allowedCorsOrigins.has(normalizeOrigin(origin)) ||
+        isLoopbackOrigin(origin)
+      ) {
         return callback(null, true);
       }
       return callback(new Error(`CORS blocked origin: ${origin}`));

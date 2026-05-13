@@ -13,6 +13,13 @@
     0 0 0 1px rgba(30, 64, 175, 0.5);
 }
 
+:root:not([data-theme="dark"]) .rx1011-form-container {
+  background: linear-gradient(145deg, #f8fbff 0%, #e8f0fb 100%);
+  color: #16304d;
+  box-shadow: 0 26px 56px rgba(101, 118, 145, 0.18),
+    0 0 0 1px rgba(179, 196, 220, 0.7);
+}
+
 .wrap {
   max-width: 1400px;
   margin: 0 auto;
@@ -59,6 +66,12 @@
   box-shadow: 0 4px 12px #00000026;
 }
 
+:root:not([data-theme="dark"]) .pos-panel {
+  background: linear-gradient(180deg, #fdfefe 0%, #eef4fc 52%, #e2ebf8 100%);
+  border-color: rgba(132, 160, 201, 0.72);
+  box-shadow: 0 20px 44px rgba(103, 123, 153, 0.16);
+}
+
 .pos-left {
   flex: 1;
   position: relative;
@@ -85,6 +98,12 @@
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
+:root:not([data-theme="dark"]) .pos-rail-field {
+  background: linear-gradient(180deg, rgba(245, 249, 255, 0.98) 0%, rgba(233, 241, 251, 0.98) 100%);
+  border-color: rgba(175, 191, 215, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
 .pos-table {
   position: static;
   width: 100%;
@@ -93,6 +112,12 @@
   border-radius: 6px;
   background: #ffffff;
   color: #1f2937;
+}
+
+:root:not([data-theme="dark"]) .pos-table {
+  border-color: rgba(175, 191, 215, 0.78);
+  border-radius: 14px;
+  box-shadow: 0 14px 30px rgba(125, 145, 174, 0.14);
 }
 
 .thead,
@@ -120,9 +145,22 @@
   font-size: 14px;
 }
 
+:root:not([data-theme="dark"]) .thead {
+  background: linear-gradient(180deg, #dfe9fb 0%, #cddcf5 100%);
+  color: #213857;
+}
+
 .tbody > div {
   border-bottom: 1px solid #dee2e6;
   align-items: center;
+}
+
+:root:not([data-theme="dark"]) .tbody > div {
+  border-bottom-color: rgba(201, 210, 224, 0.9);
+}
+
+:root:not([data-theme="dark"]) .tbody > div:nth-child(even) {
+  background: rgba(244, 248, 253, 0.92);
 }
 
 .tbody > div:last-child {
@@ -158,8 +196,19 @@
   box-sizing: border-box;
 }
 
+:root:not([data-theme="dark"]) .pos-inputbar {
+  background: linear-gradient(180deg, #f7fbff 0%, #edf4fc 58%, #e5eef9 100%);
+  border-color: rgba(175, 191, 215, 0.68);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 14px 28px rgba(122, 143, 171, 0.14);
+}
+
 .pos-inputbar .total #grand {
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+}
+
+:root:not([data-theme="dark"]) .pos-inputbar .total #grand {
+  color: #1d6ee8;
+  text-shadow: none;
 }
 
 .pos-inputbar input {
@@ -171,6 +220,13 @@
   border-radius: 4px;
   font-size: 14px;
   min-width: 480px;
+}
+
+:root:not([data-theme="dark"]) .pos-inputbar input {
+  background: #ffffff;
+  color: #22324a;
+  border-color: rgba(186, 197, 213, 0.92);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .pos-notes {
@@ -214,10 +270,20 @@
   padding: 8px 10px;
 }
 
+:root:not([data-theme="dark"]) .pos-notes-active-product {
+  background: rgba(233, 240, 251, 0.92);
+  border-color: rgba(175, 191, 215, 0.68);
+  color: #46617f;
+}
+
 .pos-notes-label {
   display: block;
   font-weight: 600;
   margin: 0 0 6px;
+}
+
+:root:not([data-theme="dark"]) .pos-notes-label {
+  color: #18314e;
 }
 
 .pos-notes-textarea {
@@ -232,9 +298,22 @@
   box-sizing: border-box;
 }
 
+:root:not([data-theme="dark"]) .pos-notes-textarea,
+:root:not([data-theme="dark"]) .pos-notes-select {
+  background: #ffffff;
+  color: #22324a;
+  border-color: rgba(186, 197, 213, 0.92);
+}
+
 .pos-notes-textarea:focus {
   outline: none;
   border-color: rgba(0, 0, 0, 0.35);
+}
+
+:root:not([data-theme="dark"]) .pos-notes-textarea:focus,
+:root:not([data-theme="dark"]) .pos-notes-select:focus {
+  border-color: rgba(80, 126, 196, 0.9);
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.16);
 }
 
 .pos-notes-select {
@@ -264,11 +343,21 @@
   box-sizing: border-box;
 }
 
+:root:not([data-theme="dark"]) .pos-notes-readonly {
+  border-color: rgba(175, 191, 215, 0.68);
+  background: rgba(236, 243, 251, 0.92);
+  color: #314964;
+}
+
 .pos-notes-help {
   margin-top: 6px;
   font-size: 12px;
   line-height: 1.4;
   color: rgba(226, 232, 240, 0.82);
+}
+
+:root:not([data-theme="dark"]) .pos-notes-help {
+  color: #5c7392;
 }
 
 .pos-notes-help--smartcard {
@@ -300,14 +389,27 @@
   background: rgba(255, 255, 255, 0.08);
 }
 
+:root:not([data-theme="dark"]) .pos-smartcard-policy {
+  border-color: rgba(153, 178, 214, 0.42);
+  background: linear-gradient(180deg, rgba(231, 240, 253, 0.96) 0%, rgba(219, 232, 249, 0.96) 100%);
+}
+
 .pos-smartcard-policy__title {
   font-weight: 600;
+}
+
+:root:not([data-theme="dark"]) .pos-smartcard-policy__title {
+  color: #1f5fb8;
 }
 
 .pos-smartcard-policy__status {
   font-size: 12px;
   line-height: 1.45;
   color: rgba(226, 232, 240, 0.86);
+}
+
+:root:not([data-theme="dark"]) .pos-smartcard-policy__status {
+  color: #355375;
 }
 
 .pos-identity-options {

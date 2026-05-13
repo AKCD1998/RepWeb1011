@@ -4,10 +4,17 @@ import { httpError } from "../utils/httpError.js";
 
 function getJwtSecret() {
   const secret = String(
-    process.env.RX1011_JWT_SECRET || process.env.JWT_SECRET || process.env.AUTH_JWT_SECRET || ""
+    process.env.RX1011_JWT_SECRET ||
+      process.env.RX1011_AUTH_JWT_SECRET ||
+      process.env.JWT_SECRET ||
+      process.env.AUTH_JWT_SECRET ||
+      ""
   ).trim();
   if (!secret) {
-    throw httpError(500, "RX1011_JWT_SECRET or JWT_SECRET is not configured");
+    throw httpError(
+      500,
+      "RX1011_JWT_SECRET, RX1011_AUTH_JWT_SECRET, JWT_SECRET, or AUTH_JWT_SECRET is not configured"
+    );
   }
   return secret;
 }
