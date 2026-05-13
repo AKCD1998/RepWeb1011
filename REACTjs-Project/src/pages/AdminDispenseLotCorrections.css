@@ -1,6 +1,7 @@
 .admin-dispense-lot-page {
   display: grid;
   gap: 16px;
+  margin: 21px;
 }
 
 .admin-dispense-lot-page__top,
