@@ -108,6 +108,27 @@ function toCleanText(value) {
   return String(value || "").trim();
 }
 
+async function copyTextToClipboard(text) {
+  const safeText = String(text ?? "").trim();
+  if (!safeText) return false;
+
+  if (navigator?.clipboard?.writeText) {
+    await navigator.clipboard.writeText(safeText);
+    return true;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = safeText;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  document.body.removeChild(textarea);
+  return copied;
+}
+
 function normalizeDateOnly(value) {
   return normalizeDateOnlyInput(value);
 }
@@ -626,6 +647,7 @@ export default function Receiving() {
   const [isSavingOccurredAtCorrection, setIsSavingOccurredAtCorrection] = useState(false);
   const [isDeletingMovementId, setIsDeletingMovementId] = useState("");
   const [movementDetailTarget, setMovementDetailTarget] = useState(null);
+  const [movementDetailCopyStatus, setMovementDetailCopyStatus] = useState("");
   const [incidentDetailId, setIncidentDetailId] = useState("");
   const [incidentDetailMovement, setIncidentDetailMovement] = useState(null);
   const [incidentDetail, setIncidentDetail] = useState(null);
@@ -987,11 +1009,13 @@ export default function Receiving() {
   function openMovementDetailModal(movement) {
     if (!movement) return;
     setMovementDetailTarget(movement);
+    setMovementDetailCopyStatus("");
     setPageError("");
   }
 
   function closeMovementDetailModal() {
     setMovementDetailTarget(null);
+    setMovementDetailCopyStatus("");
   }
 
   useEffect(() => {
@@ -2314,12 +2338,24 @@ export default function Receiving() {
     movementDetailTarget?.movementType ||
     "รายการเคลื่อนไหว";
   const isDispenseMovementDetail = movementDetailTarget?.movementType === "DISPENSE";
+  const movementDetailDispenseLineId = toCleanText(movementDetailTarget?.dispenseLineId);
   const movementDetailIncidentCode = getIncidentDisplayCode(movementDetailTarget || {});
   const canOpenIncidentFromMovementDetail = Boolean(
     movementDetailTarget &&
       isCorrectiveDispenseMovement(movementDetailTarget) &&
       toCleanText(movementDetailTarget?.sourceRefId)
   );
+
+  async function handleCopyMovementDispenseLineId() {
+    if (!movementDetailDispenseLineId) return;
+
+    try {
+      await copyTextToClipboard(movementDetailDispenseLineId);
+      setMovementDetailCopyStatus("คัดลอก dispense line id แล้ว");
+    } catch {
+      setMovementDetailCopyStatus("คัดลอก dispense line id ไม่สำเร็จ");
+    }
+  }
 
   return (
     <div className="outerpad receiving-page">
@@ -3303,6 +3339,18 @@ export default function Receiving() {
                     <div>
                       <strong>เวลา</strong>
                       <span>{getMovementTimeLabel(movementDetailTarget)}</span>
+                    </div>
+                    <div className="movement-detail-copy-card">
+                      <strong>dispense line id</strong>
+                      <button
+                        className="btn btn--yellow"
+                        type="button"
+                        onClick={handleCopyMovementDispenseLineId}
+                        disabled={!movementDetailDispenseLineId}
+                      >
+                        คัดลอก dispense line id
+                      </button>
+                      <span>{movementDetailCopyStatus || movementDetailDispenseLineId || "-"}</span>
                     </div>
                   </>
                 ) : (

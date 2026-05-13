@@ -620,6 +620,14 @@
   gap: 5px;
 }
 
+.receiving-page .movement-detail-copy-card {
+  align-content: start;
+}
+
+.receiving-page .movement-detail-copy-card .btn {
+  justify-self: start;
+}
+
 .receiving-page .movement-detail-grid strong,
 .receiving-page .movement-detail-note strong {
   color: #e6f7fb;
