@@ -128,6 +128,8 @@ function buildIncidentResolutionActionsPayload(actions = []) {
   return Array.isArray(actions)
     ? actions.map((action) => ({
         actionType: String(action?.actionType ?? action?.action_type ?? "").trim().toUpperCase(),
+        movementId: String(action?.movementId ?? action?.movement_id ?? "").trim() || null,
+        newLotId: String(action?.newLotId ?? action?.new_lot_id ?? "").trim() || null,
         productId: String(action?.productId ?? action?.product_id ?? "").trim(),
         lotId: String(action?.lotId ?? action?.lot_id ?? "").trim() || null,
         qty: Number(action?.qty),

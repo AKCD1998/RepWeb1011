@@ -23,6 +23,7 @@ export const ADMIN_INCIDENT_REASON_OPTIONS = [
 ];
 
 export const ADMIN_INCIDENT_RESOLUTION_ACTION_OPTIONS = [
+  { value: "CORRECT_DISPENSE_LOT", label: "แก้ไข lot ของรายการ dispense เดิม" },
   { value: "RETROSPECTIVE_DISPENSE", label: "สร้าง dispense ย้อนหลังและตัด stock" },
   { value: "STOCK_OUT", label: "ตัด stock อย่างเดียว (-)" },
   { value: "STOCK_IN", label: "เพิ่ม stock อย่างเดียว (+)" },

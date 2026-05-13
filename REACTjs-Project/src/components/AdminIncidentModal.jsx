@@ -11,6 +11,8 @@ import {
 } from "../lib/adminIncidents";
 import "./AdminIncidentModal.css";
 
+const CORRECT_DISPENSE_LOT_ACTION_TYPE = "CORRECT_DISPENSE_LOT";
+
 function toCleanText(value) {
   return String(value ?? "").trim();
 }
@@ -133,9 +135,13 @@ function createEmptyIncidentItem(seed = {}) {
 }
 
 function createEmptyResolutionAction(seed = {}, defaultActionType = "STOCK_OUT") {
+  const actionType =
+    toCleanText(seed?.actionType ?? seed?.action_type).toUpperCase() || defaultActionType;
   return {
     key: createRowKey("incident-resolution"),
-    actionType: toCleanText(seed?.actionType ?? seed?.action_type).toUpperCase() || defaultActionType,
+    actionType,
+    movementId: toCleanText(seed?.movementId ?? seed?.movement_id),
+    newLotId: toCleanText(seed?.newLotId ?? seed?.new_lot_id),
     productId: toCleanText(seed?.productId ?? seed?.product_id),
     lotId: toCleanText(seed?.lotId ?? seed?.lot_id),
     qty: toCleanText(seed?.qty ?? "1"),
@@ -151,9 +157,49 @@ function createEmptyResolutionAction(seed = {}, defaultActionType = "STOCK_OUT")
     note: toCleanText(seed?.note ?? seed?.noteText ?? seed?.note_text),
     lotOptions: [],
     unitOptions: [],
+    dispenseCorrectionDetail: seed?.dispenseCorrectionDetail || null,
+    correctionLotOptions: Array.isArray(seed?.correctionLotOptions) ? seed.correctionLotOptions : [],
+    isLoadingCorrectionDetail: false,
     isLoadingLots: false,
     isLoadingUnits: false,
   };
+}
+
+function isCorrectDispenseLotActionType(value) {
+  return toCleanText(value).toUpperCase() === CORRECT_DISPENSE_LOT_ACTION_TYPE;
+}
+
+function createResolutionActionForType(seed = {}, nextActionType = "STOCK_OUT") {
+  const nextType = toCleanText(nextActionType).toUpperCase() || "STOCK_OUT";
+  const preservedNote = toCleanText(seed?.note ?? seed?.noteText ?? seed?.note_text);
+  if (isCorrectDispenseLotActionType(nextType)) {
+    return createEmptyResolutionAction(
+      {
+        actionType: nextType,
+        movementId: seed?.movementId,
+        newLotId: seed?.newLotId,
+        note: preservedNote,
+        dispenseCorrectionDetail: seed?.dispenseCorrectionDetail || null,
+        correctionLotOptions: Array.isArray(seed?.correctionLotOptions) ? seed.correctionLotOptions : [],
+      },
+      nextType
+    );
+  }
+
+  return createEmptyResolutionAction(
+    {
+      actionType: nextType,
+      productId: seed?.productId,
+      lotId: seed?.lotId,
+      qty: seed?.qty,
+      unitLevelId: seed?.unitLevelId,
+      unitLabel: seed?.unitLabel,
+      lotNoSnapshot: seed?.lotNoSnapshot,
+      expDateSnapshot: seed?.expDateSnapshot,
+      note: preservedNote,
+    },
+    nextType
+  );
 }
 
 function createEmptyResolutionPatient(seed = {}) {
@@ -317,6 +363,14 @@ function hasAnyIncidentItemValue(row) {
 }
 
 function hasAnyResolutionActionValue(row) {
+  if (isCorrectDispenseLotActionType(row?.actionType)) {
+    return Boolean(
+      toCleanText(row?.actionType) ||
+        toCleanText(row?.movementId) ||
+        toCleanText(row?.newLotId) ||
+        toCleanText(row?.note)
+    );
+  }
   return Boolean(
     toCleanText(row?.actionType) ||
       toCleanText(row?.productId) ||
@@ -657,6 +711,7 @@ export default function AdminIncidentModal({
     }
 
     async function hydrateRow(row) {
+      if (isCorrectDispenseLotActionType(row?.actionType)) return row;
       if (!row.productId) return row;
 
       const lots = await loadLots(row.productId);
@@ -835,6 +890,70 @@ export default function AdminIncidentModal({
     };
   }
 
+  async function handleLoadDispenseCorrectionDetail(rowKey) {
+    const currentRow = form.resolutionActions.find((row) => row.key === rowKey);
+    const movementId = toCleanText(currentRow?.movementId);
+    if (!movementId) {
+      setError("กรุณากรอก movement id ก่อนโหลดข้อมูล");
+      return;
+    }
+
+    updateRows("resolutionActions", (row) =>
+      row.key === rowKey
+        ? {
+            ...row,
+            isLoadingCorrectionDetail: true,
+            dispenseCorrectionDetail: null,
+            correctionLotOptions: [],
+            newLotId: "",
+          }
+        : row
+    );
+
+    try {
+      const payload = await adminApi.getDispenseMovement(movementId);
+      const dispenseLine = payload?.dispenseLine || null;
+      const availableLots = Array.isArray(payload?.availableLots) ? payload.availableLots : [];
+      const currentLotId = toCleanText(dispenseLine?.lotId);
+      const firstAlternative =
+        availableLots.find((lot) => toCleanText(lot?.id) && toCleanText(lot?.id) !== currentLotId) || null;
+
+      updateRows("resolutionActions", (row) =>
+        row.key === rowKey
+          ? {
+              ...row,
+              movementId,
+              productId: toCleanText(dispenseLine?.productId),
+              lotId: currentLotId,
+              qty: String(dispenseLine?.quantity ?? row.qty ?? "1"),
+              unitLevelId: toCleanText(dispenseLine?.unitLevelId),
+              unitLabel: toCleanText(dispenseLine?.unitLabel),
+              lotNoSnapshot: toCleanText(dispenseLine?.lotNo),
+              expDateSnapshot: toCleanText(dispenseLine?.lotExpDate),
+              dispenseCorrectionDetail: payload,
+              correctionLotOptions: availableLots,
+              newLotId: firstAlternative ? toCleanText(firstAlternative.id) : "",
+              isLoadingCorrectionDetail: false,
+            }
+          : row
+      );
+      setError("");
+    } catch (requestError) {
+      updateRows("resolutionActions", (row) =>
+        row.key === rowKey
+          ? {
+              ...row,
+              dispenseCorrectionDetail: null,
+              correctionLotOptions: [],
+              newLotId: "",
+              isLoadingCorrectionDetail: false,
+            }
+          : row
+      );
+      setError(toCleanText(requestError?.message) || "โหลดข้อมูล dispense movement ไม่สำเร็จ");
+    }
+  }
+
   function updateRows(kind, updater) {
     const key = kind === "resolutionActions" ? "resolutionActions" : "items";
     setForm((current) => ({
@@ -893,6 +1012,21 @@ export default function AdminIncidentModal({
   }
 
   function handleRowFieldChange(kind, rowKey, field, value) {
+    if (kind === "resolutionActions" && field === "actionType") {
+      setForm((current) => ({
+        ...current,
+        resolutionActions: current.resolutionActions.map((row) =>
+          row.key === rowKey
+            ? {
+                ...createResolutionActionForType(row, value),
+                key: row.key,
+              }
+            : row
+        ),
+      }));
+      return;
+    }
+
     updateRows(kind, (row) =>
       row.key === rowKey
         ? {
@@ -915,7 +1049,7 @@ export default function AdminIncidentModal({
       ...current,
       resolutionActions: [
         ...current.resolutionActions,
-        createEmptyResolutionAction({}, buildDefaultResolutionActionType(current)),
+        createResolutionActionForType({}, buildDefaultResolutionActionType(current)),
       ],
     }));
   }
@@ -932,6 +1066,10 @@ export default function AdminIncidentModal({
     const rowCollection = kind === "resolutionActions" ? form.resolutionActions : form.items;
     const currentRow = rowCollection.find((row) => row.key === rowKey);
     const normalizedProductId = toCleanText(productId);
+
+    if (kind === "resolutionActions" && isCorrectDispenseLotActionType(currentRow?.actionType)) {
+      return;
+    }
 
     replaceRow(kind, rowKey, {
       ...(currentRow || createEmptyIncidentItem()),
@@ -995,6 +1133,9 @@ export default function AdminIncidentModal({
     const rowCollection = kind === "resolutionActions" ? form.resolutionActions : form.items;
     const currentRow = rowCollection.find((row) => row.key === rowKey);
     if (!currentRow) return;
+    if (kind === "resolutionActions" && isCorrectDispenseLotActionType(currentRow?.actionType)) {
+      return;
+    }
 
     const selectedLot =
       currentRow.lotOptions.find((lot) => lot.id === toCleanText(lotId)) || null;
@@ -1061,6 +1202,9 @@ export default function AdminIncidentModal({
   function handleRowUnitChange(kind, rowKey, unitLevelId) {
     const rowCollection = kind === "resolutionActions" ? form.resolutionActions : form.items;
     const currentRow = rowCollection.find((row) => row.key === rowKey);
+    if (kind === "resolutionActions" && isCorrectDispenseLotActionType(currentRow?.actionType)) {
+      return;
+    }
     const selectedOption =
       currentRow?.unitOptions.find((option) => option.id === toCleanText(unitLevelId)) || null;
 
@@ -1138,6 +1282,29 @@ export default function AdminIncidentModal({
         setError(`corrective action แถวที่ ${index + 1} ยังไม่ได้เลือกประเภท`);
         return;
       }
+      if (isCorrectDispenseLotActionType(row.actionType)) {
+        if (!toCleanText(row.movementId)) {
+          setError(`corrective action แถวที่ ${index + 1} ต้องระบุ movement id`);
+          return;
+        }
+        if (!row.dispenseCorrectionDetail?.dispenseLine) {
+          setError(`corrective action แถวที่ ${index + 1} ต้องโหลดข้อมูล dispense ก่อน`);
+          return;
+        }
+        if (!toCleanText(row.newLotId)) {
+          setError(`corrective action แถวที่ ${index + 1} ต้องเลือก lot ใหม่`);
+          return;
+        }
+        if (toCleanText(row.newLotId) === toCleanText(row.dispenseCorrectionDetail?.dispenseLine?.lotId)) {
+          setError(`corrective action แถวที่ ${index + 1} ต้องเลือก lot ใหม่ที่ต่างจาก lot เดิม`);
+          return;
+        }
+        if (!toCleanText(row.note)) {
+          setError(`corrective action แถวที่ ${index + 1} ต้องระบุเหตุผล / note`);
+          return;
+        }
+        continue;
+      }
       if (!toCleanText(row.productId)) {
         setError(`corrective action แถวที่ ${index + 1} ยังไม่ได้เลือกสินค้า`);
         return;
@@ -1198,6 +1365,8 @@ export default function AdminIncidentModal({
         })),
         resolutionActions: activeResolutionActions.map((row) => ({
           actionType: row.actionType,
+          movementId: row.movementId || undefined,
+          newLotId: row.newLotId || undefined,
           productId: row.productId,
           lotId: row.lotId || undefined,
           qty: Number(row.qty),
@@ -1436,8 +1605,8 @@ export default function AdminIncidentModal({
               <div>
                 <h3>Corrective actions</h3>
                 <p>
-                  เลือกได้ว่าจะเพิ่ม stock, ลด stock หรือสร้าง retrospective dispense
-                  พร้อมผูกอ้างอิงกลับไป incident เดียวกัน
+                  เลือกได้ว่าจะเพิ่ม stock, ลด stock, สร้าง retrospective dispense
+                  หรือแก้ lot ของ dispense เดิม โดยยังผูกกลับไป incident เดียวกัน
                 </p>
               </div>
               <button
@@ -1452,52 +1621,199 @@ export default function AdminIncidentModal({
 
             {form.resolutionActions.length ? (
               <div className="admin-incident-modal__item-list">
-                {form.resolutionActions.map((row, index) => (
-                  <ProductRowCard
-                    key={row.key}
-                    row={row}
-                    index={index}
-                    title="Action"
-                    productOptions={productOptions}
-                    productMap={productMap}
-                    disabled={isBootstrapping || isSaving}
-                    onRemove={() => handleRemoveRow("resolutionActions", row.key)}
-                    onProductChange={(productId) =>
-                      handleRowProductChange("resolutionActions", row.key, productId)
-                    }
-                    onLotChange={(lotId) =>
-                      handleRowLotChange("resolutionActions", row.key, lotId)
-                    }
-                    onUnitChange={(unitLevelId) =>
-                      handleRowUnitChange("resolutionActions", row.key, unitLevelId)
-                    }
-                    onFieldChange={(field, value) =>
-                      handleRowFieldChange("resolutionActions", row.key, field, value)
-                    }
-                  >
-                    <label className="admin-incident-modal__field">
-                      <span>Action type</span>
-                      <select
-                        value={row.actionType}
-                        onChange={(event) =>
-                          handleRowFieldChange("resolutionActions", row.key, "actionType", event.target.value)
-                        }
-                        disabled={isSaving}
-                      >
-                        {ADMIN_INCIDENT_RESOLUTION_ACTION_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </ProductRowCard>
-                ))}
+                {form.resolutionActions.map((row, index) =>
+                  isCorrectDispenseLotActionType(row.actionType) ? (
+                    <div key={row.key} className="admin-incident-modal__item-card admin-incident-modal__item-card--correction">
+                      <div className="admin-incident-modal__item-card-header">
+                        <strong>Action {index + 1}</strong>
+                        <button
+                          type="button"
+                          className="admin-incident-modal__remove"
+                          onClick={() => handleRemoveRow("resolutionActions", row.key)}
+                          disabled={isBootstrapping || isSaving}
+                        >
+                          ลบ
+                        </button>
+                      </div>
+
+                      <div className="admin-incident-modal__item-grid">
+                        <label className="admin-incident-modal__field">
+                          <span>Action type</span>
+                          <select
+                            value={row.actionType}
+                            onChange={(event) =>
+                              handleRowFieldChange("resolutionActions", row.key, "actionType", event.target.value)
+                            }
+                            disabled={isSaving}
+                          >
+                            {ADMIN_INCIDENT_RESOLUTION_ACTION_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="admin-incident-modal__field admin-incident-modal__field--full">
+                          <span>Movement / transaction id</span>
+                          <div className="admin-incident-modal__inline-action">
+                            <input
+                              type="text"
+                              value={row.movementId}
+                              onChange={(event) =>
+                                handleRowFieldChange("resolutionActions", row.key, "movementId", event.target.value)
+                              }
+                              disabled={isSaving || row.isLoadingCorrectionDetail}
+                              placeholder="วาง stock_movements.id ของรายการ DISPENSE"
+                            />
+                            <button
+                              type="button"
+                              className="admin-incident-modal__secondary"
+                              onClick={() => void handleLoadDispenseCorrectionDetail(row.key)}
+                              disabled={isSaving || row.isLoadingCorrectionDetail || !toCleanText(row.movementId)}
+                            >
+                              {row.isLoadingCorrectionDetail ? "กำลังโหลด..." : "โหลด transaction"}
+                            </button>
+                          </div>
+                        </label>
+
+                        {row.dispenseCorrectionDetail?.dispenseLine ? (
+                          <>
+                            <div className="admin-incident-modal__detail-box">
+                              <strong>สินค้า</strong>
+                              <span>
+                                {[
+                                  toCleanText(row.dispenseCorrectionDetail.dispenseLine.productCode),
+                                  toCleanText(row.dispenseCorrectionDetail.dispenseLine.tradeName),
+                                ]
+                                  .filter(Boolean)
+                                  .join(" • ") || "-"}
+                              </span>
+                            </div>
+                            <div className="admin-incident-modal__detail-box">
+                              <strong>สาขา</strong>
+                              <span>
+                                {[
+                                  toCleanText(row.dispenseCorrectionDetail.dispenseLine.branchCode),
+                                  toCleanText(row.dispenseCorrectionDetail.dispenseLine.branchName),
+                                ]
+                                  .filter(Boolean)
+                                  .join(" • ") || "-"}
+                              </span>
+                            </div>
+                            <div className="admin-incident-modal__detail-box">
+                              <strong>จำนวน</strong>
+                              <span>
+                                {`${toCleanText(row.dispenseCorrectionDetail.dispenseLine.quantity) || "-"} ${toCleanText(
+                                  row.dispenseCorrectionDetail.dispenseLine.unitLabel
+                                ) || ""}`.trim()}
+                              </span>
+                            </div>
+                            <div className="admin-incident-modal__detail-box">
+                              <strong>lot เดิม</strong>
+                              <span>
+                                {[
+                                  toCleanText(row.dispenseCorrectionDetail.dispenseLine.lotNo),
+                                  toCleanText(row.dispenseCorrectionDetail.dispenseLine.lotExpDate),
+                                ]
+                                  .filter(Boolean)
+                                  .join(" • ") || "-"}
+                              </span>
+                            </div>
+                            <div className="admin-incident-modal__detail-box">
+                              <strong>Dispense line</strong>
+                              <span>{toCleanText(row.dispenseCorrectionDetail.dispenseLine.id) || "-"}</span>
+                            </div>
+                            <div className="admin-incident-modal__detail-box">
+                              <strong>Dispense header</strong>
+                              <span>{toCleanText(row.dispenseCorrectionDetail.dispenseLine.headerId) || "-"}</span>
+                            </div>
+                          </>
+                        ) : null}
+
+                        <label className="admin-incident-modal__field admin-incident-modal__field--full">
+                          <span>Lot ใหม่ที่ถูกต้อง</span>
+                          <select
+                            value={row.newLotId}
+                            onChange={(event) =>
+                              handleRowFieldChange("resolutionActions", row.key, "newLotId", event.target.value)
+                            }
+                            disabled={
+                              isSaving ||
+                              row.isLoadingCorrectionDetail ||
+                              !row.dispenseCorrectionDetail?.dispenseLine
+                            }
+                          >
+                            <option value="">เลือก lot ใหม่</option>
+                            {row.correctionLotOptions.map((lot) => (
+                              <option key={lot.id} value={lot.id}>
+                                {`${toCleanText(lot?.lotNo) || "-"} (exp ${toCleanText(lot?.expDate) || "-"})`}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="admin-incident-modal__field admin-incident-modal__field--full">
+                          <span>เหตุผล / note</span>
+                          <textarea
+                            rows={3}
+                            value={row.note}
+                            onChange={(event) =>
+                              handleRowFieldChange("resolutionActions", row.key, "note", event.target.value)
+                            }
+                            disabled={isSaving}
+                            placeholder="อธิบายว่า lot เดิมผิดอย่างไร และทำไม lot ใหม่นี้จึงเป็น lot ที่ถูกต้อง"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  ) : (
+                    <ProductRowCard
+                      key={row.key}
+                      row={row}
+                      index={index}
+                      title="Action"
+                      productOptions={productOptions}
+                      productMap={productMap}
+                      disabled={isBootstrapping || isSaving}
+                      onRemove={() => handleRemoveRow("resolutionActions", row.key)}
+                      onProductChange={(productId) =>
+                        handleRowProductChange("resolutionActions", row.key, productId)
+                      }
+                      onLotChange={(lotId) =>
+                        handleRowLotChange("resolutionActions", row.key, lotId)
+                      }
+                      onUnitChange={(unitLevelId) =>
+                        handleRowUnitChange("resolutionActions", row.key, unitLevelId)
+                      }
+                      onFieldChange={(field, value) =>
+                        handleRowFieldChange("resolutionActions", row.key, field, value)
+                      }
+                    >
+                      <label className="admin-incident-modal__field">
+                        <span>Action type</span>
+                        <select
+                          value={row.actionType}
+                          onChange={(event) =>
+                            handleRowFieldChange("resolutionActions", row.key, "actionType", event.target.value)
+                          }
+                          disabled={isSaving}
+                        >
+                          {ADMIN_INCIDENT_RESOLUTION_ACTION_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </ProductRowCard>
+                  )
+                )}
               </div>
             ) : (
               <div className="admin-incident-modal__empty">
                 ยังไม่มี corrective action ถ้าต้องการให้ incident นี้ตัด/เพิ่ม stock
-                หรือสร้าง dispense ย้อนหลัง ให้เพิ่มรายการในส่วนนี้
+                สร้าง dispense ย้อนหลัง หรือแก้ lot ของ dispense เดิม ให้เพิ่มรายการในส่วนนี้
               </div>
             )}
           </section>

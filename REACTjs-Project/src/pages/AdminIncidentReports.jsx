@@ -41,6 +41,10 @@ function getIncidentDisplayCode(incident) {
   return toCleanText(incident?.incidentCode) || toCleanText(incident?.id) || "-";
 }
 
+function isCorrectDispenseLotAction(action) {
+  return toCleanText(action?.actionType).toUpperCase() === "CORRECT_DISPENSE_LOT";
+}
+
 function createIncidentEditForm(incident = {}) {
   return {
     incidentType: toCleanText(incident?.incidentType),
@@ -1172,7 +1176,11 @@ export default function AdminIncidentReports() {
                                 type="button"
                                 className="admin-incident-page__secondary admin-incident-page__lot-tool"
                                 onClick={() => void openLotNormalizeModal(action)}
-                                disabled={!toCleanText(action?.productId) || Boolean(selectedIncident?.deletedAt)}
+                                disabled={
+                                  !toCleanText(action?.productId) ||
+                                  Boolean(selectedIncident?.deletedAt) ||
+                                  isCorrectDispenseLotAction(action)
+                                }
                               >
                                 Normalize lot
                               </button>

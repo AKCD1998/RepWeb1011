@@ -420,6 +420,30 @@
   gap: 12px;
 }
 
+.admin-incident-modal__inline-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.admin-incident-modal__detail-box {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.admin-incident-modal__detail-box strong {
+  font-size: 12px;
+}
+
+.admin-incident-modal__detail-box span {
+  word-break: break-word;
+}
+
 @media (max-width: 900px) {
   .admin-incident-modal {
     padding: 12px;
@@ -446,6 +470,10 @@
   }
 
   .admin-incident-modal__patient-picker-search {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-incident-modal__inline-action {
     grid-template-columns: 1fr;
   }
 

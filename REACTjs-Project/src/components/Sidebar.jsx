@@ -4,7 +4,6 @@ import {
   FiBox,
   FiCode,
   FiClock,
-  FiEdit3,
   FiFileText,
   FiHome,
   FiLogOut,
@@ -41,7 +40,6 @@ export function PosScannerIcon() {
 export const navItems = [
   { to: "/", label: "หน้าหลัก", icon: FiHome, end: true },
   { to: "/reports", label: "หน้าเอกสารรายงาน", icon: FiFileText },
-  { to: "/admin/dispense-lot-corrections", label: "แก้ lot จ่ายยา", icon: FiEdit3, adminOnly: true },
   { to: "/admin/incidents", label: "Incident Reports", icon: FiAlertTriangle, adminOnly: true },
   { to: "/admin/patients", label: "รายชื่อผู้ป่วย", icon: FiUsers, adminOnly: true },
   { to: "/products", label: "จัดการสินค้า", icon: FiBox, adminOnly: true },
