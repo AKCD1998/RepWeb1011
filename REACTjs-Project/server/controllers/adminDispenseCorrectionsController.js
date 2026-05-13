@@ -150,6 +150,45 @@ async function getDispenseLineStockMovements(client, dispenseLineId, { forUpdate
   return result.rows;
 }
 
+async function getDispenseMovementLinkById(client, movementId, { forUpdate = false } = {}) {
+  const lockClause = forUpdate ? "FOR UPDATE" : "";
+  const result = await client.query(
+    `
+      SELECT
+        sm.id,
+        sm.dispense_line_id AS "dispenseLineId",
+        sm.movement_type AS "movementType",
+        sm.source_ref_type AS "sourceRefType",
+        sm.source_ref_id AS "sourceRefId"
+      FROM stock_movements sm
+      WHERE sm.id = $1::uuid
+      LIMIT 1
+      ${lockClause}
+    `,
+    [movementId]
+  );
+
+  return result.rows[0] || null;
+}
+
+async function resolveDispenseLineIdFromMovementId(client, movementId, { forUpdate = false } = {}) {
+  const movement = await getDispenseMovementLinkById(client, movementId, { forUpdate });
+  if (!movement) {
+    throw httpError(404, "Movement not found");
+  }
+  if (toCleanText(movement.movementType) !== "DISPENSE") {
+    throw httpError(409, "This movement is not a DISPENSE movement");
+  }
+  if (!toCleanText(movement.dispenseLineId)) {
+    throw httpError(409, "This movement is not linked to a dispense line");
+  }
+
+  return {
+    movementId: movement.id,
+    dispenseLineId: movement.dispenseLineId,
+  };
+}
+
 function validateDispenseLineCorrectionState(detail) {
   if (!detail) {
     throw httpError(404, "Dispense line not found");
@@ -390,22 +429,23 @@ async function buildDispenseLineResponse(client, dispenseLineId, { forUpdate = f
   };
 }
 
-export async function getDispenseLineLotCorrectionDetail(req, res) {
-  const dispenseLineId = toCleanText(req.params.id);
-  if (!dispenseLineId || !isUuid(dispenseLineId)) {
-    throw httpError(400, "dispense line id must be a valid UUID");
+export async function getDispenseMovementLotCorrectionDetail(req, res) {
+  const movementId = toCleanText(req.params.id);
+  if (!movementId || !isUuid(movementId)) {
+    throw httpError(400, "movement id must be a valid UUID");
   }
 
-  const payload = await buildDispenseLineResponse({ query }, dispenseLineId);
+  const resolved = await resolveDispenseLineIdFromMovementId({ query }, movementId);
+  const payload = await buildDispenseLineResponse({ query }, resolved.dispenseLineId);
   if (!payload) {
-    throw httpError(404, "Dispense line not found");
+    throw httpError(404, "Linked dispense line not found");
   }
 
   return res.json(payload);
 }
 
-export async function correctDispenseLineLot(req, res) {
-  const dispenseLineId = toCleanText(req.params.id);
+export async function correctDispenseMovementLot(req, res) {
+  const movementId = toCleanText(req.params.id);
   const newLotId = toCleanText(req.body?.newLotId ?? req.body?.new_lot_id);
   const reason = normalizeRequiredText(
     req.body?.reason ?? req.body?.reasonText ?? req.body?.reason_text,
@@ -414,8 +454,8 @@ export async function correctDispenseLineLot(req, res) {
   );
   const adminUserId = toCleanText(req.user?.id || req.body?.correctedByUserId);
 
-  if (!dispenseLineId || !isUuid(dispenseLineId)) {
-    throw httpError(400, "dispense line id must be a valid UUID");
+  if (!movementId || !isUuid(movementId)) {
+    throw httpError(400, "movement id must be a valid UUID");
   }
   if (!newLotId || !isUuid(newLotId)) {
     throw httpError(400, "newLotId must be a valid UUID");
@@ -433,6 +473,8 @@ export async function correctDispenseLineLot(req, res) {
     }
 
     const correctedByUserId = await resolveActorUserId(client, adminUserId);
+    const resolved = await resolveDispenseLineIdFromMovementId(client, movementId, { forUpdate: true });
+    const dispenseLineId = resolved.dispenseLineId;
     const detail = await loadDispenseLineDetail(client, dispenseLineId, { forUpdate: true });
     const movement = validateDispenseLineCorrectionState(detail);
 

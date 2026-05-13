@@ -41,7 +41,7 @@ function buildLotOptionLabel(lot) {
 }
 
 export default function AdminDispenseLotCorrections() {
-  const [lineIdInput, setLineIdInput] = useState("");
+  const [movementIdInput, setMovementIdInput] = useState("");
   const [detail, setDetail] = useState(null);
   const [selectedLotId, setSelectedLotId] = useState("");
   const [reason, setReason] = useState("");
@@ -51,6 +51,7 @@ export default function AdminDispenseLotCorrections() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const dispenseLine = detail?.dispenseLine || null;
+  const linkedStockMovement = detail?.linkedStockMovement || null;
   const availableLots = Array.isArray(detail?.availableLots) ? detail.availableLots : [];
   const selectedLot = availableLots.find((lot) => toCleanText(lot.id) === toCleanText(selectedLotId)) || null;
   const currentLotId = toCleanText(dispenseLine?.lotId);
@@ -65,9 +66,9 @@ export default function AdminDispenseLotCorrections() {
 
   async function handleLoad(event) {
     event.preventDefault();
-    const lineId = toCleanText(lineIdInput);
-    if (!lineId) {
-      setPageError("กรุณากรอก dispense line id");
+    const movementId = toCleanText(movementIdInput);
+    if (!movementId) {
+      setPageError("กรุณากรอก movement id");
       return;
     }
 
@@ -75,7 +76,7 @@ export default function AdminDispenseLotCorrections() {
     setPageError("");
     setPageMessage("");
     try {
-      const payload = await adminApi.getDispenseLine(lineId);
+      const payload = await adminApi.getDispenseMovement(movementId);
       setDetail(payload);
       setReason("");
       const firstAlternative = (Array.isArray(payload?.availableLots) ? payload.availableLots : []).find(
@@ -85,7 +86,7 @@ export default function AdminDispenseLotCorrections() {
     } catch (error) {
       setDetail(null);
       setSelectedLotId("");
-      setPageError(error?.message || "โหลดข้อมูล dispense line ไม่สำเร็จ");
+      setPageError(error?.message || "โหลดข้อมูล movement ไม่สำเร็จ");
     } finally {
       setIsLoading(false);
     }
@@ -115,7 +116,7 @@ export default function AdminDispenseLotCorrections() {
     setPageError("");
     setPageMessage("");
     try {
-      const response = await adminApi.correctDispenseLineLot(dispenseLine.id, {
+      const response = await adminApi.correctDispenseMovementLot(linkedStockMovement?.id, {
         newLotId: selectedLotId,
         reason,
       });
@@ -143,8 +144,8 @@ export default function AdminDispenseLotCorrections() {
             <strong>แก้ lot ของรายการจ่ายยาเดิม</strong>
           </div>
           <p>
-            ใช้เมื่อ admin ต้องแก้ lot ของ dispense line หนึ่งรายการย้อนหลังเท่านั้น
-            ระบบจะ rebalance stock ระหว่าง lot เดิมและ lot ใหม่ พร้อมเก็บ audit ทุกครั้ง
+            ใช้เมื่อ admin ต้องแก้ lot ของรายการจ่ายยาย้อนหลัง โดยเริ่มจาก movement id
+            ระบบจะ resolve ไปยัง dispense line ที่ผูกอยู่ แล้ว rebalance stock พร้อมเก็บ audit ทุกครั้ง
           </p>
           <div className="admin-dispense-lot-page__warning">
             คำเตือน: นี่คือ corrective action สำหรับ transaction ในอดีต ต้องระบุเหตุผลทุกครั้ง และห้ามใช้แทนการ merge/rename lot ทั้งระบบ
@@ -153,17 +154,17 @@ export default function AdminDispenseLotCorrections() {
 
         <section className="qcard admin-dispense-lot-page__lookup">
           <div className="section-header">
-            <strong>โหลด dispense line</strong>
+            <strong>โหลด movement</strong>
           </div>
           <form className="admin-dispense-lot-page__lookup-form" onSubmit={handleLoad}>
-            <label htmlFor="dispense-line-id">Dispense line id</label>
+            <label htmlFor="dispense-movement-id">Movement id</label>
             <input
-              id="dispense-line-id"
+              id="dispense-movement-id"
               type="text"
               className="qinput"
-              value={lineIdInput}
-              onChange={(event) => setLineIdInput(event.target.value)}
-              placeholder="วาง dispense_lines.id ที่ต้องการแก้ lot"
+              value={movementIdInput}
+              onChange={(event) => setMovementIdInput(event.target.value)}
+              placeholder="วาง stock_movements.id ของรายการ DISPENSE ที่ต้องการแก้ lot"
             />
             <button type="submit" className="btn btn--accent" disabled={isLoading}>
               {isLoading ? "กำลังโหลด..." : "โหลดข้อมูล"}
@@ -182,6 +183,10 @@ export default function AdminDispenseLotCorrections() {
               <strong>รายละเอียดรายการ</strong>
             </div>
             <div className="admin-dispense-lot-page__detail-grid">
+              <div>
+                <span>Movement</span>
+                <strong>{toCleanText(linkedStockMovement?.id) || "-"}</strong>
+              </div>
               <div>
                 <span>Dispense line</span>
                 <strong>{dispenseLine.id}</strong>

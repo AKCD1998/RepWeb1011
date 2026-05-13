@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { executeSql, getDatabaseSchema, listTableRows } from "../controllers/adminController.js";
 import {
-  correctDispenseLineLot,
-  getDispenseLineLotCorrectionDetail,
+  correctDispenseMovementLot,
+  getDispenseMovementLotCorrectionDetail,
 } from "../controllers/adminDispenseCorrectionsController.js";
 import {
   applyIncidentReportResolution,
@@ -21,16 +21,16 @@ const router = Router();
 
 router.get("/patients", verifyToken, requireRole("ADMIN"), asyncHandler(listAdminPatients));
 router.get(
-  "/dispense-lines/:id",
+  "/dispense-movements/:id",
   verifyToken,
   requireRole("ADMIN"),
-  asyncHandler(getDispenseLineLotCorrectionDetail)
+  asyncHandler(getDispenseMovementLotCorrectionDetail)
 );
 router.patch(
-  "/dispense-lines/:id/correct-lot",
+  "/dispense-movements/:id/correct-lot",
   verifyToken,
   requireRole("ADMIN"),
-  asyncHandler(correctDispenseLineLot)
+  asyncHandler(correctDispenseMovementLot)
 );
 router.get("/incidents", verifyToken, requireRole("ADMIN"), asyncHandler(listIncidentReports));
 router.get("/incidents/:id", verifyToken, requireRole("ADMIN"), asyncHandler(getIncidentReportById));

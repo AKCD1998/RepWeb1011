@@ -731,23 +731,23 @@ export const incidentsApi = {
 };
 
 export const adminApi = {
-  getDispenseLine(id) {
-    const dispenseLineId = String(id || "").trim();
-    if (!dispenseLineId) {
-      throw new Error("dispense line id is required");
+  getDispenseMovement(id) {
+    const movementId = String(id || "").trim();
+    if (!movementId) {
+      throw new Error("movement id is required");
     }
 
     return requestJson({
       method: "GET",
-      url: `/api/admin/dispense-lines/${encodeURIComponent(dispenseLineId)}`,
+      url: `/api/admin/dispense-movements/${encodeURIComponent(movementId)}`,
     });
   },
-  correctDispenseLineLot(id, payload = {}) {
-    const dispenseLineId = String(id || "").trim();
+  correctDispenseMovementLot(id, payload = {}) {
+    const movementId = String(id || "").trim();
     const newLotId = String(payload?.newLotId ?? payload?.new_lot_id ?? "").trim();
     const reason = String(payload?.reason ?? payload?.reasonText ?? payload?.reason_text ?? "").trim();
-    if (!dispenseLineId) {
-      throw new Error("dispense line id is required");
+    if (!movementId) {
+      throw new Error("movement id is required");
     }
     if (!newLotId) {
       throw new Error("newLotId is required");
@@ -758,7 +758,7 @@ export const adminApi = {
 
     return requestJson({
       method: "PATCH",
-      url: `/api/admin/dispense-lines/${encodeURIComponent(dispenseLineId)}/correct-lot`,
+      url: `/api/admin/dispense-movements/${encodeURIComponent(movementId)}/correct-lot`,
       data: {
         newLotId,
         reason,
