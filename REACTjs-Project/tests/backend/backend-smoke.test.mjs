@@ -105,6 +105,7 @@ describe("backend module smoke imports", () => {
   test.each([
     ["auth controller", "../../server/controllers/authController.js"],
     ["admin controller", "../../server/controllers/adminController.js"],
+    ["admin dispense corrections controller", "../../server/controllers/adminDispenseCorrectionsController.js"],
     ["admin incidents controller", "../../server/controllers/adminIncidentsController.js"],
     ["admin patients controller", "../../server/controllers/adminPatientsController.js"],
     ["dispense controller", "../../server/controllers/dispenseController.js"],
@@ -188,6 +189,8 @@ describe("backend HTTP baseline", () => {
     ["POST", "/api/auth/login", {}, 400],
     ["POST", "/api/auth/logout", {}, 401],
     ["GET", "/api/admin/patients", null, 401],
+    ["GET", "/api/admin/dispense-lines/00000000-0000-4000-8000-000000000000", null, 401],
+    ["PATCH", "/api/admin/dispense-lines/00000000-0000-4000-8000-000000000000/correct-lot", { newLotId: "00000000-0000-4000-8000-000000000001", reason: "test" }, 401],
     ["POST", "/api/inventory/receive", {}, 401],
     ["GET", "/api/dispense/history", null, 401],
     ["GET", "/api/stock/on-hand", null, 401],
@@ -196,7 +199,11 @@ describe("backend HTTP baseline", () => {
     ["GET", "/api/active-ingredients", null, 500],
   ])("%s %s returns the current expected baseline status", async (method, route, body, status) => {
     const response =
-      method === "POST" ? await api.post(route).send(body || {}) : await api.get(route);
+      method === "POST"
+        ? await api.post(route).send(body || {})
+        : method === "PATCH"
+        ? await api.patch(route).send(body || {})
+        : await api.get(route);
 
     expect(response.status).toBe(status);
     expect(response.type).toMatch(/json/);

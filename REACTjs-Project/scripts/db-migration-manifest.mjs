@@ -293,6 +293,85 @@ export const migrationManifest = {
       };
     },
   },
+  "0026_dispense_line_lot_correction_audits.sql": {
+    fileName: "0026_dispense_line_lot_correction_audits.sql",
+    description:
+      "Adds dispense_line_lot_correction_audits so one historical dispense line can be reassigned from the wrong real lot to the correct real lot with stock rebalance and admin traceability.",
+    checkMode: "schema-probe",
+    probeQuery: `
+      SELECT
+        to_regclass('public.dispense_lines') IS NOT NULL AS has_dispense_lines,
+        to_regclass('public.dispense_line_lot_correction_audits') IS NOT NULL AS has_correction_audits_table,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'dispense_line_lot_correction_audits'
+            AND column_name = 'dispense_line_id'
+        ) AS has_dispense_line_id_column,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'dispense_line_lot_correction_audits'
+            AND column_name = 'previous_snapshot'
+        ) AS has_previous_snapshot_column,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'dispense_line_lot_correction_audits'
+            AND column_name = 'corrected_by'
+        ) AS has_corrected_by_column,
+        EXISTS (
+          SELECT 1
+          FROM pg_indexes
+          WHERE schemaname = 'public'
+            AND indexname = 'idx_dispense_line_lot_correction_audits_line_corrected_at'
+        ) AS has_line_corrected_at_index
+    `,
+    interpretProbe(row) {
+      const prerequisitesMet = Boolean(row?.has_dispense_lines);
+      const applied = Boolean(
+        row?.has_correction_audits_table &&
+          row?.has_dispense_line_id_column &&
+          row?.has_previous_snapshot_column &&
+          row?.has_corrected_by_column &&
+          row?.has_line_corrected_at_index
+      );
+
+      return {
+        applied,
+        prerequisitesMet,
+        details: [
+          {
+            label: "dispense_lines table",
+            ok: prerequisitesMet,
+          },
+          {
+            label: "dispense_line_lot_correction_audits table",
+            ok: Boolean(row?.has_correction_audits_table),
+          },
+          {
+            label: "dispense_line_id column",
+            ok: Boolean(row?.has_dispense_line_id_column),
+          },
+          {
+            label: "previous_snapshot column",
+            ok: Boolean(row?.has_previous_snapshot_column),
+          },
+          {
+            label: "corrected_by column",
+            ok: Boolean(row?.has_corrected_by_column),
+          },
+          {
+            label: "line-corrected-at index",
+            ok: Boolean(row?.has_line_corrected_at_index),
+          },
+        ],
+      };
+    },
+  },
 };
 
 export function getManagedMigrationDefinition(fileName) {

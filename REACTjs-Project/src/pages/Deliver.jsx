@@ -547,7 +547,28 @@ function formatDispenseSubmitValidationError(errors = []) {
   return `ข้อมูลสำหรับบันทึกการส่งมอบยังไม่ครบ: ${errors.join(" / ")}`;
 }
 
+function isInsufficientStockError(error) {
+  const candidates = [
+    error?.message,
+    error?.payload?.error,
+    error?.payload?.message,
+    error?.payload?.details,
+  ];
+  return candidates.some((value) =>
+    String(Array.isArray(value) ? value.join(" ") : value || "")
+      .toLowerCase()
+      .includes("insufficient stock")
+  );
+}
+
 function getSubmitErrorMessage(error, fallback) {
+  if (isInsufficientStockError(error)) {
+    return (
+      "ยืนยันไม่ได้ เพราะ stock ของ lot/หน่วยนี้ไม่พอหรือหมดแล้ว " +
+      "กรุณาตรวจสอบรายการรับเข้าอีกครั้ง โดยเฉพาะกรณีรับเข้าเป็นกล่องแต่บันทึกเป็นแผง"
+    );
+  }
+
   const message = error?.message || fallback;
   const details = error?.payload?.details;
   if (Array.isArray(details) && details.length) {

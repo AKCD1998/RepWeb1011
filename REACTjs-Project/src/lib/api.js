@@ -731,6 +731,40 @@ export const incidentsApi = {
 };
 
 export const adminApi = {
+  getDispenseLine(id) {
+    const dispenseLineId = String(id || "").trim();
+    if (!dispenseLineId) {
+      throw new Error("dispense line id is required");
+    }
+
+    return requestJson({
+      method: "GET",
+      url: `/api/admin/dispense-lines/${encodeURIComponent(dispenseLineId)}`,
+    });
+  },
+  correctDispenseLineLot(id, payload = {}) {
+    const dispenseLineId = String(id || "").trim();
+    const newLotId = String(payload?.newLotId ?? payload?.new_lot_id ?? "").trim();
+    const reason = String(payload?.reason ?? payload?.reasonText ?? payload?.reason_text ?? "").trim();
+    if (!dispenseLineId) {
+      throw new Error("dispense line id is required");
+    }
+    if (!newLotId) {
+      throw new Error("newLotId is required");
+    }
+    if (!reason) {
+      throw new Error("reason is required");
+    }
+
+    return requestJson({
+      method: "PATCH",
+      url: `/api/admin/dispense-lines/${encodeURIComponent(dispenseLineId)}/correct-lot`,
+      data: {
+        newLotId,
+        reason,
+      },
+    });
+  },
   databaseSchema() {
     return requestJson({
       method: "GET",
