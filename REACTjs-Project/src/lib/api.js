@@ -653,6 +653,16 @@ export const dispenseApi = {
   },
 };
 
+export const deliveriesApi = {
+  returnProduct(payload) {
+    return requestJson({
+      method: "POST",
+      url: "/api/deliveries/return",
+      data: payload,
+    });
+  },
+};
+
 export const reportsApi = {
   organicDispenseLedger(filters = {}) {
     const params = {};

@@ -1456,3 +1456,57 @@ Start with Deliver line-model refactor to support multiple rows for the same pro
   - no real ThaiD API, credentials, endpoints, or production callback flow added
   - no backend behavior changed
   - no MQTT broker/topic defaults changed
+
+## 2026-05-26 14:21:34 +07:00 - Added Deliver return-product modal flow
+- Goal:
+  - add a dedicated `คืนสินค้า` workflow inside the Deliver POS rail without changing the existing smartcard / ThaiD / finalize flow
+  - let staff search for a previously delivered item by product + PID before confirming a stock return
+  - keep real stock/report cancellation behavior isolated behind an explicit placeholder until backend return APIs exist
+- Frontend:
+  - updated `src/pages/Deliver.jsx`
+  - updated `src/pages/Deliver.css`
+  - added a new `คืนสินค้า` button in the existing `pos-rail`
+  - added `คืนสินค้าเข้าสต๊อก` modal state, inputs, matched-transaction preview, and second confirmation popup
+  - reused the existing Deliver product catalog/search list for return-product selection instead of creating a duplicate modal/helper
+  - reused existing `dispenseApi.history(...)` for transaction lookup
+  - added placeholder helpers:
+    - `searchReturnableDelivery(...)`
+    - `submitReturnedDelivery(...)`
+- Backend note:
+  - no dedicated return endpoint existed in the repo at this point
+  - documented intended backend contract:
+    - `POST /api/deliveries/search-returnable`
+    - `POST /api/deliveries/return`
+  - documented business rule that returned/cancelled deliveries must be excluded from ขย.10/11 reports while remaining available as audit history
+- Verification:
+  - `npm run build` passed
+
+## 2026-05-26 14:21:34 +07:00 - Fixed Deliver return search mismatch (barcode vs product code history match)
+- Problem:
+  - the new return modal could show `ไม่พบรายการจ่ายยาที่ตรงกับสินค้าและเลขบัตรประชาชนนี้` even when the delivery existed in history
+  - reproducible case:
+    - barcode `8850583002821`
+    - PID `1759900227974`
+    - branch `003`
+    - expected row: `ULTRACET ...` / product code `IC-002106` / `25/05/2026 17:36`
+- Root cause:
+  - the first return-search implementation passed the scanned barcode into `dispenseApi.history({ q: ... })`
+  - the history dataset appears to be searchable primarily by product code / product name, not guaranteed by barcode text
+  - result: the backend/history search could exclude the correct row before local filtering had a chance to compare the resolved product identity
+- Fix:
+  - updated `src/pages/Deliver.jsx`
+  - kept using the existing backend history endpoint `dispenseApi.history(...)`
+  - changed the lookup strategy to:
+    - fetch history rows by exact PID and current branch first
+    - resolve the scanned/typed product against the existing Deliver product catalog and `productLookup(...)`
+    - locally match each history row by any available alias:
+      - barcode / GTIN
+      - product code such as `IC-002106`
+      - product name / display name text
+    - continue excluding `RETURNED` / `CANCELLED` rows
+  - added a small resolved-product hint in the modal so the operator can see which product identity is being used for matching
+- Data source note:
+  - this fix uses the existing backend history endpoint plus the existing frontend Deliver product catalog / product lookup
+  - it does not introduce a new backend endpoint
+- Verification:
+  - `npm run build` passed

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AdminIncidentModal from "../components/AdminIncidentModal";
 import { useAuth } from "../context/AuthContext";
-import { dispenseApi, inventoryApi, productsApi } from "../lib/api";
+import { deliveriesApi, dispenseApi, inventoryApi, productsApi } from "../lib/api";
 import { formatDateOnlyDisplay } from "../lib/dateOnly";
 import { formatQuantityAsUnits } from "../lib/productUnits";
 import { parseDeliverNotes } from "../utils/deliverPatientParser";
@@ -491,13 +491,15 @@ function normalizeReturnableTransactionRow(row = {}) {
     lotNo: toCleanText(row?.lotNo || row?.lot_no),
     lotId: toCleanText(row?.lotId || row?.lot_id),
     quantity: Number.isFinite(quantity) ? quantity : 0,
+    returnedQuantity: Number(row?.returnedQuantity ?? row?.returned_quantity ?? 0) || 0,
+    remainingQuantity: Number(row?.remainingQuantity ?? row?.remaining_quantity ?? quantity) || 0,
     unitLabel: toCleanText(row?.unitLabel || row?.unit_label || row?.unit),
     pid: toCleanText(row?.pid || row?.patientPid || row?.patient_pid),
     patientName: toCleanText(row?.patientName || row?.fullName || row?.patient_name),
     dispensedAt: toCleanText(row?.dispensedAt || row?.transactionDateTime || row?.createdAt),
     branchCode: toCleanText(row?.branchCode || row?.branch_code),
     branchName: toCleanText(row?.branchName || row?.branch_name),
-    status: toCleanText(row?.status).toUpperCase(),
+    status: toCleanText(row?.returnStatus || row?.status).toUpperCase(),
     raw: row,
   };
 }
@@ -596,6 +598,7 @@ async function searchReturnableDelivery({ productQuery, patientPid, branchCode, 
       })
     )
     .filter((item) => !["RETURNED", "CANCELLED"].includes(item.status))
+    .filter((item) => Number(item.remainingQuantity ?? item.quantity ?? 0) > 0)
     .sort((left, right) => {
       const leftTime = new Date(left.dispensedAt || 0).getTime();
       const rightTime = new Date(right.dispensedAt || 0).getTime();
@@ -604,6 +607,8 @@ async function searchReturnableDelivery({ productQuery, patientPid, branchCode, 
 }
 
 async function submitReturnedDelivery({
+  dispenseLineId,
+  dispenseHeaderId,
   transactionId,
   productCode,
   lotNumber,
@@ -611,26 +616,21 @@ async function submitReturnedDelivery({
   patientPid,
   branchCode,
 }) {
-  const safeTransactionId = toCleanText(transactionId);
-  if (!safeTransactionId) {
-    throw new Error("transactionId is required");
+  const safeDispenseLineId = toCleanText(dispenseLineId);
+  if (!safeDispenseLineId) {
+    throw new Error("dispenseLineId is required");
   }
 
-  // TODO: Replace this placeholder with POST /api/deliveries/return when backend is ready.
-  // Intended backend behavior:
-  // 1. increase stock back into the correct branch/lot
-  // 2. mark the dispense/delivery line as RETURNED or CANCELLED for audit history
-  // 3. ensure ขย.10/11 report queries exclude returned/cancelled deliveries
-  return Promise.resolve({
-    ok: true,
-    mock: true,
-    transactionId: safeTransactionId,
+  return deliveriesApi.returnProduct({
+    dispenseLineId: safeDispenseLineId,
+    dispenseHeaderId: toCleanText(dispenseHeaderId || transactionId),
+    returnedQuantity: Number(quantity || 0),
     productCode: toCleanText(productCode),
-    lotNumber: toCleanText(lotNumber),
-    quantity: Number(quantity || 0),
+    lotNo: toCleanText(lotNumber),
     patientPid: toCleanText(patientPid),
     branchCode: toCleanText(branchCode),
-    processedAt: new Date().toISOString(),
+    reason: "คืนสินค้าจากหน้า Deliver",
+    returnSource: "DELIVER_UI",
   });
 }
 
@@ -2054,13 +2054,17 @@ export default function Deliver() {
     setReturnSearchError("");
     try {
       await submitReturnedDelivery({
-        transactionId:
-          returnMatchedTransaction.transactionId ||
-          returnMatchedTransaction.headerId ||
+        dispenseLineId:
+          returnMatchedTransaction.lineId ||
           returnMatchedTransaction.id,
+        dispenseHeaderId:
+          returnMatchedTransaction.headerId ||
+          returnMatchedTransaction.transactionId,
         productCode: returnMatchedTransaction.productCode,
         lotNumber: returnMatchedTransaction.lotNo,
-        quantity: returnMatchedTransaction.quantity,
+        quantity:
+          returnMatchedTransaction.remainingQuantity ||
+          returnMatchedTransaction.quantity,
         patientPid: returnMatchedTransaction.pid,
         branchCode: effectiveBranchCode,
       });
@@ -3500,6 +3504,11 @@ export default function Deliver() {
                   {returnMatchedTransaction.quantity || "-"}
                   {returnMatchedTransaction.unitLabel ? ` ${returnMatchedTransaction.unitLabel}` : ""}
                 </div>
+                <div>
+                  จำนวนที่ยังคืนได้:{" "}
+                  {returnMatchedTransaction.remainingQuantity || "-"}
+                  {returnMatchedTransaction.unitLabel ? ` ${returnMatchedTransaction.unitLabel}` : ""}
+                </div>
                 <div>PID ผู้รับยา: {returnMatchedTransaction.pid || "-"}</div>
                 <div>วันที่ทำรายการ: {formatDateTimeDisplay(returnMatchedTransaction.dispensedAt)}</div>
                 <div>
@@ -3553,7 +3562,10 @@ export default function Deliver() {
             <div className="pos-confirm-summary">
               <div>สินค้า: {returnMatchedTransaction?.tradeName || "-"}</div>
               <div>PID: {returnMatchedTransaction?.pid || "-"}</div>
-              <div>จำนวน: {returnMatchedTransaction?.quantity || "-"}</div>
+              <div>
+                จำนวน:{" "}
+                {returnMatchedTransaction?.remainingQuantity || returnMatchedTransaction?.quantity || "-"}
+              </div>
               <div>Lot: {returnMatchedTransaction?.lotNo || "-"}</div>
             </div>
             <div className="pos-confirm-actions">

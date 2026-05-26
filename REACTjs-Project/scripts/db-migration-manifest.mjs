@@ -372,6 +372,85 @@ export const migrationManifest = {
       };
     },
   },
+  "0027_dispense_returns.sql": {
+    fileName: "0027_dispense_returns.sql",
+    description:
+      "Adds dispense_returns so return-product actions restore stock transactionally while preserving original dispense history for audit.",
+    checkMode: "schema-probe",
+    probeQuery: `
+      SELECT
+        to_regclass('public.dispense_lines') IS NOT NULL AS has_dispense_lines,
+        to_regclass('public.dispense_returns') IS NOT NULL AS has_dispense_returns_table,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'dispense_returns'
+            AND column_name = 'dispense_line_id'
+        ) AS has_dispense_line_id_column,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'dispense_returns'
+            AND column_name = 'returned_quantity_base'
+        ) AS has_returned_quantity_base_column,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'dispense_returns'
+            AND column_name = 'stock_movement_id'
+        ) AS has_stock_movement_id_column,
+        EXISTS (
+          SELECT 1
+          FROM pg_indexes
+          WHERE schemaname = 'public'
+            AND indexname = 'idx_dispense_returns_line_returned_at'
+        ) AS has_line_returned_at_index
+    `,
+    interpretProbe(row) {
+      const prerequisitesMet = Boolean(row?.has_dispense_lines);
+      const applied = Boolean(
+        row?.has_dispense_returns_table &&
+          row?.has_dispense_line_id_column &&
+          row?.has_returned_quantity_base_column &&
+          row?.has_stock_movement_id_column &&
+          row?.has_line_returned_at_index
+      );
+
+      return {
+        applied,
+        prerequisitesMet,
+        details: [
+          {
+            label: "dispense_lines table",
+            ok: prerequisitesMet,
+          },
+          {
+            label: "dispense_returns table",
+            ok: Boolean(row?.has_dispense_returns_table),
+          },
+          {
+            label: "dispense_line_id column",
+            ok: Boolean(row?.has_dispense_line_id_column),
+          },
+          {
+            label: "returned_quantity_base column",
+            ok: Boolean(row?.has_returned_quantity_base_column),
+          },
+          {
+            label: "stock_movement_id column",
+            ok: Boolean(row?.has_stock_movement_id_column),
+          },
+          {
+            label: "line-returned-at index",
+            ok: Boolean(row?.has_line_returned_at_index),
+          },
+        ],
+      };
+    },
+  },
 };
 
 export function getManagedMigrationDefinition(fileName) {

@@ -27,6 +27,7 @@ const productsRoutes = (await import("./routes/productsRoutes.js")).default;
 const activeIngredientsRoutes = (await import("./routes/activeIngredientsRoutes.js")).default;
 const inventoryRoutes = (await import("./routes/inventoryRoutes.js")).default;
 const dispenseRoutes = (await import("./routes/dispenseRoutes.js")).default;
+const deliveriesRoutes = (await import("./routes/deliveriesRoutes.js")).default;
 const reportingRoutes = (await import("./routes/reportingRoutes.js")).default;
 
 const app = express();
@@ -175,6 +176,7 @@ app.use("/api/products", productsRoutes);
 app.use("/api", activeIngredientsRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/dispense", dispenseRoutes);
+app.use("/api/deliveries", deliveriesRoutes);
 app.use("/api", reportingRoutes);
 
 app.use((_req, res) => {

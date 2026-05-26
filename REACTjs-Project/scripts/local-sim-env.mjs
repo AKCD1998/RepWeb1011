@@ -40,6 +40,7 @@ export const preSeedMigrations = [
   "0024_incident_report_admin_audits.sql",
   "0025_product_lot_normalization_audits.sql",
   "0026_dispense_line_lot_correction_audits.sql",
+  "0027_dispense_returns.sql",
 ];
 
 export const postCatalogFixMigrations = [

@@ -30,6 +30,7 @@
     "audit:receiving-search": "node scripts/audit-receiving-search-gaps.mjs",
     "audit:corrupted-packaging-labels": "node scripts/audit-corrupted-packaging-labels.mjs",
     "audit:unit-levels": "node scripts/audit-unit-levels.mjs",
+    "repair:return-dispenses": "node scripts/repair-returned-dispenses.mjs",
     "export:fda-track-trace": "node scripts/export-fda-track-trace.mjs",
     "verify:unit-level": "node scripts/verify-unit-level-stability.mjs",
     "check:server": "node scripts/check-server-syntax.mjs",
