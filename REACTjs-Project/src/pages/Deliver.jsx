@@ -425,6 +425,145 @@ function formatMetadataCacheTime(value) {
   });
 }
 
+function formatDateTimeDisplay(value) {
+  const text = toCleanText(value);
+  if (!text) return "-";
+
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return text.replace("T", " ");
+
+  return parsed.toLocaleString("th-TH", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function buildReturnTransactionSearchText(row = {}) {
+  return [
+    row?.barcode,
+    row?.productCode,
+    row?.tradeName,
+    row?.genericName,
+    row?.lotNo,
+    row?.pid,
+    row?.patientName,
+    row?.branchCode,
+    row?.headerId,
+    row?.lineId,
+  ]
+    .map((value) => toCleanText(value).toLowerCase())
+    .filter(Boolean)
+    .join(" ");
+}
+
+function normalizeReturnableTransactionRow(row = {}) {
+  const quantity = Number(
+    row?.quantity ??
+      row?.qty ??
+      row?.deliveredQuantity ??
+      row?.delivered_quantity ??
+      row?.lineQty
+  );
+
+  return {
+    id: toCleanText(
+      row?.lineId ||
+        row?.line_id ||
+        row?.transactionLineId ||
+        row?.transaction_line_id ||
+        row?.headerId ||
+        row?.header_id
+    ),
+    transactionId: toCleanText(
+      row?.transactionId ||
+        row?.transaction_id ||
+        row?.headerId ||
+        row?.header_id ||
+        row?.dispenseHeaderId
+    ),
+    headerId: toCleanText(row?.headerId || row?.header_id),
+    lineId: toCleanText(row?.lineId || row?.line_id),
+    productId: toCleanText(row?.productId || row?.product_id),
+    productCode: toCleanText(row?.productCode || row?.product_code),
+    barcode: toCleanText(row?.barcode || row?.productBarcode || row?.product_barcode),
+    tradeName: toCleanText(row?.tradeName || row?.productName || row?.trade_name),
+    lotNo: toCleanText(row?.lotNo || row?.lot_no),
+    lotId: toCleanText(row?.lotId || row?.lot_id),
+    quantity: Number.isFinite(quantity) ? quantity : 0,
+    unitLabel: toCleanText(row?.unitLabel || row?.unit_label || row?.unit),
+    pid: toCleanText(row?.pid || row?.patientPid || row?.patient_pid),
+    patientName: toCleanText(row?.patientName || row?.fullName || row?.patient_name),
+    dispensedAt: toCleanText(row?.dispensedAt || row?.transactionDateTime || row?.createdAt),
+    branchCode: toCleanText(row?.branchCode || row?.branch_code),
+    branchName: toCleanText(row?.branchName || row?.branch_name),
+    status: toCleanText(row?.status).toUpperCase(),
+    raw: row,
+  };
+}
+
+async function searchReturnableDelivery({ productQuery, patientPid, branchCode }) {
+  const safeProductQuery = toCleanText(productQuery);
+  const safePatientPid = toCleanText(patientPid);
+  const safeBranchCode = toCleanText(branchCode);
+
+  if (!safeProductQuery || !safePatientPid) {
+    throw new Error("productQuery และ patientPid จำเป็นต้องระบุ");
+  }
+
+  const payload = await dispenseApi.history({
+    q: safeProductQuery,
+    pid: safePatientPid,
+    branchCode: safeBranchCode || undefined,
+    limit: 20,
+  });
+  const normalizedQuery = safeProductQuery.toLowerCase();
+
+  return (Array.isArray(payload?.items) ? payload.items : [])
+    .map(normalizeReturnableTransactionRow)
+    .filter((item) => item.id && item.pid)
+    .filter((item) => {
+      const text = buildReturnTransactionSearchText(item);
+      return !normalizedQuery || text.includes(normalizedQuery);
+    })
+    .filter((item) => !["RETURNED", "CANCELLED"].includes(item.status))
+    .sort((left, right) => {
+      const leftTime = new Date(left.dispensedAt || 0).getTime();
+      const rightTime = new Date(right.dispensedAt || 0).getTime();
+      return rightTime - leftTime;
+    });
+}
+
+async function submitReturnedDelivery({
+  transactionId,
+  productCode,
+  lotNumber,
+  quantity,
+  patientPid,
+  branchCode,
+}) {
+  const safeTransactionId = toCleanText(transactionId);
+  if (!safeTransactionId) {
+    throw new Error("transactionId is required");
+  }
+
+  // TODO: Replace this placeholder with POST /api/deliveries/return when backend is ready.
+  // Intended backend behavior:
+  // 1. increase stock back into the correct branch/lot
+  // 2. mark the dispense/delivery line as RETURNED or CANCELLED for audit history
+  // 3. ensure ขย.10/11 report queries exclude returned/cancelled deliveries
+  return Promise.resolve({
+    ok: true,
+    mock: true,
+    transactionId: safeTransactionId,
+    productCode: toCleanText(productCode),
+    lotNumber: toCleanText(lotNumber),
+    quantity: Number(quantity || 0),
+    patientPid: toCleanText(patientPid),
+    branchCode: toCleanText(branchCode),
+    processedAt: new Date().toISOString(),
+  });
+}
+
 function clonePendingPayload(payload = {}) {
   return {
     ...payload,
@@ -639,6 +778,15 @@ export default function Deliver() {
   const [isIncidentModalOpen, setIsIncidentModalOpen] = useState(false);
   const [incidentModalSeed, setIncidentModalSeed] = useState(null);
   const [isProductSearchModalOpen, setIsProductSearchModalOpen] = useState(false);
+  const [showReturnModal, setShowReturnModal] = useState(false);
+  const [returnProductQuery, setReturnProductQuery] = useState("");
+  const [returnPatientPid, setReturnPatientPid] = useState("");
+  const [returnSearchLoading, setReturnSearchLoading] = useState(false);
+  const [returnSearchError, setReturnSearchError] = useState("");
+  const [returnMatchedTransaction, setReturnMatchedTransaction] = useState(null);
+  const [returnSearchResults, setReturnSearchResults] = useState([]);
+  const [showReturnConfirmModal, setShowReturnConfirmModal] = useState(false);
+  const [returnSubmitting, setReturnSubmitting] = useState(false);
   const [pendingMultiplier, setPendingMultiplier] = useState(null);
   const [deliverNotes, setDeliverNotes] = useState("");
   const [reportTypeOptions, setReportTypeOptions] = useState([]);
@@ -1686,6 +1834,11 @@ export default function Deliver() {
     return matched.name ? `${matched.code} : ${matched.name}` : matched.code;
   }, [branchOptions, effectiveBranchCode, isAdmin]);
 
+  const visibleReturnProductOptions = useMemo(
+    () => filterDeliverSearchProducts(deliverSearchProducts, returnProductQuery).slice(0, 8),
+    [deliverSearchProducts, returnProductQuery]
+  );
+
   const activeMetadataCacheMessage = useMemo(() => {
     if (!selectedProductName || !activeMetadataCacheStatus) return "";
 
@@ -1712,6 +1865,123 @@ export default function Deliver() {
 
     return "";
   }, [activeMetadataCacheStatus, selectedProductName]);
+
+  const resetReturnForm = useCallback(() => {
+    setReturnProductQuery("");
+    setReturnPatientPid("");
+    setReturnSearchError("");
+    setReturnMatchedTransaction(null);
+    setReturnSearchResults([]);
+    setShowReturnConfirmModal(false);
+    setReturnSearchLoading(false);
+    setReturnSubmitting(false);
+  }, []);
+
+  const handleCloseReturnModal = useCallback(() => {
+    setShowReturnModal(false);
+    resetReturnForm();
+  }, [resetReturnForm]);
+
+  const handleReturnModalBackdrop = useCallback(
+    (event) => {
+      if (returnSubmitting) return;
+      if (event.target === event.currentTarget) {
+        handleCloseReturnModal();
+      }
+    },
+    [handleCloseReturnModal, returnSubmitting]
+  );
+
+  const handleSelectReturnProduct = useCallback((product) => {
+    const nextLabel =
+      toCleanText(product?.barcode) ||
+      toCleanText(product?.productCode) ||
+      toCleanText(product?.name);
+    setReturnProductQuery(nextLabel);
+    setReturnSearchError("");
+    setReturnMatchedTransaction(null);
+    setReturnSearchResults([]);
+  }, []);
+
+  const handleReturnProductInputKeyDown = useCallback(
+    (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      if (visibleReturnProductOptions.length) {
+        handleSelectReturnProduct(visibleReturnProductOptions[0]);
+      }
+    },
+    [handleSelectReturnProduct, visibleReturnProductOptions]
+  );
+
+  const handleSearchReturnTransactions = useCallback(async () => {
+    const safeProductQuery = toCleanText(returnProductQuery);
+    const safePatientPid = toCleanText(returnPatientPid);
+
+    if (!safeProductQuery || !safePatientPid) {
+      setReturnSearchError("กรุณากรอกข้อมูลสินค้าและเลขบัตรประชาชนผู้รับยา");
+      setReturnMatchedTransaction(null);
+      setReturnSearchResults([]);
+      return;
+    }
+
+    setReturnSearchLoading(true);
+    setReturnSearchError("");
+    setReturnMatchedTransaction(null);
+    setReturnSearchResults([]);
+
+    try {
+      const rows = await searchReturnableDelivery({
+        productQuery: safeProductQuery,
+        patientPid: safePatientPid,
+        branchCode: effectiveBranchCode,
+      });
+
+      if (!rows.length) {
+        setReturnSearchError("ไม่พบรายการจ่ายยาที่ตรงกับสินค้าและเลขบัตรประชาชนนี้");
+        return;
+      }
+
+      setReturnSearchResults(rows);
+      setReturnMatchedTransaction(rows[0]);
+    } catch (error) {
+      setReturnSearchError(
+        error?.message ||
+          "ค้นหารายการจ่ายยาไม่สำเร็จ"
+      );
+    } finally {
+      setReturnSearchLoading(false);
+    }
+  }, [effectiveBranchCode, returnPatientPid, returnProductQuery]);
+
+  const handleSubmitReturnedDelivery = useCallback(async () => {
+    if (!returnMatchedTransaction || returnSubmitting) return;
+
+    setReturnSubmitting(true);
+    setReturnSearchError("");
+    try {
+      await submitReturnedDelivery({
+        transactionId:
+          returnMatchedTransaction.transactionId ||
+          returnMatchedTransaction.headerId ||
+          returnMatchedTransaction.id,
+        productCode: returnMatchedTransaction.productCode,
+        lotNumber: returnMatchedTransaction.lotNo,
+        quantity: returnMatchedTransaction.quantity,
+        patientPid: returnMatchedTransaction.pid,
+        branchCode: effectiveBranchCode,
+      });
+      setShowReturnConfirmModal(false);
+      setShowReturnModal(false);
+      resetReturnForm();
+      setSubmitError("");
+      setSubmitSuccess("คืนสินค้าเรียบร้อยแล้ว");
+    } catch (error) {
+      setReturnSearchError(error?.message || "คืนสินค้าไม่สำเร็จ");
+    } finally {
+      setReturnSubmitting(false);
+    }
+  }, [effectiveBranchCode, resetReturnForm, returnMatchedTransaction, returnSubmitting]);
 
   const resetDispenseForm = useCallback(() => {
     setItems([]);
@@ -1747,6 +2017,34 @@ export default function Deliver() {
       barcodeInputRef.current.focus();
     }
   }, [userBranchCode]);
+
+  const handleOpenReturnModal = useCallback(async () => {
+    if (isAdmin && !effectiveBranchCode) {
+      setSubmitError("กรุณาเลือกสาขาที่ทำรายการก่อนคืนสินค้า");
+      return;
+    }
+
+    setSubmitError("");
+    setSubmitSuccess("");
+    setDeliverSearchLoadError("");
+    resetReturnForm();
+    setShowReturnModal(true);
+
+    if (!deliverSearchProducts.length && !isLoadingDeliverSearchProducts) {
+      try {
+        await loadDeliverSearchProducts();
+      } catch {
+        // loadDeliverSearchProducts already updates local error state
+      }
+    }
+  }, [
+    deliverSearchProducts.length,
+    effectiveBranchCode,
+    isAdmin,
+    isLoadingDeliverSearchProducts,
+    loadDeliverSearchProducts,
+    resetReturnForm,
+  ]);
 
   const savePayloadAsPending = useCallback(
     async (payload, reason = "OFFLINE") => {
@@ -2827,6 +3125,22 @@ export default function Deliver() {
                 </button>
 
                 <button
+                  className="btn pos-return-btn"
+                  type="button"
+                  onClick={() => {
+                    void handleOpenReturnModal();
+                  }}
+                  disabled={!canOpenProductSearch || isSubmitting}
+                  title={
+                    canOpenProductSearch
+                      ? "ค้นหารายการจ่ายยาเดิมเพื่อคืนสินค้าเข้าสต๊อก"
+                      : "กรุณาเลือกสาขาที่ทำรายการก่อนคืนสินค้า"
+                  }
+                >
+                  คืนสินค้า
+                </button>
+
+                <button
                   className="btn btn-primary pos-confirm-main"
                   id="pos-confirmBtn"
                   type="button"
@@ -2948,6 +3262,218 @@ export default function Deliver() {
                 disabled={isSubmitting}
               >
                 {isSubmitting ? "กำลังยืนยัน..." : isOnline ? "ยืนยัน" : "บันทึกรายการค้าง"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showReturnModal ? (
+        <div
+          className="pos-modal"
+          aria-hidden="false"
+          onClick={handleReturnModalBackdrop}
+        >
+          <div className="pos-search-dialog pos-return-dialog" role="dialog" aria-modal="true" aria-labelledby="deliver-return-title">
+            <div className="pos-search-header">
+              <div>
+                <div className="pos-search-title-row">
+                  <h2 className="pos-search-title" id="deliver-return-title">
+                    คืนสินค้าเข้าสต๊อก
+                  </h2>
+                </div>
+                <p className="pos-search-body">
+                  ใช้ค้นหารายการจ่ายยาเดิมตามสินค้าและเลขบัตรประชาชน เพื่อคืนเข้าสต๊อกอย่างปลอดภัยโดยไม่กระทบ flow ยืนยันการส่งมอบปัจจุบัน
+                </p>
+              </div>
+            </div>
+
+            <div className="pos-return-form">
+              <label className="pos-notes-label" htmlFor="return-product-query">
+                สแกนบาร์โค้ด / ค้นหาชื่อสินค้า
+              </label>
+              <input
+                id="return-product-query"
+                className="pos-search-input pos-return-input"
+                type="search"
+                value={returnProductQuery}
+                onChange={(event) => {
+                  setReturnProductQuery(event.target.value);
+                  setReturnSearchError("");
+                  setReturnMatchedTransaction(null);
+                  setReturnSearchResults([]);
+                }}
+                onKeyDown={handleReturnProductInputKeyDown}
+                placeholder="บาร์โค้ด / รหัสสินค้า / ชื่อยา"
+                disabled={returnSearchLoading || returnSubmitting}
+              />
+
+              {returnProductQuery && visibleReturnProductOptions.length ? (
+                <div className="pos-return-product-list" role="listbox" aria-label="ตัวเลือกสินค้าสำหรับคืน">
+                  {visibleReturnProductOptions.map((product) => (
+                    <button
+                      key={product.id}
+                      type="button"
+                      className="pos-return-product-option"
+                      onClick={() => handleSelectReturnProduct(product)}
+                    >
+                      <strong>{product.name || "-"}</strong>
+                      <span>{product.barcode || product.productCode || "-"}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              <label className="pos-notes-label" htmlFor="return-patient-pid">
+                เลขบัตรประชาชนผู้รับยา
+              </label>
+              <input
+                id="return-patient-pid"
+                className="pos-search-input pos-return-input"
+                type="text"
+                inputMode="numeric"
+                value={returnPatientPid}
+                onChange={(event) => {
+                  setReturnPatientPid(event.target.value);
+                  setReturnSearchError("");
+                  setReturnMatchedTransaction(null);
+                  setReturnSearchResults([]);
+                }}
+                placeholder="เลขบัตรประชาชน 13 หลัก"
+                disabled={returnSearchLoading || returnSubmitting}
+              />
+
+              <div className="pos-return-toolbar">
+                <button
+                  type="button"
+                  className="pos-search-submit-button"
+                  onClick={() => {
+                    void handleSearchReturnTransactions();
+                  }}
+                  disabled={returnSearchLoading || returnSubmitting}
+                >
+                  {returnSearchLoading ? "กำลังค้นหา..." : "ค้นหารายการจ่ายยา"}
+                </button>
+                <div className="pos-return-branch">สาขาที่ทำรายการ: {selectedBranchLabel}</div>
+              </div>
+            </div>
+
+            {returnSearchError ? (
+              <div className="pos-feedback pos-feedback--error pos-search-feedback">
+                {returnSearchError}
+              </div>
+            ) : null}
+            {deliverSearchLoadError && showReturnModal ? (
+              <div className="pos-feedback pos-feedback--error pos-search-feedback">
+                {deliverSearchLoadError}
+              </div>
+            ) : null}
+
+            {returnSearchResults.length ? (
+              <div className="pos-return-result-list" role="list" aria-label="รายการจ่ายยาที่ตรงกัน">
+                {returnSearchResults.map((row) => {
+                  const isSelected = returnMatchedTransaction?.id === row.id;
+                  return (
+                    <button
+                      key={row.id}
+                      type="button"
+                      className={`pos-return-result-item${isSelected ? " is-selected" : ""}`}
+                      onClick={() => setReturnMatchedTransaction(row)}
+                    >
+                      <strong>{row.tradeName || "-"}</strong>
+                      <span>
+                        {row.productCode || row.barcode || "-"} / lot {row.lotNo || "-"} / {formatDateTimeDisplay(row.dispensedAt)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {returnMatchedTransaction ? (
+              <div className="pos-confirm-summary pos-return-summary">
+                <div>ชื่อสินค้า: {returnMatchedTransaction.tradeName || "-"}</div>
+                <div>Barcode / รหัสสินค้า: {returnMatchedTransaction.barcode || returnMatchedTransaction.productCode || "-"}</div>
+                <div>Lot: {returnMatchedTransaction.lotNo || "-"}</div>
+                <div>
+                  จำนวนที่จ่าย:{" "}
+                  {returnMatchedTransaction.quantity || "-"}
+                  {returnMatchedTransaction.unitLabel ? ` ${returnMatchedTransaction.unitLabel}` : ""}
+                </div>
+                <div>PID ผู้รับยา: {returnMatchedTransaction.pid || "-"}</div>
+                <div>วันที่ทำรายการ: {formatDateTimeDisplay(returnMatchedTransaction.dispensedAt)}</div>
+                <div>
+                  สาขา:{" "}
+                  {returnMatchedTransaction.branchCode
+                    ? `${returnMatchedTransaction.branchCode}${returnMatchedTransaction.branchName ? ` : ${returnMatchedTransaction.branchName}` : ""}`
+                    : "-"}
+                </div>
+                <div>เลขอ้างอิง: {returnMatchedTransaction.headerId || returnMatchedTransaction.transactionId || "-"}</div>
+              </div>
+            ) : null}
+
+            <div className="pos-confirm-actions">
+              <button
+                type="button"
+                className="btn pos-confirm-cancel"
+                onClick={handleCloseReturnModal}
+                disabled={returnSubmitting}
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary pos-confirm-submit"
+                onClick={() => setShowReturnConfirmModal(true)}
+                disabled={!returnMatchedTransaction || returnSubmitting}
+              >
+                ยืนยันคืนสินค้า
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showReturnConfirmModal ? (
+        <div
+          className="pos-modal"
+          aria-hidden="false"
+          onClick={(event) => {
+            if (returnSubmitting) return;
+            if (event.target === event.currentTarget) {
+              setShowReturnConfirmModal(false);
+            }
+          }}
+        >
+          <div className="pos-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="deliver-return-confirm-title">
+            <h2 className="pos-confirm-title" id="deliver-return-confirm-title">ยืนยันการคืนสินค้า</h2>
+            <p className="pos-confirm-body">
+              ระบบจะคืนสินค้ากลับเข้าสต๊อก และยกเลิกไม่ให้รายการนี้ถูกบันทึกในรายงาน ขย.10/11
+            </p>
+            <div className="pos-confirm-summary">
+              <div>สินค้า: {returnMatchedTransaction?.tradeName || "-"}</div>
+              <div>PID: {returnMatchedTransaction?.pid || "-"}</div>
+              <div>จำนวน: {returnMatchedTransaction?.quantity || "-"}</div>
+              <div>Lot: {returnMatchedTransaction?.lotNo || "-"}</div>
+            </div>
+            <div className="pos-confirm-actions">
+              <button
+                type="button"
+                className="btn pos-confirm-cancel"
+                onClick={() => setShowReturnConfirmModal(false)}
+                disabled={returnSubmitting}
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary pos-confirm-submit"
+                onClick={() => {
+                  void handleSubmitReturnedDelivery();
+                }}
+                disabled={!returnMatchedTransaction || returnSubmitting}
+              >
+                {returnSubmitting ? "กำลังคืนสินค้า..." : "ตกลง"}
               </button>
             </div>
           </div>

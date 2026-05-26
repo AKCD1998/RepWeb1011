@@ -729,6 +729,17 @@
   background: linear-gradient(180deg, #eff6ff 0%, #bfdbfe 100%);
 }
 
+.pos-return-btn {
+  background: linear-gradient(180deg, #fff7ed 0%, #fdba74 100%);
+  border: 1px solid rgba(194, 65, 12, 0.35);
+  color: #7c2d12;
+  font-weight: 700;
+}
+
+.pos-return-btn:hover {
+  background: linear-gradient(180deg, #ffedd5 0%, #fb923c 100%);
+}
+
 .pos-incident-trigger {
   margin-top: 10px;
   background: linear-gradient(180deg, #fff7ed 0%, #fed7aa 100%);
@@ -908,6 +919,11 @@
   max-width: 980px;
   padding: 20px;
   width: min(92vw, 980px);
+}
+
+.pos-return-dialog {
+  max-width: 760px;
+  width: min(92vw, 760px);
 }
 
 .pos-pending-dialog {
@@ -1185,6 +1201,73 @@
 
 .pos-search-feedback {
   margin: 0 0 14px;
+}
+
+.pos-return-form {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.pos-return-input {
+  width: 100%;
+}
+
+.pos-return-toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.pos-return-branch {
+  color: rgba(226, 232, 240, 0.72);
+  font-size: 13px;
+}
+
+.pos-return-product-list,
+.pos-return-result-list {
+  background: rgba(2, 6, 23, 0.42);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 10px;
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 10px;
+}
+
+.pos-return-product-option,
+.pos-return-result-item {
+  align-items: flex-start;
+  background: rgba(15, 23, 42, 0.86);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  color: #e2e8f0;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.pos-return-product-option:hover,
+.pos-return-result-item:hover,
+.pos-return-result-item.is-selected {
+  border-color: rgba(251, 191, 36, 0.5);
+  background: rgba(30, 41, 59, 0.96);
+}
+
+.pos-return-product-option span,
+.pos-return-result-item span {
+  color: rgba(226, 232, 240, 0.72);
+  font-size: 12px;
+}
+
+.pos-return-summary {
+  margin-top: 0;
 }
 
 .pos-search-table {
@@ -1550,6 +1633,10 @@
   .pos-search-input {
     min-width: 0;
     width: 100%;
+  }
+
+  .pos-return-toolbar {
+    align-items: stretch;
   }
 
   .pos-search-table-head,
