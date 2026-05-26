@@ -285,8 +285,24 @@
   background: color-mix(in srgb, var(--accent) 6%, var(--panel));
 }
 
+.patient-history-table tbody tr.is-returned td {
+  background: color-mix(in srgb, #a61d2d 22%, var(--panel));
+}
+
+.patient-history-table tbody tr.is-partial td {
+  background: color-mix(in srgb, #a65f1d 16%, var(--panel));
+}
+
 .patient-history-table tbody tr.is-expanded td {
   background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+}
+
+.patient-history-table tbody tr.is-returned.is-expanded td {
+  background: color-mix(in srgb, #a61d2d 28%, var(--panel));
+}
+
+.patient-history-table tbody tr.is-partial.is-expanded td {
+  background: color-mix(in srgb, #a65f1d 22%, var(--panel));
 }
 
 .patient-history-expand-btn {
@@ -310,6 +326,29 @@
 .patient-history-product-cell span {
   color: var(--muted);
   font-size: 12px;
+}
+
+.patient-history-return-badge {
+  width: fit-content;
+  margin-top: 2px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.patient-history-return-badge.is-returned {
+  background: color-mix(in srgb, #7f1020 68%, var(--panel));
+  border-color: color-mix(in srgb, #ff8897 42%, transparent);
+  color: #ffd6dc;
+}
+
+.patient-history-return-badge.is-partial {
+  background: color-mix(in srgb, #8a4e10 60%, var(--panel));
+  border-color: color-mix(in srgb, #ffc47a 34%, transparent);
+  color: #ffe6c2;
 }
 
 .patient-history-number-cell {

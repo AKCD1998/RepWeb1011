@@ -108,6 +108,27 @@ function buildPageTokens(currentPage, totalPages) {
   return tokens;
 }
 
+function getHistoryReturnState(item) {
+  const status = normalizeRole(item?.returnStatus || item?.status);
+  const returnedQuantity = Number(item?.returnedQuantity || 0);
+  const remainingQuantity = Number(item?.remainingQuantity ?? item?.quantity ?? 0);
+
+  if (status === "RETURNED" || (returnedQuantity > 0 && remainingQuantity <= 0)) {
+    return "returned";
+  }
+  if (status === "PARTIALLY_RETURNED" || returnedQuantity > 0) {
+    return "partial";
+  }
+  return "active";
+}
+
+function getHistoryReturnLabel(item) {
+  const returnState = getHistoryReturnState(item);
+  if (returnState === "returned") return "คืนสินค้าแล้ว";
+  if (returnState === "partial") return "คืนสินค้าบางส่วน";
+  return "";
+}
+
 export default function PatientPurchaseHistory() {
   const { user } = useAuth();
   const initialFilters = useMemo(() => createInitialFilters(user), [user]);
@@ -476,12 +497,21 @@ export default function PatientPurchaseHistory() {
                 items.map((item) => {
                   const lineId = toCleanText(item?.lineId || `${item?.headerId || "history"}-${item?.lineNo || "0"}`);
                   const isExpanded = Boolean(expandedRows[lineId]);
+                  const returnState = getHistoryReturnState(item);
+                  const returnLabel = getHistoryReturnLabel(item);
                   const notePreview =
                     toCleanText(item?.lineNote) || toCleanText(item?.headerNote) || "-";
 
                   return (
                     <Fragment key={lineId}>
-                      <tr className={isExpanded ? "is-expanded" : ""}>
+                      <tr
+                        className={[
+                          isExpanded ? "is-expanded" : "",
+                          returnState !== "active" ? `is-${returnState}` : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                      >
                         <td>
                           <button
                             type="button"
@@ -501,6 +531,9 @@ export default function PatientPurchaseHistory() {
                           <div className="patient-history-product-cell">
                             <strong>{item?.tradeName || "-"}</strong>
                             <span>{item?.productCode || "-"}</span>
+                            {returnLabel ? (
+                              <span className={`patient-history-return-badge is-${returnState}`}>{returnLabel}</span>
+                            ) : null}
                           </div>
                         </td>
                         <td>{item?.lotNo || "-"}</td>
@@ -583,6 +616,18 @@ export default function PatientPurchaseHistory() {
                                   <div>
                                     <dt>จำนวน</dt>
                                     <dd>{formatNumber(item?.quantity)}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>สถานะการคืน</dt>
+                                    <dd>{returnLabel || "ปกติ"}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>จำนวนที่คืนแล้ว</dt>
+                                    <dd>{formatNumber(item?.returnedQuantity || 0)}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>จำนวนที่ยังนับในรายงาน</dt>
+                                    <dd>{formatNumber(item?.remainingQuantity ?? item?.quantity)}</dd>
                                   </div>
                                   <div>
                                     <dt>หน่วย</dt>
