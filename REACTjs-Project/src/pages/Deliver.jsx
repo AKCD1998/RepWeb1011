@@ -443,6 +443,7 @@ function buildReturnTransactionSearchText(row = {}) {
     row?.barcode,
     row?.productCode,
     row?.tradeName,
+    row?.displayName,
     row?.genericName,
     row?.lotNo,
     row?.pid,
@@ -501,7 +502,74 @@ function normalizeReturnableTransactionRow(row = {}) {
   };
 }
 
-async function searchReturnableDelivery({ productQuery, patientPid, branchCode }) {
+function matchesReturnablePid(row = {}, patientPid = "") {
+  return toCleanText(row?.pid) === toCleanText(patientPid);
+}
+
+function matchesReturnableBranch(row = {}, branchCode = "") {
+  const safeBranchCode = toCleanText(branchCode);
+  if (!safeBranchCode) return true;
+  return toCleanText(row?.branchCode) === safeBranchCode;
+}
+
+function buildReturnProductAliases(productQuery = "", resolvedProduct = null) {
+  const aliases = new Set();
+  const addAlias = (value) => {
+    const cleaned = toCleanText(value).toLowerCase();
+    if (cleaned) aliases.add(cleaned);
+  };
+
+  addAlias(productQuery);
+  addAlias(resolvedProduct?.barcode);
+  addAlias(resolvedProduct?.productCode);
+  addAlias(resolvedProduct?.companyCode);
+  addAlias(resolvedProduct?.name);
+  addAlias(resolvedProduct?.displayName);
+  addAlias(resolvedProduct?.tradeName);
+  addAlias(resolvedProduct?.genericName);
+
+  return [...aliases];
+}
+
+function matchesReturnableProduct(row = {}, { productQuery = "", resolvedProduct = null } = {}) {
+  const aliases = buildReturnProductAliases(productQuery, resolvedProduct);
+  if (!aliases.length) return true;
+
+  const rowFields = [
+    row?.barcode,
+    row?.productCode,
+    row?.tradeName,
+    row?.displayName,
+    row?.genericName,
+  ]
+    .map((value) => toCleanText(value).toLowerCase())
+    .filter(Boolean);
+
+  return aliases.some((alias) =>
+    rowFields.some((field) => field === alias || field.includes(alias) || alias.includes(field))
+  );
+}
+
+function resolveReturnProductCandidate(products, productQuery) {
+  const safeQuery = toCleanText(productQuery).toLowerCase();
+  if (!safeQuery) return null;
+
+  return (
+    (Array.isArray(products) ? products : []).find((product) => {
+      const barcode = toCleanText(product?.barcode).toLowerCase();
+      const productCode = toCleanText(product?.productCode ?? product?.companyCode).toLowerCase();
+      const name = toCleanText(product?.name ?? product?.tradeName).toLowerCase();
+      return (
+        barcode === safeQuery ||
+        productCode === safeQuery ||
+        name === safeQuery ||
+        name.includes(safeQuery)
+      );
+    }) || null
+  );
+}
+
+async function searchReturnableDelivery({ productQuery, patientPid, branchCode, resolvedProduct }) {
   const safeProductQuery = toCleanText(productQuery);
   const safePatientPid = toCleanText(patientPid);
   const safeBranchCode = toCleanText(branchCode);
@@ -511,20 +579,22 @@ async function searchReturnableDelivery({ productQuery, patientPid, branchCode }
   }
 
   const payload = await dispenseApi.history({
-    q: safeProductQuery,
     pid: safePatientPid,
     branchCode: safeBranchCode || undefined,
-    limit: 20,
+    limit: 100,
   });
-  const normalizedQuery = safeProductQuery.toLowerCase();
 
   return (Array.isArray(payload?.items) ? payload.items : [])
     .map(normalizeReturnableTransactionRow)
     .filter((item) => item.id && item.pid)
-    .filter((item) => {
-      const text = buildReturnTransactionSearchText(item);
-      return !normalizedQuery || text.includes(normalizedQuery);
-    })
+    .filter((item) => matchesReturnablePid(item, safePatientPid))
+    .filter((item) => matchesReturnableBranch(item, safeBranchCode))
+    .filter((item) =>
+      matchesReturnableProduct(item, {
+        productQuery: safeProductQuery,
+        resolvedProduct,
+      })
+    )
     .filter((item) => !["RETURNED", "CANCELLED"].includes(item.status))
     .sort((left, right) => {
       const leftTime = new Date(left.dispensedAt || 0).getTime();
@@ -780,6 +850,7 @@ export default function Deliver() {
   const [isProductSearchModalOpen, setIsProductSearchModalOpen] = useState(false);
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [returnProductQuery, setReturnProductQuery] = useState("");
+  const [returnResolvedProduct, setReturnResolvedProduct] = useState(null);
   const [returnPatientPid, setReturnPatientPid] = useState("");
   const [returnSearchLoading, setReturnSearchLoading] = useState(false);
   const [returnSearchError, setReturnSearchError] = useState("");
@@ -1868,6 +1939,7 @@ export default function Deliver() {
 
   const resetReturnForm = useCallback(() => {
     setReturnProductQuery("");
+    setReturnResolvedProduct(null);
     setReturnPatientPid("");
     setReturnSearchError("");
     setReturnMatchedTransaction(null);
@@ -1898,6 +1970,7 @@ export default function Deliver() {
       toCleanText(product?.productCode) ||
       toCleanText(product?.name);
     setReturnProductQuery(nextLabel);
+    setReturnResolvedProduct(product || null);
     setReturnSearchError("");
     setReturnMatchedTransaction(null);
     setReturnSearchResults([]);
@@ -1931,11 +2004,25 @@ export default function Deliver() {
     setReturnSearchResults([]);
 
     try {
+      let resolvedProduct = returnResolvedProduct;
+      if (!resolvedProduct) {
+        resolvedProduct = resolveReturnProductCandidate(deliverSearchProducts, safeProductQuery);
+      }
+      if (!resolvedProduct && safeProductQuery) {
+        const lookedUpProduct = await productLookup(safeProductQuery);
+        if (lookedUpProduct) {
+          resolvedProduct = normalizeDeliverSearchProductRow(lookedUpProduct);
+        }
+      }
+
       const rows = await searchReturnableDelivery({
         productQuery: safeProductQuery,
         patientPid: safePatientPid,
         branchCode: effectiveBranchCode,
+        resolvedProduct,
       });
+
+      setReturnResolvedProduct(resolvedProduct || null);
 
       if (!rows.length) {
         setReturnSearchError("ไม่พบรายการจ่ายยาที่ตรงกับสินค้าและเลขบัตรประชาชนนี้");
@@ -1952,7 +2039,13 @@ export default function Deliver() {
     } finally {
       setReturnSearchLoading(false);
     }
-  }, [effectiveBranchCode, returnPatientPid, returnProductQuery]);
+  }, [
+    deliverSearchProducts,
+    effectiveBranchCode,
+    returnPatientPid,
+    returnProductQuery,
+    returnResolvedProduct,
+  ]);
 
   const handleSubmitReturnedDelivery = useCallback(async () => {
     if (!returnMatchedTransaction || returnSubmitting) return;
@@ -3299,6 +3392,7 @@ export default function Deliver() {
                 value={returnProductQuery}
                 onChange={(event) => {
                   setReturnProductQuery(event.target.value);
+                  setReturnResolvedProduct(null);
                   setReturnSearchError("");
                   setReturnMatchedTransaction(null);
                   setReturnSearchResults([]);
@@ -3307,6 +3401,12 @@ export default function Deliver() {
                 placeholder="บาร์โค้ด / รหัสสินค้า / ชื่อยา"
                 disabled={returnSearchLoading || returnSubmitting}
               />
+
+              {returnResolvedProduct ? (
+                <div className="pos-notes-help">
+                  ใช้สินค้า: {returnResolvedProduct.name || "-"} / {returnResolvedProduct.productCode || returnResolvedProduct.barcode || "-"}
+                </div>
+              ) : null}
 
               {returnProductQuery && visibleReturnProductOptions.length ? (
                 <div className="pos-return-product-list" role="listbox" aria-label="ตัวเลือกสินค้าสำหรับคืน">
