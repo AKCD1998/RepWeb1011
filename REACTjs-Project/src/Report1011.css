@@ -641,6 +641,10 @@ input[readonly] {
   font-size: 14px;
 }
 
+.page-line-item--span-2 {
+  grid-column: span 2;
+}
+
 .page-line-item span {
   display: inline-block;
   border-bottom: 1px solid currentColor;
@@ -1295,6 +1299,10 @@ button:not(:disabled):hover {
 
   .page-line {
     grid-template-columns: 1fr;
+  }
+
+  .page-line-item--span-2 {
+    grid-column: span 1;
   }
 
   .organic-bulk-preview__group-head {

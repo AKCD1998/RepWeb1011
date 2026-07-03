@@ -19,6 +19,11 @@ const REPORT_LOCATION_NAME_MAP = new Map([
   ["BRANCH 004", "สาขาตลาดบางน้อย"],
   ["ตลาดบางน้อย", "สาขาตลาดบางน้อย"],
   ["สาขาตลาดบางน้อย", "สาขาตลาดบางน้อย"],
+  ["005", "สาขาถนนเอกชัยสมุทรสาคร"],
+  ["BRANCH005", "สาขาถนนเอกชัยสมุทรสาคร"],
+  ["BRANCH 005", "สาขาถนนเอกชัยสมุทรสาคร"],
+  ["ถนนเอกชัยสมุทรสาคร", "สาขาถนนเอกชัยสมุทรสาคร"],
+  ["สาขาถนนเอกชัยสมุทรสาคร", "สาขาถนนเอกชัยสมุทรสาคร"],
 ]);
 
 const normalizeLocationLookupKey = (value) => String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
@@ -36,7 +41,7 @@ export const formatReportLocationName = (value) => {
 
   if (mapped) return mapped;
 
-  const branchCodeMatch = text.match(/\b(001|003|004)\b/);
+  const branchCodeMatch = text.match(/\b(001|003|004|005)\b/);
   if (branchCodeMatch?.[1]) {
     return REPORT_LOCATION_NAME_MAP.get(branchCodeMatch[1]) || text;
   }

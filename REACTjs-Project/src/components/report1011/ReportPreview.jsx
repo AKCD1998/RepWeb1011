@@ -59,7 +59,7 @@ function PageSheet({ meta, lot, rows }) {
         </div>
 
         <div className="page-line">
-          <span className="page-line-item">
+          <span className="page-line-item page-line-item--span-2">
             <b>ได้มาจาก</b>
             <span>{meta.sku || "-"}</span>
           </span>
