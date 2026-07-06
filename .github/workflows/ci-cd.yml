@@ -65,7 +65,7 @@ jobs:
       cancel-in-progress: true
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment_retry.outputs.page_url || steps.deployment_primary.outputs.page_url }}
     defaults:
       run:
         working-directory: REACTjs-Project
@@ -120,7 +120,25 @@ jobs:
           path: REACTjs-Project/dist
 
       - name: Deploy to GitHub Pages
-        id: deployment
+        id: deployment_primary
+        continue-on-error: true
         uses: actions/deploy-pages@v4
         with:
           artifact_name: ${{ env.PAGES_ARTIFACT_NAME }}
+
+      - name: Wait before retrying GitHub Pages deploy
+        if: steps.deployment_primary.outcome == 'failure'
+        run: sleep 20
+
+      - name: Retry GitHub Pages deploy once
+        if: steps.deployment_primary.outcome == 'failure'
+        id: deployment_retry
+        uses: actions/deploy-pages@v4
+        with:
+          artifact_name: ${{ env.PAGES_ARTIFACT_NAME }}
+
+      - name: Fail workflow if GitHub Pages deploy did not succeed
+        if: steps.deployment_primary.outcome == 'failure' && steps.deployment_retry.outcome == 'failure'
+        run: |
+          echo "GitHub Pages deploy failed twice in the same workflow run."
+          exit 1
