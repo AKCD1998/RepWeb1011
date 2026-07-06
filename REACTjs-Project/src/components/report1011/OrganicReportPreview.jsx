@@ -1,5 +1,10 @@
 import { fmtThai, formatReportLocationList, formatReportLocationName } from "../../lib/report1011/utils";
 import { sanitizeReportNoteForDocument } from "../../lib/report1011/reportNotes";
+import {
+  formatOrganicReportMonthLabel,
+  getOrganicReportObjects,
+  normalizeOrganicReportCollection,
+} from "../../lib/report1011/organicReportShape";
 
 const ROWS_PER_PAGE = 10;
 
@@ -133,15 +138,57 @@ export function OrganicReportPages({ pages, meta }) {
   );
 }
 
-export default function OrganicReportPreview({ pages, meta, printTarget = "organic" }) {
-  if (!Array.isArray(pages) || !pages.length || !meta) {
+function countRowsInPages(pages) {
+  return Array.isArray(pages)
+    ? pages.reduce((sum, page) => sum + (Array.isArray(page?.rows) ? page.rows.length : 0), 0)
+    : 0;
+}
+
+export default function OrganicReportPreview({ pages, meta, reports, reportData, printTarget = "organic" }) {
+  const normalized = normalizeOrganicReportCollection(reportData || { pages, meta, reports });
+  const validReports = getOrganicReportObjects(normalized).filter(
+    (report) => report?.meta && Array.isArray(report?.pages) && report.pages.length
+  );
+
+  if (!validReports.length) {
     return null;
+  }
+
+  if (validReports.length === 1) {
+    const report = validReports[0];
+    return (
+      <section className="report-preview organic-report-preview" data-print-target={printTarget}>
+        <h2 className="report-preview-title no-print">ตัวอย่างรายงานจากข้อมูลจริง</h2>
+        <OrganicReportPages pages={report.pages} meta={report.meta} />
+      </section>
+    );
   }
 
   return (
     <section className="report-preview organic-report-preview" data-print-target={printTarget}>
       <h2 className="report-preview-title no-print">ตัวอย่างรายงานจากข้อมูลจริง</h2>
-      <OrganicReportPages pages={pages} meta={meta} />
+      {validReports.map((report, index) => {
+        const monthLabel = formatOrganicReportMonthLabel(report.monthLabel || report.monthKey);
+        const rowCount = countRowsInPages(report.pages);
+
+        return (
+          <section key={`${report.monthKey || "report"}-${index}`} className="organic-report-preview__group">
+            <div className="organic-report-preview__group-head no-print">
+              <div>
+                <strong>{monthLabel ? `รายงานเดือน ${monthLabel}` : `รายงานชุดที่ ${index + 1}`}</strong>
+                <span>
+                  {[report.meta?.reportGroupCode, report.meta?.branchLabel].filter(Boolean).join(" • ")}
+                </span>
+              </div>
+              <div className="organic-report-preview__group-stats">
+                <span>{report.pages.length.toLocaleString("th-TH")} lot</span>
+                <span>{rowCount.toLocaleString("th-TH")} รายการจ่าย</span>
+              </div>
+            </div>
+            <OrganicReportPages pages={report.pages} meta={report.meta} />
+          </section>
+        );
+      })}
     </section>
   );
 }

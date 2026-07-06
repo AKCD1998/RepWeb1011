@@ -5,6 +5,12 @@ import {
   buildOrganicBulkReportCsv,
   buildOrganicReportCsv,
 } from "../../lib/report1011/exportOrganicCsv";
+import {
+  countOrganicReportLots,
+  countOrganicReportRows,
+  hasOrganicReportPages,
+  normalizeOrganicReportCollection,
+} from "../../lib/report1011/organicReportShape";
 import Card from "./Card";
 import FieldRow from "./FieldRow";
 import OrganicBulkReportPreview from "./OrganicBulkReportPreview";
@@ -53,6 +59,7 @@ function createInitialSingleReportData() {
   return {
     meta: null,
     pages: [],
+    reports: [],
   };
 }
 
@@ -75,12 +82,6 @@ function createInitialBulkRunState() {
     startedAt: "",
     completedAt: "",
   };
-}
-
-function countOrganicRows(pages) {
-  return Array.isArray(pages)
-    ? pages.reduce((sum, page) => sum + (Array.isArray(page?.rows) ? page.rows.length : 0), 0)
-    : 0;
 }
 
 function buildBulkReportMeta(form, counts = {}) {
@@ -561,25 +562,22 @@ export default function OrganicReportCard({ onPrint }) {
   const bulkSuccessfulItems = useMemo(() => {
     const items = Array.isArray(bulkReportData?.items) ? bulkReportData.items : [];
     return items.filter(
-      (item) =>
+        (item) =>
         item?.status === "success" &&
-        item?.reportData?.meta &&
-        Array.isArray(item?.reportData?.pages) &&
-        item.reportData.pages.length
+        hasOrganicReportPages(item?.reportData)
     );
   }, [bulkReportData?.items]);
   const hasBulkSuccessfulReports = bulkSuccessfulItems.length > 0;
 
   const organicSummaryText = useMemo(() => {
-    const pages = Array.isArray(singleReportData.pages) ? singleReportData.pages : [];
-    const lotCount = pages.length;
-    const rowCount = countOrganicRows(pages);
+    const lotCount = countOrganicReportLots(singleReportData);
+    const rowCount = countOrganicReportRows(singleReportData);
 
     if (!lotCount || !rowCount) return "";
     return `พบ ${rowCount.toLocaleString("th-TH")} รายการจ่าย ครอบคลุม ${lotCount.toLocaleString(
       "th-TH"
     )} lot`;
-  }, [singleReportData.pages]);
+  }, [singleReportData]);
 
   useEffect(() => {
     if (!form.productId) return;
@@ -659,14 +657,10 @@ export default function OrganicReportCard({ onPrint }) {
         dateTo: form.dateTo,
       });
 
-      const nextPages = Array.isArray(payload?.pages) ? payload.pages : [];
-      const nextMeta = payload?.meta || null;
-      setSingleReportData({
-        meta: nextMeta,
-        pages: nextPages,
-      });
+      const nextReportData = normalizeOrganicReportCollection(payload);
+      setSingleReportData(nextReportData);
 
-      if (!nextPages.length) {
+      if (!countOrganicReportRows(nextReportData)) {
         setSingleEmptyStateText("ยังไม่พบข้อมูลการจ่ายยาจริงตามเงื่อนไขที่เลือก");
       }
     } catch (error) {
@@ -815,20 +809,16 @@ export default function OrganicReportCard({ onPrint }) {
           break;
         }
 
-        const nextPages = Array.isArray(payload?.pages) ? payload.pages : [];
-        const nextMeta = payload?.meta || null;
         successCount += 1;
+        const normalizedReportData = normalizeOrganicReportCollection(payload);
         collectedItems.push({
           productId: product.id,
           productName: product.tradeName,
           productCode: product.productCode,
           status: "success",
-          rowCount: countOrganicRows(nextPages),
-          lotCount: nextPages.length,
-          reportData: {
-            meta: nextMeta,
-            pages: nextPages,
-          },
+          rowCount: countOrganicReportRows(normalizedReportData),
+          lotCount: countOrganicReportLots(normalizedReportData),
+          reportData: normalizedReportData,
         });
       } catch (error) {
         if (!isMountedRef.current || bulkRunSeqRef.current !== runSeq || bulkCancelRequestedRef.current) {
@@ -936,7 +926,7 @@ export default function OrganicReportCard({ onPrint }) {
       return;
     }
 
-    if (!singleReportData.meta || !singleReportData.pages.length) return;
+    if (!hasOrganicReportPages(singleReportData)) return;
     downloadCsv(buildOrganicReportCsv(singleReportData));
   };
 
@@ -1149,7 +1139,7 @@ export default function OrganicReportCard({ onPrint }) {
             disabled={
               isBulkMode
                 ? !hasBulkSuccessfulReports
-                : !singleReportData.meta || !singleReportData.pages.length
+                : !hasOrganicReportPages(singleReportData)
             }
           >
             พิมพ์รายงานจริง
@@ -1161,7 +1151,7 @@ export default function OrganicReportCard({ onPrint }) {
             disabled={
               isBulkMode
                 ? !hasBulkSuccessfulReports
-                : !singleReportData.meta || !singleReportData.pages.length
+                : !hasOrganicReportPages(singleReportData)
             }
           >
             ดาวน์โหลด CSV จริง
@@ -1179,8 +1169,7 @@ export default function OrganicReportCard({ onPrint }) {
 
       {!isBulkMode ? (
         <OrganicReportPreview
-          pages={singleReportData.pages}
-          meta={singleReportData.meta}
+          reportData={singleReportData}
           printTarget="organic"
         />
       ) : hasBulkSuccessfulReports ? (

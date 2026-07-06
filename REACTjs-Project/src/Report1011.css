@@ -589,7 +589,9 @@ input[readonly] {
 }
 
 .organic-bulk-preview__errors,
-.organic-bulk-preview__group-head {
+.organic-bulk-preview__group-head,
+.organic-bulk-preview__report-head,
+.organic-report-preview__group-head {
   border-radius: 14px;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--panel-soft) 84%, var(--panel));
@@ -613,11 +615,27 @@ input[readonly] {
   gap: 16px;
 }
 
+.organic-bulk-preview__report-group {
+  display: grid;
+  gap: 16px;
+}
+
+.organic-report-preview__group {
+  display: grid;
+  gap: 16px;
+}
+
 .organic-bulk-preview__group + .organic-bulk-preview__group {
   margin-top: 8px;
 }
 
-.organic-bulk-preview__group-head {
+.organic-report-preview__group + .organic-report-preview__group {
+  margin-top: 8px;
+}
+
+.organic-bulk-preview__group-head,
+.organic-bulk-preview__report-head,
+.organic-report-preview__group-head {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
@@ -626,15 +644,23 @@ input[readonly] {
 }
 
 .organic-bulk-preview__group-head strong,
-.organic-bulk-preview__group-head span {
+.organic-bulk-preview__group-head span,
+.organic-bulk-preview__report-head strong,
+.organic-bulk-preview__report-head span,
+.organic-report-preview__group-head strong,
+.organic-report-preview__group-head span {
   display: block;
 }
 
-.organic-bulk-preview__group-head strong {
+.organic-bulk-preview__group-head strong,
+.organic-bulk-preview__report-head strong,
+.organic-report-preview__group-head strong {
   color: var(--ink);
 }
 
-.organic-bulk-preview__group-head span {
+.organic-bulk-preview__group-head span,
+.organic-bulk-preview__report-head span,
+.organic-report-preview__group-head span {
   margin-top: 4px;
   color: var(--muted);
   font-size: 13px;
@@ -647,7 +673,23 @@ input[readonly] {
   gap: 8px;
 }
 
+.organic-report-preview__group-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .organic-bulk-preview__group-stats span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.organic-report-preview__group-stats span {
   padding: 6px 10px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
@@ -1387,7 +1429,9 @@ button:not(:disabled):hover {
     grid-column: span 1;
   }
 
-  .organic-bulk-preview__group-head {
+  .organic-bulk-preview__group-head,
+  .organic-bulk-preview__report-head,
+  .organic-report-preview__group-head {
     flex-direction: column;
   }
 

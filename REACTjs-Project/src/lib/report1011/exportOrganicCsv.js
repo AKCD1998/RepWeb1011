@@ -1,5 +1,11 @@
 import { formatReportLocationList, formatReportLocationName } from "./utils";
 import { sanitizeReportNoteForDocument } from "./reportNotes";
+import {
+  formatOrganicReportMonthLabel,
+  getOrganicReportObjects,
+  hasOrganicReportPages,
+  normalizeOrganicReportCollection,
+} from "./organicReportShape";
 
 const ORGANIC_CSV_COLUMNS = [
   "ลำดับ",
@@ -78,6 +84,12 @@ function buildOrganicReportCsvRows({ pages, meta }) {
   return rows;
 }
 
+function countRowsInPages(pages) {
+  return Array.isArray(pages)
+    ? pages.reduce((sum, page) => sum + (Array.isArray(page?.rows) ? page.rows.length : 0), 0)
+    : 0;
+}
+
 function buildDatedFilename(baseName) {
   const today = new Date();
   const year = today.getFullYear();
@@ -91,9 +103,50 @@ function sanitizeFilenamePart(value, fallback) {
   return text || fallback;
 }
 
-export function buildOrganicReportCsv({ pages, meta }) {
-  const rows = buildOrganicReportCsvRows({ pages, meta });
-  const base = sanitizeFilenamePart(meta?.product, "organic_report");
+export function buildOrganicReportCsv(reportData = {}) {
+  const normalized = normalizeOrganicReportCollection(reportData);
+  const reports = getOrganicReportObjects(normalized);
+  const base = sanitizeFilenamePart(normalized?.meta?.product, "organic_report");
+
+  if (reports.length > 1) {
+    const rows = [];
+
+    reports.forEach((report, index) => {
+      const reportMeta = report?.meta || {};
+      const reportPages = Array.isArray(report?.pages) ? report.pages : [];
+      const branchName =
+        formatReportLocationName(reportMeta?.branchCode || reportMeta?.branchNameOnly) || "";
+      const monthLabel = formatOrganicReportMonthLabel(report.monthLabel || report.monthKey);
+      const rowCount = countRowsInPages(reportPages);
+
+      if (index > 0) {
+        rows.push([]);
+      }
+
+      rows.push([
+        "รายงานเดือน",
+        monthLabel || "-",
+        "ชื่อยา",
+        reportMeta?.product || "",
+        "กลุ่มรายงาน",
+        reportMeta?.reportGroupCode || "",
+        "รหัสสาขา",
+        reportMeta?.branchCode || "",
+        "ชื่อสาขา",
+        branchName,
+      ]);
+      rows.push(["จำนวน lot", reportPages.length, "จำนวนรายการจ่าย", rowCount]);
+      rows.push(...buildOrganicReportCsvRows(report));
+    });
+
+    return {
+      filename: buildDatedFilename(`${base}_organic_ledger`),
+      csvText: toCSV(rows),
+    };
+  }
+
+  const targetReport = reports[0] || { pages: normalized.pages, meta: normalized.meta };
+  const rows = buildOrganicReportCsvRows(targetReport);
   return {
     filename: buildDatedFilename(`${base}_organic_ledger`),
     csvText: toCSV(rows),
@@ -102,25 +155,16 @@ export function buildOrganicReportCsv({ pages, meta }) {
 
 export function buildOrganicBulkReportCsv({ meta, items }) {
   const successItems = Array.isArray(items)
-    ? items.filter(
-        (item) =>
-          item?.status === "success" &&
-          item?.reportData?.meta &&
-          Array.isArray(item?.reportData?.pages) &&
-          item.reportData.pages.length
-      )
+    ? items.filter((item) => item?.status === "success" && hasOrganicReportPages(item?.reportData))
     : [];
 
   const rows = [];
   successItems.forEach((item, index) => {
-    const reportMeta = item.reportData.meta || {};
-    const reportPages = Array.isArray(item.reportData.pages) ? item.reportData.pages : [];
+    const normalizedReportData = normalizeOrganicReportCollection(item.reportData);
+    const productReports = getOrganicReportObjects(normalizedReportData);
+    const primaryMeta = normalizedReportData.meta || {};
     const branchName =
-      formatReportLocationName(reportMeta?.branchCode || reportMeta?.branchNameOnly) || "";
-    const rowCount = reportPages.reduce(
-      (sum, page) => sum + (Array.isArray(page?.rows) ? page.rows.length : 0),
-      0
-    );
+      formatReportLocationName(primaryMeta?.branchCode || primaryMeta?.branchNameOnly) || "";
 
     if (index > 0) {
       rows.push([]);
@@ -128,27 +172,39 @@ export function buildOrganicBulkReportCsv({ meta, items }) {
 
     rows.push([
       "รายงานสินค้า",
-      reportMeta?.product || item?.productName || "",
+      primaryMeta?.product || item?.productName || "",
       "รหัสสินค้า",
-      reportMeta?.productCode || item?.productCode || "",
+      primaryMeta?.productCode || item?.productCode || "",
       "กลุ่มรายงาน",
-      reportMeta?.reportGroupCode || meta?.reportGroupCode || "",
+      primaryMeta?.reportGroupCode || meta?.reportGroupCode || "",
       "รหัสสาขา",
-      reportMeta?.branchCode || meta?.branchCode || "",
+      primaryMeta?.branchCode || meta?.branchCode || "",
       "ชื่อสาขา",
       branchName,
     ]);
-    rows.push([
-      "ช่วงวันที่ขาย",
-      meta?.dateFrom || "",
-      "ถึง",
-      meta?.dateTo || "",
-      "จำนวน lot",
-      reportPages.length,
-      "จำนวนรายการจ่าย",
-      rowCount,
-    ]);
-    rows.push(...buildOrganicReportCsvRows(item.reportData));
+    productReports.forEach((report, reportIndex) => {
+      const reportPages = Array.isArray(report?.pages) ? report.pages : [];
+      const rowCount = countRowsInPages(reportPages);
+      const monthLabel = formatOrganicReportMonthLabel(report.monthLabel || report.monthKey);
+
+      if (reportIndex > 0) {
+        rows.push([]);
+      }
+
+      rows.push([
+        "ช่วงวันที่ขาย",
+        meta?.dateFrom || "",
+        "ถึง",
+        meta?.dateTo || "",
+        "เดือนรายงาน",
+        monthLabel || "-",
+        "จำนวน lot",
+        reportPages.length,
+        "จำนวนรายการจ่าย",
+        rowCount,
+      ]);
+      rows.push(...buildOrganicReportCsvRows(report));
+    });
   });
 
   return {
