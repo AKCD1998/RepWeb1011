@@ -356,6 +356,13 @@ export default function Report1011Page() {
                 lotSummary={lotSummary}
               />
             </div>
+            <ActionButtonsBar
+              canBuild={canBuild}
+              onBuild={handleBuildReport}
+              onPrint={handlePrint}
+              onDownload={handleDownload}
+              canDownload={canDownload}
+            />
           </div>
         </section>
         {lotWarning ? (
@@ -372,13 +379,6 @@ export default function Report1011Page() {
         ) : null}
         <ReportPreview pages={pages} meta={previewMeta} printTarget="manual" />
       </main>
-      <ActionButtonsBar
-        canBuild={canBuild}
-        onBuild={handleBuildReport}
-        onPrint={handlePrint}
-        onDownload={handleDownload}
-        canDownload={canDownload}
-      />
     </div>
   );
 }

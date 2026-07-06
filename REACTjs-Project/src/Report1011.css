@@ -750,6 +750,11 @@ input[readonly] {
   flex-wrap: wrap;
 }
 
+.report1011-section .action-bar {
+  max-width: none;
+  margin: 24px 0 0;
+}
+
 .primary-button,
 .outline-button,
 .ghost-button {
