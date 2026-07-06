@@ -24,6 +24,7 @@ const toCsvText = (rows) => {
 };
 
 export default function Report1011Page() {
+  const [isManualReportSectionCollapsed, setIsManualReportSectionCollapsed] = useState(false);
   const [branchId, setBranchId] = useState("");
   const [reportType, setReportType] = useState("");
   const [productName, setProductName] = useState("");
@@ -295,41 +296,68 @@ export default function Report1011Page() {
       <Report1011Header />
       <main className="report1011-main">
         <OrganicReportCard onPrint={handleOrganicPrint} />
-        <div className="report1011-grid">
-          <ReportTypeSelectCard
-            branches={BRANCHES}
-            branchId={branchId}
-            onBranchChange={setBranchId}
-            reportType={reportType}
-            onReportTypeChange={setReportType}
-            reportTypeOptions={REPORT_TYPE_OPTIONS}
-            productName={productName}
-            onProductChange={setProductName}
-            productOptions={productOptions}
-            productsLoading={isLoadingProducts}
-            productsError={productsError}
-            sku={sku}
-            isSkuEditing={isSkuEditing}
-            onSkuChange={setSku}
-            onSkuEdit={handleSkuEdit}
-            onSkuSave={handleSkuSave}
-            onSkuCancel={handleSkuCancel}
-            maker={inferredMaker}
-            onSalesFileChange={setCsvSalesFile}
-            patientsStatus={patientsStatus}
-          />
-          <LotReceiveCard
-            lotDraft={lotDraft}
-            onLotDraftChange={handleLotDraftChange}
-            lots={lots}
-            onAddLot={handleAddLot}
-            onDeleteLot={handleDeleteLot}
-            lotsFinalized={lotsFinalized}
-            onFinalizeLots={handleFinalizeLots}
-            onEditLots={handleEditLots}
-            lotSummary={lotSummary}
-          />
-        </div>
+        <section className={`report1011-section card${isManualReportSectionCollapsed ? " is-collapsed" : ""}`}>
+          <button
+            type="button"
+            className="report1011-section__toggle"
+            aria-expanded={!isManualReportSectionCollapsed}
+            aria-controls="report1011-manual-section"
+            onClick={() => setIsManualReportSectionCollapsed((prev) => !prev)}
+          >
+            <span className="report1011-section__heading">
+              <span className="report1011-section__title">
+                รายงาน Dextromethorphan/1st Generation Antihistamine
+              </span>
+            </span>
+            <span className="report1011-section__meta">
+              <span className="report1011-section__state">
+                {isManualReportSectionCollapsed ? "ขยาย" : "ย่อ"}
+              </span>
+              <span className="report1011-section__chevron" aria-hidden="true" />
+            </span>
+          </button>
+          <div
+            id="report1011-manual-section"
+            className="report1011-section__body"
+            hidden={isManualReportSectionCollapsed}
+          >
+            <div className="report1011-grid">
+              <ReportTypeSelectCard
+                branches={BRANCHES}
+                branchId={branchId}
+                onBranchChange={setBranchId}
+                reportType={reportType}
+                onReportTypeChange={setReportType}
+                reportTypeOptions={REPORT_TYPE_OPTIONS}
+                productName={productName}
+                onProductChange={setProductName}
+                productOptions={productOptions}
+                productsLoading={isLoadingProducts}
+                productsError={productsError}
+                sku={sku}
+                isSkuEditing={isSkuEditing}
+                onSkuChange={setSku}
+                onSkuEdit={handleSkuEdit}
+                onSkuSave={handleSkuSave}
+                onSkuCancel={handleSkuCancel}
+                maker={inferredMaker}
+                onSalesFileChange={setCsvSalesFile}
+                patientsStatus={patientsStatus}
+              />
+              <LotReceiveCard
+                lotDraft={lotDraft}
+                onLotDraftChange={handleLotDraftChange}
+                lots={lots}
+                onAddLot={handleAddLot}
+                onDeleteLot={handleDeleteLot}
+                lotsFinalized={lotsFinalized}
+                onFinalizeLots={handleFinalizeLots}
+                onEditLots={handleEditLots}
+                lotSummary={lotSummary}
+              />
+            </div>
+          </div>
+        </section>
         {lotWarning ? (
           <div className="lot-warning">
             <p>

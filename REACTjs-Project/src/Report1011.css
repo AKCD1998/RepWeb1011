@@ -172,11 +172,76 @@ body {
   margin: 0 auto;
 }
 
+.report1011-section {
+  margin-top: 24px;
+  padding: 18px 18px 20px;
+}
+
+.report1011-section__toggle {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.report1011-section__toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 6px;
+  border-radius: 12px;
+}
+
+.report1011-section__heading {
+  min-width: 0;
+}
+
+.report1011-section__title {
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.report1011-section__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.report1011-section__state {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.report1011-section__chevron {
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 150ms ease;
+}
+
+.report1011-section.is-collapsed .report1011-section__chevron {
+  transform: rotate(-45deg);
+}
+
+.report1011-section__body {
+  padding-top: 18px;
+}
+
 .report1011-grid {
   display: grid;
   grid-template-columns: 1.05fr 0.95fr;
   gap: 24px;
-  padding-top: 24px;
 }
 
 .card {
@@ -1287,6 +1352,18 @@ button:not(:disabled):hover {
 @media (max-width: 900px) {
   .report1011 {
     padding: 24px 16px 36px;
+  }
+
+  .report1011-section__toggle {
+    align-items: flex-start;
+  }
+
+  .report1011-section__meta {
+    padding-top: 4px;
+  }
+
+  .report1011-section__title {
+    font-size: 18px;
   }
 
   .report1011-header {
