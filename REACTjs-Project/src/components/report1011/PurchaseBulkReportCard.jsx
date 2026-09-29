@@ -25,7 +25,7 @@ function PurchasePages({ documents, previewBranch }) {
               const row = rows[i];
               return <tr key={row?.id || `empty-${i}`}><td>{page * 8 + i + 1}</td><td>{row ? dateText(row.date) : ""}</td><td>{row?.supplier}</td>
                 <td>{row?.productName}{row ? <small>{row.productCode}</small> : null}</td><td>{row?.lot}</td><td>{row ? `${number(row.qty)} ${row.unit}` : ""}</td><td />
-                <td>{row?.documentNo}{row?.freeGoods ? <small>สินค้าแถม</small> : null}{row && !row.ready ? <small className="purchase-review-note">รอตรวจ{row.status === "proposed" && row.lot ? " / ล็อตที่เสนอ" : ""}</small> : null}</td></tr>;
+                <td>{row ? `${row.type === "transfer" ? "ใบโอน" : "ใบรับ"} ${row.documentNo}` : ""}{row?.freeGoods ? <small>สินค้าแถม</small> : null}{row && !row.ready ? <small className="purchase-review-note">รอตรวจ{row.status === "proposed" && row.lot ? " / ล็อตที่เสนอ" : ""}</small> : null}</td></tr>;
             })}</tbody></table>
           <div className="purchase-sheet-foot"><span>สาขา {document.branch} · เอกสารประกอบจากใบรับและใบโอน · รายการรอตรวจดูใน CSV</span><span>หน้า {page + 1} / {Math.ceil(document.rows.length / 8)}</span></div>
         </article>;
@@ -46,7 +46,10 @@ export default function PurchaseBulkReportCard({ onPrint }) {
   const [documents, setDocuments] = useState([]), [previewBranch, setPreviewBranch] = useState("");
   const [readyOnly, setReadyOnly] = useState(false), [checkedProposals, setCheckedProposals] = useState(false);
   const invalidate = () => { setDocuments([]); setCheckedProposals(false); };
-  const changeReview = (field, key, value) => { invalidate(); setReview((previous) => ({ ...previous, [field]: { ...previous[field], [key]: value } })); };
+  const changeReview = (field, key, value) => {
+    const aliases = field === "transferMatches" ? result?.rows?.find((row) => row.id === key)?.pairedEventIds || [] : [];
+    invalidate(); setReview((previous) => ({ ...previous, [field]: { ...previous[field], [key]: value, ...Object.fromEntries(aliases.map((id) => [id, value])) } }));
+  };
   const result = useMemo(() => {
     if (!sources || !movements) return null;
     try { return reconcilePurchases({ sourceInput: sources, movementInput: movements, ...review, dateFrom: dates.from, dateTo: dates.to }); }
@@ -113,7 +116,7 @@ export default function PurchaseBulkReportCard({ onPrint }) {
           <div className="purchase-summary" role="status"><strong>{number(result.rows.length)} รายการรับ · {number(result.sources.length)} รายการซื้อในกลุ่มยา · {result.branches.filter((branch) => branch.rows.length).length} สาขา</strong>
             <span>พร้อมใช้ {number(result.rows.filter((row) => row.ready).length)} · รอตรวจ {number(result.rows.filter((row) => !row.ready).length)} · แยกสินค้าที่ไม่ใช่ยา {result.excluded.length} รายการ</span>
             {unlinkedSources.length ? <span>เอกสารซื้อที่ยังไม่เชื่อมใบรับ {unlinkedSources.length} รายการ — ตรวจรหัสสินค้าและการจับคู่ด้านล่าง</span> : null}
-            <small>ข้อมูล Movement Trace: {result.dateFrom} ถึง {result.dateTo} · ตัดรายการซ้ำ {result.duplicates} · ไม่รวมรายการยกเลิก {result.cancelled}</small>
+            <small>ข้อมูล Movement Trace: {result.dateFrom} ถึง {result.dateTo} · ตัดรายการซ้ำ {result.duplicates} · รวมคู่รับ/จ่ายใบโอน {result.mirroredTransfers.length} คู่ · ไม่รวมรายการยกเลิก {result.cancelled}</small>
           </div>
           {result.errors.length ? <div role="alert" className="purchase-warning">ข้อมูลต้นทางมีข้อผิดพลาด {result.errors.length} รายการ โปรดแก้ก่อนสร้างเอกสาร<ul>{result.errors.slice(0, 10).map((item, i) => <li key={i}>{item.eventId}: {item.message}</li>)}</ul></div> : null}
           {dateError || rangeError ? <p role="alert" className="purchase-warning">{dateError ? "วันที่เริ่มต้องไม่เกินวันที่สิ้นสุด" : "ช่วงวันที่ที่เลือกเกินข้อมูล Movement Trace ที่นำเข้า กรุณานำเข้าข้อมูลให้ครอบคลุม"}</p> : null}

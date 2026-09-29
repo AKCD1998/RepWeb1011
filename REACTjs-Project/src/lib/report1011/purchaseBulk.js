@@ -60,6 +60,7 @@ function normalizeMovements(input) {
       qty: Number(entry.originalQuantity), unit: text(entry.originalUnit), baseQty: Number(entry.baseQuantity),
       factor: Number(entry.stockFactor), lot: meaningfulLot(entry.lot) ? text(entry.lot) : "", line: entry.lineNo,
       freeGoods: entry.type === "supplier_receipt" && entry.unitPrice === 0 && entry.lineAmount === 0,
+      documentType: text(entry.documentType), sourceTable: text(entry.sourceTable),
     };
     const valid = event.id && event.doc && event.code && event.date && event.unit && positive(event.qty) && positive(event.baseQty)
       && PURCHASE_BRANCHES.includes(event.to) && (event.type === "supplier_receipt" || (event.type === "transfer" && PURCHASE_BRANCHES.includes(event.from) && event.from !== event.to));
@@ -75,7 +76,30 @@ function normalizeMovements(input) {
     seen.set(event.id, signature);
     events.push(event);
   });
-  return { events, errors, duplicates, cancelled };
+  // Ada records the same TS transfer as type 8 (dispatch) and type 7 (receipt).
+  // Keep the receiving entry once, with its date and both native IDs as evidence.
+  const pairs = new Map(), transfers = [], mirrored = [];
+  for (const event of events) {
+    const family = event.sourceTable.replace(/(?:HD|DT)$/, "");
+    if (event.type !== "transfer" || family !== "TCNTPdtTnf" || !["7", "8"].includes(event.documentType) || event.line == null) { transfers.push(event); continue; }
+    const key = JSON.stringify([family, event.doc, event.code, String(event.line)]);
+    if (!pairs.has(key)) pairs.set(key, []);
+    pairs.get(key).push(event);
+  }
+  for (const group of pairs.values()) {
+    const inbound = group.filter((event) => event.documentType === "7"), outbound = group.filter((event) => event.documentType === "8");
+    if (inbound.length === 1 && outbound.length === 1) {
+      const receive = inbound[0], send = outbound[0];
+      const conflicts = ["from", "to", "qty", "unit", "baseQty"].some((field) => receive[field] !== send[field]) || (receive.lot && send.lot && lotKey(receive.lot) !== lotKey(send.lot));
+      if (conflicts || receive.date < send.date) errors.push({ eventId: receive.id, message: "รายการรับและจ่ายของใบโอนเดียวกันขัดกัน รอตรวจจำนวน หน่วย สาขา ล็อต หรือวันที่" });
+      transfers.push({ ...receive, pairedEventIds: [send.id] });
+      mirrored.push({ documentNo: receive.doc, productCode: receive.code, retainedEventId: receive.id, pairedEventId: send.id });
+    } else {
+      if (inbound.length > 1 || outbound.length > 1) errors.push({ eventId: group[0].id, message: "ใบโอนมีรายการรับหรือจ่ายซ้ำในบรรทัดเดียวกัน" });
+      transfers.push(...group.map((event) => ({ ...event, dispatchOnly: event.documentType === "8" && !inbound.length })));
+    }
+  }
+  return { events: transfers, errors, duplicates, cancelled, mirrored };
 }
 
 export function reconcilePurchases({ sourceInput, movementInput, edits = {}, receiptMatches = {}, transferMatches = {}, dateFrom = "", dateTo = "" }) {
@@ -109,6 +133,7 @@ export function reconcilePurchases({ sourceInput, movementInput, edits = {}, rec
     sourceId: source?.id || "", sourceFile: source?.file || "", status,
     issues: [...new Set([...(source?.issues || []), ...problems])], type: event.type,
     freeGoods: event.freeGoods,
+    pairedEventIds: event.pairedEventIds || [],
   });
   const tasks = [];
   for (const group of receipts.values()) {
@@ -163,10 +188,14 @@ export function reconcilePurchases({ sourceInput, movementInput, edits = {}, rec
     if (!earliest || event.date < earliest) { audit.push({ eventId: event.id, documentNo: event.doc, code: event.code, reason: "โอนก่อนช่วงเอกสารสแกนที่นำเข้า" }); continue; }
     const possiblePools = [...pools.values()].filter((pool) => pool.branch === event.from && pool.source.code === event.code && pool.available + 1e-6 >= event.baseQty && pool.date <= event.date);
     possiblePools.sort((a, b) => b.date.localeCompare(a.date) || a.source.id.localeCompare(b.source.id));
-    const overridden = Object.hasOwn(transferMatches, event.id);
-    let source = overridden ? candidates.find((candidate) => candidate.id === transferMatches[event.id]) : null;
+    const reviewIds = [event.id, ...(event.pairedEventIds || [])];
+    const selectedSources = [...new Set(reviewIds.filter((id) => Object.hasOwn(transferMatches, id)).map((id) => transferMatches[id]))];
+    const overridden = selectedSources.length > 0;
+    let source = selectedSources.length === 1 ? candidates.find((candidate) => candidate.id === selectedSources[0]) : null;
     let status = source ? "manual" : "pending";
     const problems = [];
+    if (selectedSources.length > 1) problems.push("คู่รับ/จ่ายใบโอนนี้เคยยืนยันคนละล็อต รอเลือกล็อตให้ตรงกัน");
+    if (event.dispatchOnly) problems.push("พบเฉพาะฝั่งจ่ายโอน ยังต้องตรวจใบรับและวันที่รับจริง");
     if (!source && !overridden && event.lot) {
       const exactLots = candidates.filter((candidate) => lotKey(candidate.lot) === lotKey(event.lot));
       if (exactLots.length === 1) { source = exactLots[0]; status = "matched"; }
@@ -190,7 +219,7 @@ export function reconcilePurchases({ sourceInput, movementInput, edits = {}, rec
   scoped.sort((a, b) => a.branch.localeCompare(b.branch) || a.date.localeCompare(b.date) || a.documentNo.localeCompare(b.documentNo) || a.id.localeCompare(b.id));
   const branches = PURCHASE_BRANCHES.map((branch) => ({ branch, name: PURCHASE_BRANCH_NAMES[branch], rows: scoped.filter((row) => row.branch === branch) }));
   return { sources, sourceIssues: normalized.issues, excluded: normalized.excluded, receiptJobs, rows: scoped, branches, audit, errors: movement.errors,
-    duplicates: movement.duplicates, cancelled: movement.cancelled, capturedAt: movementInput.capturedAt || "", dateFrom: movementInput.dateFrom, dateTo: movementInput.dateTo };
+    duplicates: movement.duplicates, mirroredTransfers: movement.mirrored, cancelled: movement.cancelled, capturedAt: movementInput.capturedAt || "", dateFrom: movementInput.dateFrom, dateTo: movementInput.dateTo };
 }
 
 export function purchaseRowsCsv(rows) {

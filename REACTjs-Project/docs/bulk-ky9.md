@@ -7,6 +7,7 @@ The report uses the eight columns of the [FDA KY9 template](https://drug.fda.mop
 ## Evidence and review
 
 - Native receipt/transfer dates, suppliers or sending branches, quantities and units are preserved. Paid and free receipt lines remain separate.
+- Ada type 7 (receipt) and type 8 (dispatch) rows with the same source document, product and line represent one transfer. Keep the receipt once using its receiving date and preserve both event IDs for saved review compatibility. Differences in quantity, unit, route, lot or reversed dates block output. Dispatch-only entries remain flagged for receiving review. TB/TS document numbers in the remarks are labelled as transfer references.
 - Exact invoice references or explicitly verified receipt references link purchase scans to native receipt documents. Date/quantity matches and unverified receipt hints are proposals.
 - Placeholder system lots such as `1` do not override scanned lots. Transfers without a lot receive a proposal from linked upstream receipts and must be confirmed against evidence. These proposals do not subtract sales and are not stock balances.
 - Unknown codes, uncertain medicine classifications, quantity/unit differences, duplicated source mappings and unverified upstream links stay visible. Non-medicines are listed separately. An explicitly cleared mapping remains cleared.

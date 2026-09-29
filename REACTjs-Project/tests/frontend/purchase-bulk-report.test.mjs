@@ -8,6 +8,31 @@ const transfer = (changes = {}) => ({ type: "transfer", eventId: "TB|1|IC-001", 
 const run = (changes = {}) => reconcilePurchases({ sourceInput: { source_records: [source()] }, movementInput: { receipts: [receipt(), free()], transfers: [transfer()], dateFrom: "2026-05-01", dateTo: "2026-09-28" }, ...changes });
 
 describe("bulk purchase evidence", () => {
+  const mirror = (documentType, changes = {}) => transfer({ eventId: `TS-${documentType}`, documentNo: "TS00126-000001", sourceTable: "TCNTPdtTnfHD", documentType, lineNo: 1, ...changes });
+  test("Ada type 7 and 8 are one physical transfer, retaining the receiving date and native IDs", () => {
+    const result = run({ movementInput: { receipts: [receipt(), free()], transfers: [mirror("8"), mirror("7", { date: "2026-06-19" })] } });
+    const rows = result.rows.filter((row) => row.type === "transfer");
+    expect(rows).toHaveLength(1); expect(rows[0]).toMatchObject({ id: "TS-7", date: "2026-06-19", qty: 13, pairedEventIds: ["TS-8"] });
+    expect(result.mirroredTransfers).toHaveLength(1);
+  });
+  test("distinct native line numbers remain distinct transfers even with equal quantities", () => {
+    const transfers = [mirror("7"), mirror("8"), mirror("7", { eventId: "TS-7b", lineNo: 2 }), mirror("8", { eventId: "TS-8b", lineNo: 2 })];
+    const result = run({ movementInput: { receipts: [receipt(), free()], transfers } });
+    expect(result.rows.filter((row) => row.type === "transfer").map((row) => row.qty)).toEqual([13, 13]);
+  });
+  test("conflicting mirrored quantities block output instead of accepting two receipts", () => {
+    const result = run({ movementInput: { receipts: [receipt(), free()], transfers: [mirror("7"), mirror("8", { originalQuantity: 12, baseQuantity: 12 })] } });
+    expect(result.errors).toHaveLength(1); expect(result.rows.every((row) => !row.ready)).toBe(true);
+  });
+  test("saved confirmation on a paired dispatch survives reconciliation to the receipt ID", () => {
+    const result = run({ movementInput: { receipts: [receipt(), free()], transfers: [mirror("7"), mirror("8")] }, transferMatches: { "TS-8": "s1" } });
+    expect(result.rows.find((row) => row.type === "transfer")).toMatchObject({ sourceId: "s1", ready: true });
+  });
+  test("a dispatch-only entry remains a draft until receiving evidence is available", () => {
+    const result = run({ movementInput: { receipts: [receipt(), free()], transfers: [mirror("8")] }, transferMatches: { "TS-8": "s1" } });
+    expect(result.rows.find((row) => row.type === "transfer").ready).toBe(false);
+    expect(result.rows.find((row) => row.type === "transfer").issues.join(" ")).toContain("เฉพาะฝั่งจ่ายโอน");
+  });
   test("preserves paid and free native receipt lines and scanned lot instead of placeholder", () => {
     const result = run();
     const hq = result.rows.filter((row) => row.branch === "000");
