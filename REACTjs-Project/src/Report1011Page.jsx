@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import ActionButtonsBar from "./components/report1011/ActionButtonsBar";
 import LotReceiveCard from "./components/report1011/LotReceiveCard";
+import ManualBulkReportCard from "./components/report1011/ManualBulkReportCard";
 import OrganicReportCard from "./components/report1011/OrganicReportCard";
 import Report1011Header from "./components/report1011/Report1011Header";
 import ReportPreview from "./components/report1011/ReportPreview";
@@ -25,6 +26,8 @@ const toCsvText = (rows) => {
 
 export default function Report1011Page() {
   const [isManualReportSectionCollapsed, setIsManualReportSectionCollapsed] = useState(false);
+  const [manualReportMode, setManualReportMode] = useState("single");
+  const [isBulkBusy, setIsBulkBusy] = useState(false);
   const [branchId, setBranchId] = useState("");
   const [reportType, setReportType] = useState("");
   const [productName, setProductName] = useState("");
@@ -46,6 +49,7 @@ export default function Report1011Page() {
   const [lotWarning, setLotWarning] = useState(null);
 
   const {
+    catalogProducts,
     productOptions,
     inferredMaker,
     parsedProduct,
@@ -279,6 +283,10 @@ export default function Report1011Page() {
     runTargetedPrint("organic");
   }, [runTargetedPrint]);
 
+  const handleBulkPrint = useCallback(() => {
+    runTargetedPrint("manual-bulk");
+  }, [runTargetedPrint]);
+
   const previewMeta = useMemo(() => {
     if (lastReportMeta) return lastReportMeta;
     if (!productName) return null;
@@ -321,6 +329,18 @@ export default function Report1011Page() {
             className="report1011-section__body"
             hidden={isManualReportSectionCollapsed}
           >
+            <div className="manual-report-mode no-print" role="group" aria-label="โหมดรายงานจากประวัติขาย">
+              <button type="button" className={manualReportMode === "single" ? "primary-button" : "outline-button"}
+                aria-pressed={manualReportMode === "single"} disabled={isBulkBusy} onClick={() => setManualReportMode("single")}>ทีละสินค้า / สาขา</button>
+              <button type="button" className={manualReportMode === "bulk" ? "primary-button" : "outline-button"}
+                aria-pressed={manualReportMode === "bulk"} disabled={isBulkBusy} onClick={() => setManualReportMode("bulk")}>Bulk ขย.11 · หลายสินค้า / สาขา</button>
+            </div>
+            <div hidden={manualReportMode !== "bulk"}>
+              <ManualBulkReportCard catalogProducts={catalogProducts} productsLoading={isLoadingProducts} productsError={productsError}
+                patientsCsvText={patientsCsvText} patientsStatus={patientsStatus} fetchPatients={fetchPatients}
+                sku={sku} onPrint={handleBulkPrint} onBusyChange={setIsBulkBusy} />
+            </div>
+            <div hidden={manualReportMode !== "single"}>
             <div className="report1011-grid">
               <ReportTypeSelectCard
                 branches={BRANCHES}
@@ -363,9 +383,10 @@ export default function Report1011Page() {
               onDownload={handleDownload}
               canDownload={canDownload}
             />
+            </div>
           </div>
         </section>
-        {lotWarning ? (
+        {manualReportMode === "single" && lotWarning ? (
           <div className="lot-warning">
             <p>
               ยอดขายใน CSV = <b>{lotWarning.totalSold.toLocaleString("th-TH")}</b> แผง มากกว่าแผงจากลอตที่
@@ -377,7 +398,9 @@ export default function Report1011Page() {
             </p>
           </div>
         ) : null}
-        <ReportPreview pages={pages} meta={previewMeta} printTarget="manual" />
+        <div hidden={manualReportMode !== "single"}>
+          <ReportPreview pages={pages} meta={previewMeta} printTarget="manual" />
+        </div>
       </main>
     </div>
   );

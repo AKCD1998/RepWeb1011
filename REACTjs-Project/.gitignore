@@ -10,3 +10,5 @@ tmp/pg-local-sim/
 tmp/pg-local-sim.log
 tmp/dev-mock-out.log
 tmp/dev-mock-err.log
+.playwright-cli/
+output/playwright/

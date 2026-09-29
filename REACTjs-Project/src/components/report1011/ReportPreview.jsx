@@ -11,7 +11,7 @@ function buildPackSize(meta, lot) {
   return `1 กล่อง × ${strips.toLocaleString("th-TH")} แผง × 10 เม็ด`;
 }
 
-function PageSheet({ meta, lot, rows }) {
+function PageSheet({ meta, lot, rows, quantityLabel }) {
   const branchName = formatReportLocationName(meta.branchCode || meta.branchNameOnly) || "-";
 
   return (
@@ -71,7 +71,7 @@ function PageSheet({ meta, lot, rows }) {
           <tr>
             <th>ลำดับที่</th>
             <th>วัน เดือน ปี ที่ขาย</th>
-            <th>จำนวน / ปริมาณ ที่ขาย (กล่อง)</th>
+            <th>{quantityLabel || "จำนวน / ปริมาณ ที่ขาย (กล่อง)"}</th>
             <th>ชื่อ-สกุล ผู้ซื้อ</th>
             <th>เลขบัตรประชาชน</th>
             <th>ลายมือชื่อ เภสัชกร</th>
@@ -109,32 +109,35 @@ function PageSheet({ meta, lot, rows }) {
   );
 }
 
-export default function ReportPreview({ pages, meta, printTarget = "manual" }) {
-  if (!pages.length || !meta) {
-    return null;
-  }
+export function ReportPages({ pages, meta, quantityLabel }) {
+  if (!pages?.length || !meta) return null;
+  return pages.map((page, pageIndex) => {
+    const chunks = [];
+    for (let i = 0; i < page.rows.length; i += ROWS_PER_PAGE) {
+      chunks.push(page.rows.slice(i, i + ROWS_PER_PAGE));
+    }
+    return chunks.map((rows, chunkIndex) => (
+      <PageSheet
+        key={`${pageIndex}-${chunkIndex}`}
+        meta={meta}
+        quantityLabel={quantityLabel}
+        lot={page.lot}
+        rows={rows.map((row, index) => ({
+          ...row,
+          seq: index + 1,
+          date: fmtThai(row.date),
+        }))}
+      />
+    ));
+  });
+}
 
+export default function ReportPreview({ pages, meta, printTarget = "manual" }) {
+  if (!pages.length || !meta) return null;
   return (
     <section className="report-preview" data-print-target={printTarget}>
       <h2 className="report-preview-title no-print">ตัวอย่างรายงาน</h2>
-      {pages.map((page, pageIndex) => {
-        const chunks = [];
-        for (let i = 0; i < page.rows.length; i += ROWS_PER_PAGE) {
-          chunks.push(page.rows.slice(i, i + ROWS_PER_PAGE));
-        }
-        return chunks.map((rows, chunkIndex) => (
-          <PageSheet
-            key={`${pageIndex}-${chunkIndex}`}
-            meta={meta}
-            lot={page.lot}
-            rows={rows.map((row, index) => ({
-              ...row,
-              seq: index + 1,
-              date: fmtThai(row.date),
-            }))}
-          />
-        ));
-      })}
+      <ReportPages pages={pages} meta={meta} />
     </section>
   );
 }

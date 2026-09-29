@@ -96,6 +96,7 @@ export function useReport1011Products({ reportType, productName }) {
   }, [productName]);
 
   return {
+    catalogProducts: products,
     productOptions: productOptions.map((option) => option.value),
     inferredMaker,
     parsedProduct,

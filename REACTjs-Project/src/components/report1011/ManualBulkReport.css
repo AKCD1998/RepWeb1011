@@ -1,0 +1,65 @@
+.manual-report-mode, .manual-bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+}
+.manual-bulk-controls {
+  border: 0;
+  margin: 0;
+  padding: 8px 0;
+  min-width: 0;
+}
+.manual-bulk-controls legend { font-size: 20px; font-weight: 700; padding: 0; }
+.manual-bulk-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 16px 0; }
+.manual-bulk-fields label { display: grid; gap: 8px; font-size: 14px; font-weight: 600; min-width: 0; }
+.manual-bulk-fields input, .manual-bulk-fields select { width: 100%; min-width: 0; }
+.manual-bulk input[type="file"] { padding: 8px; height: auto; min-height: 40px; }
+.manual-bulk-file { background: var(--panel-soft); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin: 12px 0; overflow-wrap: anywhere; }
+div.manual-bulk-file { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.manual-bulk summary { cursor: pointer; line-height: 1.6; }
+.manual-bulk-check { display: flex; gap: 10px; align-items: center; line-height: 1.5; cursor: pointer; }
+.manual-bulk-check > span { min-width: 0; overflow-wrap: anywhere; }
+.manual-bulk-check input[type="checkbox"] { width: 18px; height: 18px; flex-shrink: 0; accent-color: var(--accent); }
+.manual-bulk-summary { display: grid; gap: 8px; padding: 18px; margin: 18px 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+.manual-bulk-summary span { font-size: 14px; }
+.manual-bulk-jobs { display: grid; gap: 12px; }
+.manual-bulk-job { border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.manual-bulk-job-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.manual-bulk-job-head small { display: block; color: var(--muted); margin-top: 4px; }
+.manual-bulk-job-head > span { font-size: 13px; color: var(--muted); }
+.manual-bulk-lot, .manual-bulk-lot-labels { display: grid; grid-template-columns: 1.3fr 1.2fr .7fr .9fr 50px; gap: 8px; margin: 10px 0; }
+.manual-bulk-lot input { min-width: 0; width: 100%; }
+.manual-bulk-lot-labels { font-size: 13px; color: var(--muted); margin-top: 16px; }
+.manual-bulk-confirm { padding: 20px 0 8px; font-weight: 600; }
+.manual-bulk-errors { background: var(--warnbg); color: var(--warn); padding: 14px; margin: 12px 0; border-radius: 10px; overflow-wrap: anywhere; }
+.manual-bulk-errors ul { padding-left: 22px; font-size: 14px; }
+.manual-bulk-error-text { color: var(--negative); }
+.manual-bulk-success-text { color: var(--positive); }
+.manual-bulk-run { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; padding: 16px 0; }
+.manual-bulk-run progress { flex: 1; min-width: 120px; accent-color: var(--accent); }
+.manual-bulk-actions label { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; min-width: 0; max-width: 100%; }
+.manual-bulk-actions select { max-width: 100%; }
+.manual-bulk-preview { min-width: 0; max-width: 100%; }
+.manual-bulk-preview-group { display: grid; gap: 24px; min-width: 0; }
+@media screen {
+  .manual-bulk-preview-group { overflow-x: auto; }
+  .manual-bulk-preview-group .page { min-width: 900px; }
+  .manual-bulk-preview-group.is-preview-hidden { display: none; }
+}
+@media (max-width: 680px) {
+  .manual-bulk-fields { grid-template-columns: 1fr; }
+  .manual-report-mode > button { width: 100%; }
+  .manual-bulk-lot { grid-template-columns: 1fr 1fr; }
+  .manual-bulk-lot-labels { display: none; }
+  .manual-bulk-job-head { align-items: flex-start; }
+  .manual-bulk-actions select { width: 100%; }
+}
+@media print {
+  body[data-report-print-target="manual-bulk"] .report-preview[data-print-target="manual-bulk"],
+  body[data-report-print-target="manual-bulk"] .report-preview[data-print-target="manual-bulk"] * { visibility: visible; }
+  body[data-report-print-target="manual-bulk"] .report-preview[data-print-target="manual-bulk"] { position: absolute; inset: 0; margin: 0; gap: 0; }
+  .manual-bulk-preview-group { display: block; }
+  .manual-bulk-preview-group.is-preview-hidden { display: block; }
+}
