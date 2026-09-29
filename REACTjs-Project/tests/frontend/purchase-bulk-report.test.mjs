@@ -1,5 +1,5 @@
 import { describe, expect, test } from "@jest/globals";
-import { normalizePurchaseSources, purchaseLotGapsCsv, purchaseRowsCsv, reconcilePurchases, selectPurchaseDocumentRows } from "../../src/lib/report1011/purchaseBulk.js";
+import { formatPurchaseQuantity, normalizePurchaseSources, purchaseLotGapsCsv, purchaseRowsCsv, reconcilePurchases, selectPurchaseDocumentRows } from "../../src/lib/report1011/purchaseBulk.js";
 
 const source = (changes = {}) => ({ id: "s1", code: "IC-001", name: "ยาทดสอบ", kind: "drug", lot: "LOT-A", invoice_no: "INV-1", invoice_date: "2026-06-16", source_supplier: "ผู้ขาย", source_qty: 36, source_unit: "ขวด", cap_qty: 36, cap_unit: "ขวด", quantity_conversion_status: "EXPLICIT_PRIOR_FACTS", ...changes });
 const receipt = (changes = {}) => ({ type: "supplier_receipt", eventId: "PR|1|IC-001", date: "2026-06-18", documentNo: "PR1", productCode: "IC-001", branchTo: "000", supplierName: "ผู้ขายจริง", invoiceReference: "INV-1", originalQuantity: 30, originalUnit: "ขวด", baseQuantity: 30, stockFactor: 1, lot: "1", unitPrice: 10, lineAmount: 300, ...changes });
@@ -100,6 +100,39 @@ describe("bulk purchase evidence", () => {
   test("preserves boxes on printed rows while base units validate the source capacity", () => {
     const result = run({ sourceInput: { source_records: [source({ source_qty: 2, source_unit: "กล่อง", cap_qty: 100, cap_unit: "แผง" })] }, movementInput: { receipts: [receipt({ originalQuantity: 2, originalUnit: "กล่อง", baseQuantity: 100, stockFactor: 50 })], transfers: [] } });
     expect(result.rows[0]).toMatchObject({ qty: 2, unit: "กล่อง", baseQty: 100, ready: true });
+    expect(formatPurchaseQuantity(result.rows[0])).toBe("2 กล่อง");
+  });
+  test.each([[1, 50, "แผง", "50 แผง"], [7, 10, "แผง", "70 แผง"], [6, 20, "ซอง", "120 ซอง"], [20, 20, "ซอง", "400 ซอง"]])("counted packs print their total physical quantity (%s packs of %s)", (qty, count, unit, expected) => {
+    const native = receipt({ originalQuantity: qty, originalUnit: `${count} ชิ้น`, baseQuantity: qty * count, stockFactor: 1 });
+    const before = JSON.stringify(native);
+    const result = run({ sourceInput: { source_records: [source({ source_qty: qty, source_unit: "กล่อง", cap_qty: qty * count, cap_unit: unit })] }, movementInput: { receipts: [native], transfers: [] } });
+    expect(formatPurchaseQuantity(result.rows[0])).toBe(expected);
+    expect(result.rows[0]).toMatchObject({ qty, unit: `${count} ชิ้น`, baseQty: qty * count });
+    expect(JSON.stringify(native)).toBe(before);
+    expect(purchaseRowsCsv(result.rows)).toContain(`,${qty},${count} ชิ้น,`);
+    expect(purchaseRowsCsv(result.rows)).toContain(expected);
+  });
+  test("Neobun counted packs use the native sachet unit rather than a large-box source label", () => {
+    const result = run({ sourceInput: { source_records: [source({ source_qty: 30, source_unit: "กล่อง", cap_qty: 30, cap_unit: "กล่อง", quantity_conversion_status: "SOURCE_UNIT_ONLY", pack: "20x10 แผ่น/กล่อง; ขาย 10 แผ่น/ซอง" })] },
+      movementInput: { receipts: [receipt({ originalQuantity: 30, originalUnit: "20 ชิ้น", baseQuantity: 600, stockFactor: 1 })], transfers: [transfer({ eventId: "packed", originalQuantity: 6, originalUnit: "20 ชิ้น", baseQuantity: 120, stockFactor: 20 }), transfer({ eventId: "sachets", originalQuantity: 10, originalUnit: "ซอง", baseQuantity: 10 })] } });
+    expect(formatPurchaseQuantity(result.rows.find((row) => row.id === "packed"))).toBe("120 ซอง");
+  });
+  test("a scan's explicit pack description supplies sachets when no single-unit native entry exists", () => {
+    const result = run({ sourceInput: { source_records: [source({ source_qty: 40, source_unit: "กล่อง", cap_qty: 40, cap_unit: "กล่อง", quantity_conversion_status: "SOURCE_UNIT_ONLY", pack: "25 ซอง x 1 g ต่อกล่อง" })] },
+      movementInput: { receipts: [receipt({ originalQuantity: 40, originalUnit: "25 ชิ้น", baseQuantity: 1000 })], transfers: [] } });
+    expect(formatPurchaseQuantity(result.rows[0])).toBe("1,000 ซอง");
+  });
+  test("an unresolved lot still prints a product's known physical quantity", () => {
+    const result = run({ sourceInput: { source_records: [source({ cap_unit: "แผง" })] }, movementInput: { receipts: [], transfers: [transfer({ originalQuantity: 7, originalUnit: "10 ชิ้น", baseQuantity: 70 })] } });
+    expect(result.rows[0]).toMatchObject({ lot: "", sourceId: "", ready: false });
+    expect(formatPurchaseQuantity(result.rows[0])).toBe("70 แผง");
+  });
+  test("conflicting native units and inconsistent quantities cannot silently assert a physical unit", () => {
+    const result = run({ movementInput: { receipts: [], transfers: [transfer({ eventId: "strip", originalQuantity: 1, originalUnit: "แผง", baseQuantity: 1 }), transfer({ eventId: "sachet", originalQuantity: 1, originalUnit: "ซอง", baseQuantity: 1 }), transfer({ eventId: "packed", originalQuantity: 1, originalUnit: "50 ชิ้น", baseQuantity: 50 })] } });
+    const row = result.rows.find((entry) => entry.id === "packed");
+    expect(row.quantityUnit).toBe("");
+    expect(formatPurchaseQuantity(row)).toBe("50 ชิ้น");
+    expect(formatPurchaseQuantity({ ...row, baseQty: 60 })).toBe("1 × 50 ชิ้น (รอตรวจหน่วย)");
   });
   test("ambiguous lots and insufficient linked quantities remain visible", () => {
     const result = run({ sourceInput: { source_records: [source(), source({ id: "s2", lot: "LOT-B" })] } });

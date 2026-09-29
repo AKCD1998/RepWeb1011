@@ -6,6 +6,9 @@ const lotKey = (value) => text(value).toUpperCase().replace(/^LOT\s*/i, "");
 const meaningfulLot = (value) => !["", "1", "0", "UNKNOWN", "N/A"].includes(lotKey(value));
 const positive = (value) => Number.isFinite(Number(value)) && Number(value) > 0;
 const quantity = (value) => Math.round(Number(value) * 1e6) / 1e6;
+const packagedUnit = (unit) => text(unit).match(/^(\d+(?:\.\d+)?)\s*ชิ้น$/);
+const physicalUnit = (unit) => text(unit).match(/^(แผง|ซอง|ขวด|หลอด|กระปุก|กล่อง|แพ็ก|แผ่น|เม็ด|แคปซูล|ตลับ|ใบ|ชิ้น)(?=$|\s|\d)/)?.[1] || "";
+const formatNumber = (value) => Number(value).toLocaleString("th-TH", { maximumFractionDigits: 6 });
 export const PURCHASE_BRANCHES = ["000", "001", "003", "004", "005"];
 export const PURCHASE_BRANCH_NAMES = {
   "000": "สำนักงานใหญ่ บริษัท เอสซี กรุ๊ป (1989) จำกัด", "001": "ศิริชัยเภสัช สาขาตลาดแม่กลอง",
@@ -28,7 +31,7 @@ export function normalizePurchaseSources(input, edits = {}) {
       supplier: text(row.source_supplier ?? row.supplier),
       sourceQuantity: Number(row.source_qty ?? row.sourceQuantity), sourceUnit: text(row.source_unit ?? row.sourceUnit),
       baseQuantity: Number(row.cap_qty ?? row.baseQuantity), baseUnit: text(row.cap_unit ?? row.baseUnit),
-      conversionStatus: text(row.quantity_conversion_status ?? row.conversionStatus),
+      conversionStatus: text(row.quantity_conversion_status ?? row.conversionStatus), pack: text(row.pack),
       file: text(row.source_file ?? row.file),
       manufacturedDate: normalizeBulkDate(row.mfg ?? row.manufacturedDate), expiry: normalizeBulkDate(row.exp ?? row.expiry),
       receiptDocuments: (row.receiptDocuments || []).map(text).filter(Boolean),
@@ -103,12 +106,44 @@ function normalizeMovements(input) {
   return { events: transfers, errors, duplicates, cancelled, mirrored };
 }
 
+function purchaseQuantityUnits(sources, events) {
+  const units = new Map();
+  for (const code of new Set(events.map((event) => event.code))) {
+    const productEvents = events.filter((event) => event.code === code);
+    // A plain unit on a native one-to-one quantity identifies what a counted pack contains.
+    // Do not use receipt stockFactor here: some receipts store 1 while baseQty is already expanded.
+    const native = new Set(productEvents.filter((event) => Math.abs(event.qty - event.baseQty) < 1e-6 && physicalUnit(event.unit) === event.unit).map((event) => event.unit));
+    if (native.size > 1) native.delete("ชิ้น");
+    if (native.size === 1) { units.set(code, [...native][0]); continue; }
+    if (native.size > 1) continue;
+    const productSources = sources.filter((source) => source.code === code);
+    const verified = new Set(productSources.filter((source) => ["EXPLICIT_PRIOR_FACTS", "SOURCE_PACK"].includes(source.conversionStatus)).map((source) => physicalUnit(source.baseUnit)).filter(Boolean));
+    if (verified.size === 1) { units.set(code, [...verified][0]); continue; }
+    if (verified.size > 1) continue;
+    const counts = new Set(productEvents.map((event) => Number(packagedUnit(event.unit)?.[1])).filter(positive));
+    const scanned = new Set(productSources.flatMap((source) => [...source.pack.matchAll(/(\d+(?:\.\d+)?)\s*(แผง|ซอง|ขวด|หลอด|กระปุก|กล่อง|แพ็ก|แผ่น|เม็ด|แคปซูล|ตลับ|ใบ|ชิ้น)/g)]).filter((match) => counts.has(Number(match[1]))).map((match) => match[2]));
+    if (scanned.size === 1) units.set(code, [...scanned][0]);
+  }
+  return units;
+}
+
+export function formatPurchaseQuantity(row) {
+  const pack = packagedUnit(row.unit);
+  if (!pack) return `${formatNumber(row.qty)} ${row.unit}`;
+  const count = Number(pack[1]);
+  // The native base quantity is authoritative; never expand an already expanded count again.
+  if (!positive(row.baseQty) || Math.abs(quantity(row.qty * count) - row.baseQty) > 1e-6) return `${formatNumber(row.qty)} × ${formatNumber(count)} ชิ้น (รอตรวจหน่วย)`;
+  return `${formatNumber(row.baseQty)} ${row.quantityUnit || "ชิ้น"}`;
+}
+
 export function reconcilePurchases({ sourceInput, movementInput, edits = {}, receiptMatches = {}, transferMatches = {}, dateFrom = "", dateTo = "" }) {
   const normalized = normalizePurchaseSources(sourceInput, edits);
   const movement = normalizeMovements(movementInput);
   const sources = normalized.sources;
   const codes = new Set(sources.map((source) => source.code).filter(Boolean));
   const events = movement.events.filter((event) => codes.has(event.code));
+  const quantityUnits = purchaseQuantityUnits(sources, events);
+  for (const event of events) event.quantityUnit = quantityUnits.get(event.code) || "";
   const productNames = new Map(sources.filter((source) => source.code && source.name).map((source) => [source.code, source.name]));
   for (const event of events) if (event.name) productNames.set(event.code, event.name);
   const receipts = new Map();
@@ -130,7 +165,7 @@ export function reconcilePurchases({ sourceInput, movementInput, edits = {}, rec
     id: event.id, branch: event.to, date: event.date, supplier: event.type === "transfer" ? PURCHASE_BRANCH_NAMES[event.from] : event.supplier || source?.supplier || "",
     productCode: event.code, productName: source?.name || event.name || productNames.get(event.code) || event.code,
     lot: source?.lot || "", manufacturedDate: source?.manufacturedDate || "", expiry: source?.expiry || "",
-    qty: event.qty, unit: event.unit, baseQty: event.baseQty,
+    qty: event.qty, unit: event.unit, baseQty: event.baseQty, quantityUnit: event.quantityUnit,
     documentNo: event.doc, invoiceNo: source?.invoiceNo || event.invoice, receiptDocument: receiptDoc,
     sourceId: source?.id || "", sourceFile: source?.file || "", status,
     issues: [...new Set([...(source?.issues || []), ...problems])], type: event.type,
@@ -225,8 +260,8 @@ export function reconcilePurchases({ sourceInput, movementInput, edits = {}, rec
 }
 
 export function purchaseRowsCsv(rows) {
-  return encodeCsv([["branchCode", "receivedDate", "supplier", "productCode", "productName", "lot", "quantity", "unit", "documentNo", "invoiceNo", "sourceFile", "status", "reviewNotes", "manufacturedDate", "expiryDate"],
-    ...rows.map((row) => [row.branch, row.date, row.supplier, row.productCode, row.productName, row.lot, row.qty, row.unit, row.documentNo, row.invoiceNo, row.sourceFile, row.ready ? "ready" : row.status, row.issues.join("; "), row.manufacturedDate, row.expiry])]);
+  return encodeCsv([["branchCode", "receivedDate", "supplier", "productCode", "productName", "lot", "quantity", "unit", "documentNo", "invoiceNo", "sourceFile", "status", "reviewNotes", "manufacturedDate", "expiryDate", "baseQuantity", "baseUnit", "reportQuantity"],
+    ...rows.map((row) => [row.branch, row.date, row.supplier, row.productCode, row.productName, row.lot, row.qty, row.unit, row.documentNo, row.invoiceNo, row.sourceFile, row.ready ? "ready" : row.status, row.issues.join("; "), row.manufacturedDate, row.expiry, row.baseQty, row.quantityUnit, formatPurchaseQuantity(row)])]);
 }
 
 export function selectPurchaseDocumentRows(rows, { readyOnly = false, includeUnlinkedLots = false } = {}) {
@@ -234,7 +269,7 @@ export function selectPurchaseDocumentRows(rows, { readyOnly = false, includeUnl
 }
 
 export function purchaseLotGapsCsv(result) {
-  return encodeCsv([["branchCode", "receivedDate", "productCode", "productName", "documentNo", "quantity", "unit", "reason", "nearbyReceiptDocumentsForLookup", "nearbyInvoiceReferencesForLookup", "scannedLotsForReference", "lookupNote"],
+  return encodeCsv([["branchCode", "receivedDate", "productCode", "productName", "documentNo", "quantity", "unit", "reason", "nearbyReceiptDocumentsForLookup", "nearbyInvoiceReferencesForLookup", "scannedLotsForReference", "lookupNote", "reportQuantity"],
     ...result.rows.filter((row) => !row.lot).map((row) => {
       const prior = result.receiptJobs.filter((job) => job.code === row.productCode && job.date <= row.date).sort((a, b) => b.date.localeCompare(a.date));
       const nearby = prior.filter((job) => job.date === prior[0]?.date);
@@ -243,6 +278,6 @@ export function purchaseLotGapsCsv(result) {
         row.type === "supplier_receipt" ? "ใบรับยังไม่เชื่อมกับใบสแกน" : "เส้นทางรับโอนยังไม่เชื่อมกับล็อตที่มีจำนวนรองรับ",
         [...new Set(nearby.map((job) => job.doc))].join("; "), [...new Set(nearby.map((job) => job.invoice).filter(Boolean))].join("; "),
         scanned.map((source) => `${source.lot} · ${source.invoiceNo || source.invoiceDate}`).join("; "),
-        "เลขใบรับใกล้วันโอนใช้ค้นเอกสารเพิ่มเติม ยังไม่ได้ยืนยันว่าเป็นล็อตของใบโอนนี้"];
+        "เลขใบรับใกล้วันโอนใช้ค้นเอกสารเพิ่มเติม ยังไม่ได้ยืนยันว่าเป็นล็อตของใบโอนนี้", formatPurchaseQuantity(row)];
     })]);
 }
