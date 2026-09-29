@@ -29,7 +29,8 @@ export function normalizePurchaseSources(input, edits = {}) {
       sourceQuantity: Number(row.source_qty ?? row.sourceQuantity), sourceUnit: text(row.source_unit ?? row.sourceUnit),
       baseQuantity: Number(row.cap_qty ?? row.baseQuantity), baseUnit: text(row.cap_unit ?? row.baseUnit),
       conversionStatus: text(row.quantity_conversion_status ?? row.conversionStatus),
-      file: text(row.source_file ?? row.file), expiry: normalizeBulkDate(row.exp ?? row.expiry),
+      file: text(row.source_file ?? row.file),
+      manufacturedDate: normalizeBulkDate(row.mfg ?? row.manufacturedDate), expiry: normalizeBulkDate(row.exp ?? row.expiry),
       receiptDocuments: (row.receiptDocuments || []).map(text).filter(Boolean),
       receiptHints: (row.receiptHints || []).map(text).filter(Boolean),
       candidateCodes: (row.candidateCodes || []).map((candidate) => ({ code: text(candidate.code), name: text(candidate.name), barcode: text(candidate.barcode) })).filter((candidate) => candidate.code),
@@ -128,7 +129,8 @@ export function reconcilePurchases({ sourceInput, movementInput, edits = {}, rec
   const rowFor = (event, source, status, problems = [], receiptDoc = "") => ({
     id: event.id, branch: event.to, date: event.date, supplier: event.type === "transfer" ? PURCHASE_BRANCH_NAMES[event.from] : event.supplier || source?.supplier || "",
     productCode: event.code, productName: source?.name || event.name || productNames.get(event.code) || event.code,
-    lot: source?.lot || "", qty: event.qty, unit: event.unit, baseQty: event.baseQty,
+    lot: source?.lot || "", manufacturedDate: source?.manufacturedDate || "", expiry: source?.expiry || "",
+    qty: event.qty, unit: event.unit, baseQty: event.baseQty,
     documentNo: event.doc, invoiceNo: source?.invoiceNo || event.invoice, receiptDocument: receiptDoc,
     sourceId: source?.id || "", sourceFile: source?.file || "", status,
     issues: [...new Set([...(source?.issues || []), ...problems])], type: event.type,
@@ -223,6 +225,6 @@ export function reconcilePurchases({ sourceInput, movementInput, edits = {}, rec
 }
 
 export function purchaseRowsCsv(rows) {
-  return encodeCsv([["branchCode", "receivedDate", "supplier", "productCode", "productName", "lot", "quantity", "unit", "documentNo", "invoiceNo", "sourceFile", "status", "reviewNotes"],
-    ...rows.map((row) => [row.branch, row.date, row.supplier, row.productCode, row.productName, row.lot, row.qty, row.unit, row.documentNo, row.invoiceNo, row.sourceFile, row.ready ? "ready" : row.status, row.issues.join("; ")])]);
+  return encodeCsv([["branchCode", "receivedDate", "supplier", "productCode", "productName", "lot", "quantity", "unit", "documentNo", "invoiceNo", "sourceFile", "status", "reviewNotes", "manufacturedDate", "expiryDate"],
+    ...rows.map((row) => [row.branch, row.date, row.supplier, row.productCode, row.productName, row.lot, row.qty, row.unit, row.documentNo, row.invoiceNo, row.sourceFile, row.ready ? "ready" : row.status, row.issues.join("; "), row.manufacturedDate, row.expiry])]);
 }

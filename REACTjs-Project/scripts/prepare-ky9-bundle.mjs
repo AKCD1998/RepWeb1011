@@ -23,7 +23,8 @@ for (const row of register.source_records) {
     invoice_no: row.invoice_no, invoice_date: row.invoice_date,
     source_supplier: row.source_supplier || (typeof facts.supplier === "string" ? facts.supplier : ""),
     source_qty: row.source_qty, source_unit: row.source_unit, cap_qty: row.cap_qty, cap_unit: row.cap_unit,
-    quantity_conversion_status: row.quantity_conversion_status, pack: row.pack, exp: row.exp,
+    quantity_conversion_status: row.quantity_conversion_status, pack: row.pack,
+    mfg: row.mfg ?? productFacts.mfg ?? null, exp: row.exp ?? productFacts.exp ?? null,
     source_file: row.source_file, source_sha256: row.source_sha256,
     receiptDocuments: webReceipt?.explicit_invoice_reference_verified === true ? [webReceipt.number] : [],
     receiptHints: webReceipt?.number && webReceipt.explicit_invoice_reference_verified !== true ? [webReceipt.number] : [],
@@ -39,9 +40,9 @@ await fs.mkdir(output, { recursive: true });
 const write = async (name, value) => fs.writeFile(path.join(output, name), value, { flag: args.includes("--replace-output") ? "w" : "wx" });
 await write("ky9_bundle.json", JSON.stringify(bundle, null, 2));
 await write("ky9_purchase_rows_review.csv", purchaseRowsCsv(result.rows));
-await write("ky9_source_coverage.csv", encodeCsv([["sourceId", "productCode", "name", "lot", "invoiceNo", "invoiceDate", "receiptDocuments", "status", "reviewNotes"],
+await write("ky9_source_coverage.csv", encodeCsv([["sourceId", "productCode", "name", "lot", "invoiceNo", "invoiceDate", "receiptDocuments", "status", "reviewNotes", "manufacturedDate", "expiryDate", "sourceFile"],
   ...result.sources.map((source) => { const jobs = result.receiptJobs.filter((job) => job.sourceId === source.id); return [source.id, source.code, source.name, source.lot, source.invoiceNo, source.invoiceDate,
-    jobs.map((job) => job.doc).join("; "), jobs.length ? jobs.map((job) => job.status).join("; ") : "no_receipt_link", [...source.issues, ...jobs.flatMap((job) => job.issues)].join("; ")]; })]));
+    jobs.map((job) => job.doc).join("; "), jobs.length ? jobs.map((job) => job.status).join("; ") : "no_receipt_link", [...source.issues, ...jobs.flatMap((job) => job.issues)].join("; "), source.manufacturedDate, source.expiry, source.file]; })]));
 const summary = { sourceRecords: sources.length, includedSources: result.sources.length, excludedNonMedicines: result.excluded.length,
   sourcesWithIssues: result.sourceIssues.length, sourcesWithoutReceiptLink: result.sources.filter((source) => !result.receiptJobs.some((job) => job.sourceId === source.id)).length,
   purchaseRows: result.rows.length, readyRows: result.rows.filter((row) => row.ready).length, reviewRows: result.rows.filter((row) => !row.ready).length,

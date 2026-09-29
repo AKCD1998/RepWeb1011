@@ -42,6 +42,19 @@ describe("bulk purchase evidence", () => {
     expect(hq[1].freeGoods).toBe(true);
     expect(result.rows.find((row) => row.branch === "001").status).toBe("proposed");
   });
+  test("scanned manufacturing and expiry dates follow the selected lot into branch rows and CSV", () => {
+    const result = run({ sourceInput: { source_records: [source({ mfg: "2026-01-21", exp: "2029-01-21" })] },
+      movementInput: { receipts: [receipt({ expiry: "2046-06-18" }), free()], transfers: [transfer()] },
+      transferMatches: { "TB|1|IC-001": "s1" } });
+    expect(result.rows).toHaveLength(3);
+    for (const row of result.rows) expect(row).toMatchObject({ lot: "LOT-A", manufacturedDate: "2026-01-21", expiry: "2029-01-21" });
+    expect(purchaseRowsCsv(result.rows)).toContain("manufacturedDate,expiryDate");
+    expect(purchaseRowsCsv(result.rows)).not.toContain("2046-06-18");
+  });
+  test("dates absent from a scan remain blank despite a native expiry value", () => {
+    const result = run({ movementInput: { receipts: [receipt({ expiry: "2046-06-18" }), free()], transfers: [] } });
+    expect(result.rows.every((row) => row.manufacturedDate === "" && row.expiry === "")).toBe(true);
+  });
   test("unknown transfer lot remains a proposal until an explicit source ID is confirmed", () => {
     const before = run().rows.find((row) => row.branch === "001");
     expect(before.ready).toBe(false);
