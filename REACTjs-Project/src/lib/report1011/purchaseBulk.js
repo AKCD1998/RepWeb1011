@@ -9,6 +9,10 @@ const quantity = (value) => Math.round(Number(value) * 1e6) / 1e6;
 const packagedUnit = (unit) => text(unit).match(/^(\d+(?:\.\d+)?)\s*ชิ้น$/);
 const physicalUnit = (unit) => text(unit).match(/^(แผง|ซอง|ขวด|หลอด|กระปุก|กล่อง|แพ็ก|แผ่น|เม็ด|แคปซูล|ตลับ|ใบ|ชิ้น)(?=$|\s|\d)/)?.[1] || "";
 const formatNumber = (value) => Number(value).toLocaleString("th-TH", { maximumFractionDigits: 6 });
+const isReportDraft = (record) => ["report_draft", "prior_draft"].includes(text(record.evidence_type ?? record.evidenceType))
+  || /^(?:KY9|KY10|KY11)_.*DRAFT.*\.pdf$/i.test(text(record.source_file ?? record.file).split(/[\\/]/).pop());
+const hasBatchDetails = (row) => Boolean(meaningfulLot(row.lot) || row.manufacturedDate || row.expiry);
+const hasScannedBatchDetails = (row) => Boolean(row.sourceId && hasBatchDetails(row));
 export const PURCHASE_BRANCHES = ["000", "001", "003", "004", "005"];
 export const PURCHASE_BRANCH_NAMES = {
   "000": "สำนักงานใหญ่ บริษัท เอสซี กรุ๊ป (1989) จำกัด", "001": "ศิริชัยเภสัช สาขาตลาดแม่กลอง",
@@ -18,10 +22,13 @@ export const PURCHASE_BRANCH_NAMES = {
 export function normalizePurchaseSources(input, edits = {}) {
   const records = Array.isArray(input) ? input : input?.source_records;
   if (!Array.isArray(records)) throw new Error("ไฟล์ข้อมูลซื้อต้องมี source_records จากเอกสารสแกน");
-  const sources = [], excluded = [], issues = [];
+  const sources = [], excluded = [], excludedEvidence = [], issues = [];
   records.forEach((record, index) => {
     const id = text(record.id) || `source-${index + 1}`;
     const row = { ...record, ...edits[id] };
+    // Older bundles contained a generated Iyafin report as a source. A report is
+    // never original scan evidence, even when its receipt exists in StockDay.
+    if (isReportDraft(record) || isReportDraft(row)) { excludedEvidence.push({ id, name: row.name, file: row.source_file ?? row.file, reason: "เอกสารรายงานเดิม ไม่ใช่สแกนต้นฉบับ" }); return; }
     const kind = text(row.kind);
     if (["non_drug", "dietary_supplement", "other"].includes(kind)) { excluded.push({ id, name: row.name, kind }); return; }
     const source = {
@@ -33,6 +40,7 @@ export function normalizePurchaseSources(input, edits = {}) {
       baseQuantity: Number(row.cap_qty ?? row.baseQuantity), baseUnit: text(row.cap_unit ?? row.baseUnit),
       conversionStatus: text(row.quantity_conversion_status ?? row.conversionStatus), pack: text(row.pack),
       file: text(row.source_file ?? row.file),
+      evidenceType: "original_scan",
       manufacturedDate: normalizeBulkDate(row.mfg ?? row.manufacturedDate), expiry: normalizeBulkDate(row.exp ?? row.expiry),
       receiptDocuments: (row.receiptDocuments || []).map(text).filter(Boolean),
       receiptHints: (row.receiptHints || []).map(text).filter(Boolean),
@@ -41,13 +49,13 @@ export function normalizePurchaseSources(input, edits = {}) {
     };
     source.issues = [];
     if (!source.code) source.issues.push("รอจับคู่รหัสสินค้า");
-    if (!source.name || !source.lot || !source.invoiceDate || !positive(source.sourceQuantity) || !source.sourceUnit) source.issues.push("ข้อมูลซื้อจากเอกสารยังไม่ครบ");
+    if (!source.name || !hasBatchDetails(source) || !source.invoiceDate || !positive(source.sourceQuantity) || !source.sourceUnit) source.issues.push("ข้อมูลซื้อจากเอกสารยังไม่ครบ");
     if (kind !== "drug") source.issues.push("รอยืนยันประเภทสินค้าเป็นยา");
     if (sources.some((other) => other.id === id)) throw new Error(`รหัสข้อมูลซื้อซ้ำ: ${id}`);
     sources.push(source);
     if (source.issues.length) issues.push({ sourceId: id, name: source.name, messages: source.issues });
   });
-  return { sources, excluded, issues };
+  return { sources, excluded, excludedEvidence, issues };
 }
 
 function normalizeMovements(input) {
@@ -251,26 +259,30 @@ export function reconcilePurchases({ sourceInput, movementInput, edits = {}, rec
     } else problems.push("รอเลือกล็อต/เอกสารซื้อที่ตรงกับรายการรับโอน");
     rows.push(rowFor(event, source, status, problems));
   }
-  const scoped = rows.filter((row) => (!dateFrom || row.date >= dateFrom) && (!dateTo || row.date <= dateTo));
-  scoped.forEach((row) => { row.ready = Boolean(["matched", "manual"].includes(row.status) && !row.issues.length && row.lot && row.supplier && !movement.errors.length); });
-  scoped.sort((a, b) => a.branch.localeCompare(b.branch) || a.date.localeCompare(b.date) || a.documentNo.localeCompare(b.documentNo) || a.id.localeCompare(b.id));
+  const inPeriod = rows.filter((row) => (!dateFrom || row.date >= dateFrom) && (!dateTo || row.date <= dateTo));
+  inPeriod.forEach((row) => { row.ready = Boolean(["matched", "manual"].includes(row.status) && !row.issues.length && hasScannedBatchDetails(row) && row.supplier && !movement.errors.length); });
+  inPeriod.sort((a, b) => a.branch.localeCompare(b.branch) || a.date.localeCompare(b.date) || a.documentNo.localeCompare(b.documentNo) || a.id.localeCompare(b.id));
+  // Scope belongs to the imported scans, not every purchase of the same SKU.
+  // Retain unmatched events separately for mapping; never print/export them as KY9.
+  const scoped = inPeriod.filter(hasScannedBatchDetails);
+  const unlinkedMovements = inPeriod.filter((row) => !hasScannedBatchDetails(row));
   const branches = PURCHASE_BRANCHES.map((branch) => ({ branch, name: PURCHASE_BRANCH_NAMES[branch], rows: scoped.filter((row) => row.branch === branch) }));
-  return { sources, sourceIssues: normalized.issues, excluded: normalized.excluded, receiptJobs, rows: scoped, branches, audit, errors: movement.errors,
+  return { sources, sourceIssues: normalized.issues, excluded: normalized.excluded, excludedEvidence: normalized.excludedEvidence, receiptJobs, rows: scoped, unlinkedMovements, branches, audit, errors: movement.errors,
     duplicates: movement.duplicates, mirroredTransfers: movement.mirrored, cancelled: movement.cancelled, capturedAt: movementInput.capturedAt || "", dateFrom: movementInput.dateFrom, dateTo: movementInput.dateTo };
 }
 
 export function purchaseRowsCsv(rows) {
   return encodeCsv([["branchCode", "receivedDate", "supplier", "productCode", "productName", "lot", "quantity", "unit", "documentNo", "invoiceNo", "sourceFile", "status", "reviewNotes", "manufacturedDate", "expiryDate", "baseQuantity", "baseUnit", "reportQuantity"],
-    ...rows.map((row) => [row.branch, row.date, row.supplier, row.productCode, row.productName, row.lot, row.qty, row.unit, row.documentNo, row.invoiceNo, row.sourceFile, row.ready ? "ready" : row.status, row.issues.join("; "), row.manufacturedDate, row.expiry, row.baseQty, row.quantityUnit, formatPurchaseQuantity(row)])]);
+    ...rows.filter(hasScannedBatchDetails).map((row) => [row.branch, row.date, row.supplier, row.productCode, row.productName, row.lot, row.qty, row.unit, row.documentNo, row.invoiceNo, row.sourceFile, row.ready ? "ready" : row.status, row.issues.join("; "), row.manufacturedDate, row.expiry, row.baseQty, row.quantityUnit, formatPurchaseQuantity(row)])]);
 }
 
-export function selectPurchaseDocumentRows(rows, { readyOnly = false, includeUnlinkedLots = false } = {}) {
-  return rows.filter((row) => (!readyOnly || row.ready) && (includeUnlinkedLots || Boolean(row.lot && row.sourceId)));
+export function selectPurchaseDocumentRows(rows, { readyOnly = false } = {}) {
+  return rows.filter((row) => (!readyOnly || row.ready) && hasScannedBatchDetails(row));
 }
 
 export function purchaseLotGapsCsv(result) {
   return encodeCsv([["branchCode", "receivedDate", "productCode", "productName", "documentNo", "quantity", "unit", "reason", "nearbyReceiptDocumentsForLookup", "nearbyInvoiceReferencesForLookup", "scannedLotsForReference", "lookupNote", "reportQuantity"],
-    ...result.rows.filter((row) => !row.lot).map((row) => {
+    ...(result.unlinkedMovements || result.rows.filter((row) => !hasScannedBatchDetails(row))).map((row) => {
       const prior = result.receiptJobs.filter((job) => job.code === row.productCode && job.date <= row.date).sort((a, b) => b.date.localeCompare(a.date));
       const nearby = prior.filter((job) => job.date === prior[0]?.date);
       const scanned = result.sources.filter((source) => source.code === row.productCode);

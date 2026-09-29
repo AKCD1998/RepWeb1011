@@ -87,15 +87,17 @@ describe("bulk purchase evidence", () => {
     const receiptCleared = run({ receiptMatches: { "000|PR1|IC-001": "" } });
     expect(receiptCleared.receiptJobs[0].sourceId).toBe("");
     const transferCleared = run({ transferMatches: { "TB|1|IC-001": "" } });
-    expect(transferCleared.rows.find((row) => row.branch === "001").sourceId).toBe("");
+    expect(transferCleared.rows.find((row) => row.branch === "001")).toBeUndefined();
+    expect(transferCleared.unlinkedMovements.find((row) => row.branch === "001").sourceId).toBe("");
   });
   test("does not assign branch receipts from old POS allocation fields", () => {
     const result = run({ sourceInput: { source_records: [source({ assigned_qty: 900, assigned_bill_rows: 80, branch_allocations: { "005": 900 } })] }, movementInput: { receipts: [], transfers: [] } });
     expect(result.rows).toEqual([]);
   });
-  test("keeps the known medicine name on a draft transfer while its lot is unresolved", () => {
+  test("an unresolved movement stays outside the report with its name available for lookup", () => {
     const result = run({ movementInput: { receipts: [], transfers: [transfer()] } });
-    expect(result.rows[0]).toMatchObject({ productName: "ยาทดสอบ", lot: "", status: "pending", ready: false });
+    expect(result.rows).toEqual([]);
+    expect(result.unlinkedMovements[0]).toMatchObject({ productName: "ยาทดสอบ", lot: "", status: "pending", ready: false });
   });
   test("preserves boxes on printed rows while base units validate the source capacity", () => {
     const result = run({ sourceInput: { source_records: [source({ source_qty: 2, source_unit: "กล่อง", cap_qty: 100, cap_unit: "แผง" })] }, movementInput: { receipts: [receipt({ originalQuantity: 2, originalUnit: "กล่อง", baseQuantity: 100, stockFactor: 50 })], transfers: [] } });
@@ -122,14 +124,15 @@ describe("bulk purchase evidence", () => {
       movementInput: { receipts: [receipt({ originalQuantity: 40, originalUnit: "25 ชิ้น", baseQuantity: 1000 })], transfers: [] } });
     expect(formatPurchaseQuantity(result.rows[0])).toBe("1,000 ซอง");
   });
-  test("an unresolved lot still prints a product's known physical quantity", () => {
+  test("an excluded movement retains its physical quantity only in matching diagnostics", () => {
     const result = run({ sourceInput: { source_records: [source({ cap_unit: "แผง" })] }, movementInput: { receipts: [], transfers: [transfer({ originalQuantity: 7, originalUnit: "10 ชิ้น", baseQuantity: 70 })] } });
-    expect(result.rows[0]).toMatchObject({ lot: "", sourceId: "", ready: false });
-    expect(formatPurchaseQuantity(result.rows[0])).toBe("70 แผง");
+    expect(result.rows).toEqual([]);
+    expect(result.unlinkedMovements[0]).toMatchObject({ lot: "", sourceId: "", ready: false });
+    expect(formatPurchaseQuantity(result.unlinkedMovements[0])).toBe("70 แผง");
   });
   test("conflicting native units and inconsistent quantities cannot silently assert a physical unit", () => {
     const result = run({ movementInput: { receipts: [], transfers: [transfer({ eventId: "strip", originalQuantity: 1, originalUnit: "แผง", baseQuantity: 1 }), transfer({ eventId: "sachet", originalQuantity: 1, originalUnit: "ซอง", baseQuantity: 1 }), transfer({ eventId: "packed", originalQuantity: 1, originalUnit: "50 ชิ้น", baseQuantity: 50 })] } });
-    const row = result.rows.find((entry) => entry.id === "packed");
+    const row = result.unlinkedMovements.find((entry) => entry.id === "packed");
     expect(row.quantityUnit).toBe("");
     expect(formatPurchaseQuantity(row)).toBe("50 ชิ้น");
     expect(formatPurchaseQuantity({ ...row, baseQty: 60 })).toBe("1 × 50 ชิ้น (รอตรวจหน่วย)");
@@ -158,19 +161,52 @@ describe("bulk purchase evidence", () => {
     expect(purchaseRowsCsv(result.rows)).toContain("PR1");
     expect(purchaseRowsCsv(result.rows)).toContain("ใบโอนไม่ระบุล็อต");
   });
-  test("default documents hold unlinked rows while complete CSV and explicit draft inclusion retain them", () => {
+  test("legacy include-unlinked settings cannot add movements without scan lots to PDF or report CSV", () => {
     const result = run({ movementInput: { receipts: [], transfers: [transfer()] } });
+    expect(result.rows).toEqual([]);
     expect(selectPurchaseDocumentRows(result.rows)).toEqual([]);
-    expect(selectPurchaseDocumentRows(result.rows, { includeUnlinkedLots: true })).toHaveLength(1);
+    expect(selectPurchaseDocumentRows(result.unlinkedMovements, { includeUnlinkedLots: true })).toEqual([]);
     expect(selectPurchaseDocumentRows(result.rows, { readyOnly: true, includeUnlinkedLots: true })).toEqual([]);
-    expect(purchaseRowsCsv(result.rows)).toContain("TB1");
+    expect(purchaseRowsCsv(result.unlinkedMovements)).not.toContain("TB1");
     expect(selectPurchaseDocumentRows(run().rows)).toHaveLength(3);
   });
   test("a later purchase with a different invoice is exposed for lookup without reusing an exhausted scanned lot", () => {
     const transfers = [transfer({ originalQuantity: 36, baseQuantity: 36 }), transfer({ eventId: "TB2|1", documentNo: "TB2", date: "2026-07-01", originalQuantity: 30, baseQuantity: 30 })];
     const result = run({ movementInput: { receipts: [receipt(), free(), receipt({ eventId: "PR2|1", documentNo: "PR2", date: "2026-07-01", invoiceReference: "INV-2", originalQuantity: 30, baseQuantity: 30 })], transfers } });
-    expect(result.rows.find((row) => row.documentNo === "TB2")).toMatchObject({ lot: "", sourceId: "", ready: false });
+    expect(result.rows.find((row) => row.documentNo === "TB2")).toBeUndefined();
+    expect(result.rows.find((row) => row.documentNo === "PR2")).toBeUndefined();
+    expect(result.unlinkedMovements.find((row) => row.documentNo === "TB2")).toMatchObject({ lot: "", sourceId: "", ready: false });
     const gaps = purchaseLotGapsCsv(result);
     expect(gaps).toContain("PR2"); expect(gaps).toContain("INV-2"); expect(gaps).toContain("ยังไม่ได้ยืนยัน");
+  });
+  test("prior report evidence in an older bundle cannot seed purchase rows or lot pools", () => {
+    const result = run({ sourceInput: { source_records: [source({ source_file: "KY9_Branch000_Iyafin_DRAFT.pdf" })] } });
+    expect(result.sources).toEqual([]); expect(result.rows).toEqual([]);
+    expect(result.excludedEvidence).toHaveLength(1);
+    const typed = run({ sourceInput: { source_records: [source({ evidence_type: "report_draft", source_file: "previous-report.pdf" })] }, edits: { s1: { evidence_type: "original_scan" } } });
+    expect(typed.rows).toEqual([]); expect(typed.excludedEvidence).toHaveLength(1);
+  });
+  test("importing another scan set switches the same SKU to that purchase and its downstream transfers", () => {
+    const later = receipt({ eventId: "PR2|1", documentNo: "PR2", date: "2026-07-01", invoiceReference: "INV-2", originalQuantity: 36, baseQuantity: 36 });
+    const movementInput = { receipts: [receipt(), free(), later], transfers: [transfer({ originalQuantity: 36, baseQuantity: 36 }), transfer({ eventId: "TB2|1", documentNo: "TB2", date: "2026-07-01" })] };
+    const first = run({ movementInput });
+    expect(first.rows.map((row) => row.documentNo)).toEqual(["PR1", "PR1", "TB1"]);
+    const second = run({ movementInput, sourceInput: { source_records: [source({ id: "s2", invoice_no: "INV-2", invoice_date: "2026-07-01", lot: "LOT-B", mfg: "2026-05-01", exp: "2028-05-01" })] } });
+    expect(second.rows.map((row) => row.documentNo)).toEqual(["PR2", "TB2"]);
+    expect(second.rows.every((row) => row.lot === "LOT-B" && row.manufacturedDate === "2026-05-01" && row.expiry === "2028-05-01")).toBe(true);
+    expect(purchaseRowsCsv(second.rows)).not.toContain("LOT-A");
+  });
+  test("a scan without a meaningful lot stays available for source review but creates no report row", () => {
+    const result = run({ sourceInput: { source_records: [source({ lot: "1" })] } });
+    expect(result.sources).toHaveLength(1); expect(result.rows).toEqual([]);
+    expect(result.sourceIssues[0].messages).toContain("ข้อมูลซื้อจากเอกสารยังไม่ครบ");
+  });
+  test.each([{ lot: "LOT-A" }, { lot: "", mfg: "2026-05-01" }, { lot: "", exp: "2028-05-01" }])("a scanned lot OR manufacturing OR expiry date is sufficient for the report", (facts) => {
+    const result = run({ sourceInput: { source_records: [source(facts)] } });
+    expect(result.rows).toHaveLength(3);
+    expect(result.rows.filter((row) => row.type === "supplier_receipt").every((row) => row.ready)).toBe(true);
+    expect(selectPurchaseDocumentRows(result.rows)).toHaveLength(3);
+    expect(purchaseRowsCsv(result.rows)).toContain("TB1");
+    expect(result.unlinkedMovements).toEqual([]);
   });
 });

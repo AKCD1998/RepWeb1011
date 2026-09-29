@@ -43,6 +43,7 @@
 .purchase-sheet td { vertical-align: top; height: 14mm; }
 .purchase-sheet td:nth-child(1), .purchase-sheet td:nth-child(2), .purchase-sheet td:nth-child(6) { text-align: center; }
 .purchase-sheet small { font-size: 8pt; line-height: 1.35; color: #333; }
+.purchase-sheet .purchase-lot-dates small { font-size: 7.5pt; line-height: 1.3; }
 .purchase-sheet .purchase-review-note { color: #111; }
 .purchase-sheet-foot { display: flex; justify-content: space-between; gap: 10px; font-size: 8pt; padding-top: 3mm; }
 @media screen {
