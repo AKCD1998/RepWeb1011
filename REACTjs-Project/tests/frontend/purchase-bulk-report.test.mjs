@@ -1,0 +1,90 @@
+import { describe, expect, test } from "@jest/globals";
+import { normalizePurchaseSources, purchaseRowsCsv, reconcilePurchases } from "../../src/lib/report1011/purchaseBulk.js";
+
+const source = (changes = {}) => ({ id: "s1", code: "IC-001", name: "ยาทดสอบ", kind: "drug", lot: "LOT-A", invoice_no: "INV-1", invoice_date: "2026-06-16", source_supplier: "ผู้ขาย", source_qty: 36, source_unit: "ขวด", cap_qty: 36, cap_unit: "ขวด", quantity_conversion_status: "EXPLICIT_PRIOR_FACTS", ...changes });
+const receipt = (changes = {}) => ({ type: "supplier_receipt", eventId: "PR|1|IC-001", date: "2026-06-18", documentNo: "PR1", productCode: "IC-001", branchTo: "000", supplierName: "ผู้ขายจริง", invoiceReference: "INV-1", originalQuantity: 30, originalUnit: "ขวด", baseQuantity: 30, stockFactor: 1, lot: "1", unitPrice: 10, lineAmount: 300, ...changes });
+const free = () => receipt({ eventId: "PR|2|IC-001", originalQuantity: 6, baseQuantity: 6, unitPrice: 0, lineAmount: 0 });
+const transfer = (changes = {}) => ({ type: "transfer", eventId: "TB|1|IC-001", date: "2026-06-18", documentNo: "TB1", productCode: "IC-001", branchFrom: "000", branchTo: "001", originalQuantity: 13, originalUnit: "ขวด", baseQuantity: 13, stockFactor: 1, ...changes });
+const run = (changes = {}) => reconcilePurchases({ sourceInput: { source_records: [source()] }, movementInput: { receipts: [receipt(), free()], transfers: [transfer()], dateFrom: "2026-05-01", dateTo: "2026-09-28" }, ...changes });
+
+describe("bulk purchase evidence", () => {
+  test("preserves paid and free native receipt lines and scanned lot instead of placeholder", () => {
+    const result = run();
+    const hq = result.rows.filter((row) => row.branch === "000");
+    expect(hq.map((row) => row.qty)).toEqual([30, 6]);
+    expect(hq.map((row) => row.lot)).toEqual(["LOT-A", "LOT-A"]);
+    expect(hq.every((row) => row.ready === true)).toBe(true);
+    expect(hq[1].freeGoods).toBe(true);
+    expect(result.rows.find((row) => row.branch === "001").status).toBe("proposed");
+  });
+  test("unknown transfer lot remains a proposal until an explicit source ID is confirmed", () => {
+    const before = run().rows.find((row) => row.branch === "001");
+    expect(before.ready).toBe(false);
+    const after = run({ transferMatches: { "TB|1|IC-001": "s1" } }).rows.find((row) => row.branch === "001");
+    expect(after.status).toBe("manual"); expect(after.ready).toBe(true);
+  });
+  test("same-day dispatch yields all four actual branch receipts without using sales", () => {
+    const transfers = [["001", 13], ["003", 13], ["004", 5], ["005", 5]].map(([branchTo, qty]) => transfer({ branchTo, eventId: `TB-${branchTo}`, documentNo: `TB-${branchTo}`, originalQuantity: qty, baseQuantity: qty }));
+    const result = run({ movementInput: { receipts: [receipt(), free()], transfers } });
+    expect(result.branches.map((branch) => [branch.branch, branch.rows.reduce((sum, row) => sum + row.qty, 0)])).toEqual([["000", 36], ["001", 13], ["003", 13], ["004", 5], ["005", 5]]);
+  });
+  test("identical native events deduplicate; conflicting quantities block ready output", () => {
+    const identical = run({ movementInput: { receipts: [receipt(), receipt(), free()], transfers: [] } });
+    expect(identical.duplicates).toBe(1); expect(identical.rows).toHaveLength(2);
+    const conflict = run({ movementInput: { receipts: [receipt(), receipt({ originalQuantity: 31 }), free()], transfers: [] } });
+    expect(conflict.errors).toHaveLength(1); expect(conflict.rows.every((row) => !row.ready)).toBe(true);
+  });
+  test("date/quantity match and unverified receipt hint require review", () => {
+    const input = { source_records: [source({ invoice_no: "", receiptHints: ["PR1"] })] };
+    const before = run({ sourceInput: input });
+    expect(before.receiptJobs[0].status).toBe("proposed");
+    const after = run({ sourceInput: input, receiptMatches: { "000|PR1|IC-001": "s1" } });
+    expect(after.rows.filter((row) => row.type === "supplier_receipt").every((row) => row.ready)).toBe(true);
+  });
+  test("confirmed downstream transfer still carries an unverified upstream warning", () => {
+    const result = run({ sourceInput: { source_records: [source({ invoice_no: "" })] }, transferMatches: { "TB|1|IC-001": "s1" } });
+    expect(result.rows.find((row) => row.branch === "001").ready).toBe(false);
+  });
+  test("clearing a mapping preserves the user's decision instead of reapplying an automatic proposal", () => {
+    const receiptCleared = run({ receiptMatches: { "000|PR1|IC-001": "" } });
+    expect(receiptCleared.receiptJobs[0].sourceId).toBe("");
+    const transferCleared = run({ transferMatches: { "TB|1|IC-001": "" } });
+    expect(transferCleared.rows.find((row) => row.branch === "001").sourceId).toBe("");
+  });
+  test("does not assign branch receipts from old POS allocation fields", () => {
+    const result = run({ sourceInput: { source_records: [source({ assigned_qty: 900, assigned_bill_rows: 80, branch_allocations: { "005": 900 } })] }, movementInput: { receipts: [], transfers: [] } });
+    expect(result.rows).toEqual([]);
+  });
+  test("keeps the known medicine name on a draft transfer while its lot is unresolved", () => {
+    const result = run({ movementInput: { receipts: [], transfers: [transfer()] } });
+    expect(result.rows[0]).toMatchObject({ productName: "ยาทดสอบ", lot: "", status: "pending", ready: false });
+  });
+  test("preserves boxes on printed rows while base units validate the source capacity", () => {
+    const result = run({ sourceInput: { source_records: [source({ source_qty: 2, source_unit: "กล่อง", cap_qty: 100, cap_unit: "แผง" })] }, movementInput: { receipts: [receipt({ originalQuantity: 2, originalUnit: "กล่อง", baseQuantity: 100, stockFactor: 50 })], transfers: [] } });
+    expect(result.rows[0]).toMatchObject({ qty: 2, unit: "กล่อง", baseQty: 100, ready: true });
+  });
+  test("ambiguous lots and insufficient linked quantities remain visible", () => {
+    const result = run({ sourceInput: { source_records: [source(), source({ id: "s2", lot: "LOT-B" })] } });
+    expect(result.receiptJobs[0].status).toBe("pending");
+    const insufficient = run({ movementInput: { receipts: [receipt(), free()], transfers: [transfer({ originalQuantity: 40, baseQuantity: 40 })] }, transferMatches: { "TB|1|IC-001": "s1" } });
+    expect(insufficient.rows.find((row) => row.branch === "001").issues.join(" ")).toContain("ไม่ครอบคลุม");
+  });
+  test("purchase before invoice and duplicate source mapping need review", () => {
+    const before = run({ sourceInput: { source_records: [source({ invoice_date: "2026-06-20" })] } });
+    expect(before.rows[0].issues.join(" ")).toContain("ก่อนวันที่");
+    const repeated = run({ movementInput: { receipts: [receipt(), free(), receipt({ eventId: "PR2|1", documentNo: "PR2" }), free()], transfers: [] } });
+    expect(repeated.receiptJobs.every((job) => job.issues.some((issue) => issue.includes("มากกว่าหนึ่งใบ")))).toBe(true);
+  });
+  test("classifies non-medicines separately and exposes missing codes and uncertain classes", () => {
+    const result = normalizePurchaseSources({ source_records: [source(), source({ id: "n", kind: "non_drug" }), source({ id: "u", code: "", kind: "type_pending" })] });
+    expect(result.excluded).toHaveLength(1); expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].messages).toHaveLength(2);
+  });
+  test("inclusive period export retains original document and review notes", () => {
+    const result = run({ dateFrom: "2026-06-18", dateTo: "2026-06-18" });
+    expect(result.rows).toHaveLength(3);
+    expect(run({ dateFrom: "2026-06-19" }).rows).toEqual([]);
+    expect(purchaseRowsCsv(result.rows)).toContain("PR1");
+    expect(purchaseRowsCsv(result.rows)).toContain("ใบโอนไม่ระบุล็อต");
+  });
+});

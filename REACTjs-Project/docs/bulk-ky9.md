@@ -1,0 +1,42 @@
+# Bulk ขย.9
+
+The Reports page has a separate **Bulk ขย.9 · บัญชีซื้อยาหลายสาขา** section. It accepts one `ky9_bundle.json`, or a scan register (`source_records`) plus an exported Movement Trace JSON (`receipts` and `transfers`). Imports and review edits stay in the browser; download the review bundle to preserve work.
+
+The report uses the eight columns of the [FDA KY9 template](https://drug.fda.moph.go.th/information-licensing-lic/lic6.12/). It creates landscape A4 draft pages for selected locations 000, 001, 003, 004 and 005, eight rows per page. Signatures remain blank. HQ is available as an internal source ledger; including it does not determine its licensing obligations.
+
+## Evidence and review
+
+- Native receipt/transfer dates, suppliers or sending branches, quantities and units are preserved. Paid and free receipt lines remain separate.
+- Exact invoice references or explicitly verified receipt references link purchase scans to native receipt documents. Date/quantity matches and unverified receipt hints are proposals.
+- Placeholder system lots such as `1` do not override scanned lots. Transfers without a lot receive a proposal from linked upstream receipts and must be confirmed against evidence. These proposals do not subtract sales and are not stock balances.
+- Unknown codes, uncertain medicine classifications, quantity/unit differences, duplicated source mappings and unverified upstream links stay visible. Non-medicines are listed separately. An explicitly cleared mapping remains cleared.
+- Confirmations store a particular source ID, so later changes cannot silently confirm a different proposed lot. Any input or review change invalidates generated documents.
+- Drafts can include unresolved rows, marked **รอตรวจ**. The ready-only option filters to verified rows; it can yield an incomplete report until every source is reviewed. Conflicting duplicate events block generation.
+
+The KY11 allocation and purchaser-generation functions are unchanged.
+
+## Prepare local inputs
+
+These commands use explicitly supplied paths and do not expose database credentials to the browser. Keep private exports and scans outside the repository.
+
+```powershell
+node scripts/export-ky9-movements.mjs `
+  --env-file 'C:/private/service.env' `
+  --register 'C:/private/LOT_REGISTER.json' `
+  --out-file 'C:/private/stockday_movements.json' `
+  --date-from 2026-05-01 --date-to 2026-09-28
+
+node scripts/prepare-ky9-bundle.mjs `
+  --register 'C:/private/LOT_REGISTER.json' `
+  --movements 'C:/private/stockday_movements.json' `
+  --extra-sources 'C:/private/extra_sources.json' `
+  --out-dir 'C:/private/prepared'
+```
+
+The exporter uses `REPEATABLE READ READ ONLY`, queries canonical `ada` receipt/transfer tables without product-name joins, and rolls back before writing local files. Candidate SKU codes from scan facts are fetched for later manual matching, not assigned automatically. Event identity includes source table, document type, branch, document number, line number and product code; native line numbers can repeat for different products.
+
+The preparer retains scan evidence and candidate-code notes, omits previous POS-based allocation fields, and writes a bundle, purchase CSV, source coverage CSV, manifest and Thai instructions. `--extra-sources` is optional. Outputs refuse overwrite unless `--replace-output` is explicitly supplied; the exporter always refuses overwrite. Export enough earlier history to cover the scans' upstream receipts before filtering the report period.
+
+## Validation
+
+Run `npm run test:backend` and `npm run ci`. Purchase tests cover paid/free quantities, native units, duplicate conflicts, explicit matching, proposed and cleared mappings, upstream evidence, all five branches, ambiguous lots and date filters. Browser QA covers persistence, input invalidation, mobile width and PDF output.

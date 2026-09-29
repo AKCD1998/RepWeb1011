@@ -2,6 +2,7 @@
 import ActionButtonsBar from "./components/report1011/ActionButtonsBar";
 import LotReceiveCard from "./components/report1011/LotReceiveCard";
 import ManualBulkReportCard from "./components/report1011/ManualBulkReportCard";
+import PurchaseBulkReportCard from "./components/report1011/PurchaseBulkReportCard";
 import OrganicReportCard from "./components/report1011/OrganicReportCard";
 import Report1011Header from "./components/report1011/Report1011Header";
 import ReportPreview from "./components/report1011/ReportPreview";
@@ -303,6 +304,7 @@ export default function Report1011Page() {
     <div className="report1011">
       <Report1011Header />
       <main className="report1011-main">
+        <PurchaseBulkReportCard onPrint={() => runTargetedPrint("purchase-bulk")} />
         <OrganicReportCard onPrint={handleOrganicPrint} />
         <section className={`report1011-section card${isManualReportSectionCollapsed ? " is-collapsed" : ""}`}>
           <button
