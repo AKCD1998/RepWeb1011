@@ -14,6 +14,7 @@ The report uses the eight columns of the [FDA KY9 template](https://drug.fda.mop
 - Unknown codes, uncertain medicine classifications, quantity/unit differences, duplicated source mappings and unverified upstream links stay visible. Non-medicines are listed separately. An explicitly cleared mapping remains cleared.
 - Confirmations store a particular source ID, so later changes cannot silently confirm a different proposed lot. Any input or review change invalidates generated documents.
 - Drafts can include unresolved rows, marked **รอตรวจ**. The ready-only option filters to verified rows; it can yield an incomplete report until every source is reviewed. Conflicting duplicate events block generation.
+- The default PDF includes rows linked to a scanned lot. Counts of held rows appear before generation and in each branch footer; this PDF is partial when some lots remain unlinked. The complete receipt/transfer CSV retains those rows. Download `ky9_lot_gaps.csv` for nearby receipt and invoice references to locate additional evidence; these references are lookup candidates, not confirmed lot links. An explicit checkbox can include unlinked rows in the draft PDF, labelled **รอเชื่อมล็อต** rather than a blank lot cell. Both choices are saved in the review bundle.
 
 The KY11 allocation and purchaser-generation functions are unchanged.
 
@@ -37,7 +38,7 @@ node scripts/prepare-ky9-bundle.mjs `
 
 The exporter uses `REPEATABLE READ READ ONLY`, queries canonical `ada` receipt/transfer tables without product-name joins, and rolls back before writing local files. Candidate SKU codes from scan facts are fetched for later manual matching, not assigned automatically. Event identity includes source table, document type, branch, document number, line number and product code; native line numbers can repeat for different products.
 
-The preparer retains scan evidence and candidate-code notes, omits previous POS-based allocation fields, and writes a bundle, purchase CSV, source coverage CSV, manifest and Thai instructions. `--extra-sources` is optional. Outputs refuse overwrite unless `--replace-output` is explicitly supplied; the exporter always refuses overwrite. Export enough earlier history to cover the scans' upstream receipts before filtering the report period.
+The preparer retains scan evidence and candidate-code notes, omits previous POS-based allocation fields, and writes a bundle, purchase CSV, lot-gap CSV, source coverage CSV, manifest and Thai instructions. Both scripts accept optional `--extra-sources` for additional scanned products and `--source-updates` with a `source_updates` array keyed by existing source ID. The exporter fetches any corrected SKU codes; the preparer applies verified scan corrections without overwriting the original register. Only purchase metadata can be patched; an unknown source ID fails. Outputs refuse overwrite unless `--replace-output` is explicitly supplied; the exporter always refuses overwrite. Export enough earlier history to cover the scans' upstream receipts before filtering the report period.
 
 ## Validation
 

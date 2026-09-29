@@ -17,7 +17,9 @@ for (const file of new Set(register.source_records.map((row) => row.facts_file).
     for (const product of facts.products || []) for (const candidate of product.candidate_codes || []) if (candidate.code) candidateCodes.push(candidate.code);
   } catch (error) { if (error.code !== "ENOENT") throw error; }
 }
-const codes = [...new Set([...register.source_records.map((row) => row.code).filter(Boolean), ...candidateCodes, "IC-000663"])];
+const extraCodes = args.includes("--extra-sources") ? JSON.parse((await fs.readFile(option("--extra-sources"), "utf8")).replace(/^\uFEFF/, "")).source_records.map((row) => row.code).filter(Boolean) : [];
+const updatedCodes = args.includes("--source-updates") ? JSON.parse((await fs.readFile(option("--source-updates"), "utf8")).replace(/^\uFEFF/, "")).source_updates.map((row) => row.code).filter(Boolean) : [];
+const codes = [...new Set([...register.source_records.map((row) => row.code).filter(Boolean), ...candidateCodes, ...extraCodes, ...updatedCodes, "IC-000663"])];
 const dateFrom = option("--date-from"), dateTo = option("--date-to");
 if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo) || dateFrom > dateTo) throw new Error("Invalid date range");
 const env = dotenv.parse(await fs.readFile(option("--env-file"), "utf8"));

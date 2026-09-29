@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { PURCHASE_BRANCHES, PURCHASE_BRANCH_NAMES, purchaseRowsCsv, reconcilePurchases } from "../../lib/report1011/purchaseBulk.js";
+import { PURCHASE_BRANCHES, PURCHASE_BRANCH_NAMES, purchaseLotGapsCsv, purchaseRowsCsv, reconcilePurchases, selectPurchaseDocumentRows } from "../../lib/report1011/purchaseBulk.js";
 import "./PurchaseBulkReport.css";
 
 const number = (value) => Number(value || 0).toLocaleString("th-TH", { maximumFractionDigits: 6 });
@@ -24,10 +24,10 @@ function PurchasePages({ documents, previewBranch }) {
             <tbody>{Array.from({ length: 8 }, (_, i) => {
               const row = rows[i];
               return <tr key={row?.id || `empty-${i}`}><td>{page * 8 + i + 1}</td><td>{row ? dateText(row.date) : ""}</td><td>{row?.supplier}</td>
-                <td>{row?.productName}{row ? <small>{row.productCode}</small> : null}</td><td>{row?.lot}</td><td>{row ? `${number(row.qty)} ${row.unit}` : ""}</td><td />
+                <td>{row?.productName}{row ? <small>{row.productCode}</small> : null}</td><td>{row ? row.lot || "รอเชื่อมล็อต" : ""}</td><td>{row ? `${number(row.qty)} ${row.unit}` : ""}</td><td />
                 <td>{row ? `${row.type === "transfer" ? "ใบโอน" : "ใบรับ"} ${row.documentNo}` : ""}{row?.freeGoods ? <small>สินค้าแถม</small> : null}{row && !row.ready ? <small className="purchase-review-note">รอตรวจ{row.status === "proposed" && row.lot ? " / ล็อตที่เสนอ" : ""}</small> : null}</td></tr>;
             })}</tbody></table>
-          <div className="purchase-sheet-foot"><span>สาขา {document.branch} · เอกสารประกอบจากใบรับและใบโอน · รายการรอตรวจดูใน CSV</span><span>หน้า {page + 1} / {Math.ceil(document.rows.length / 8)}</span></div>
+          <div className="purchase-sheet-foot"><span>สาขา {document.branch} · {document.heldLotRows ? `ยังไม่รวม ${document.heldLotRows} รายการที่ยังไม่เชื่อมล็อต · ดู CSV` : "เอกสารประกอบจากใบรับและใบโอน · รายการรอตรวจดูใน CSV"}</span><span>หน้า {page + 1} / {Math.ceil(document.rows.length / 8)}</span></div>
         </article>;
       })}
     </div>)}
@@ -45,6 +45,7 @@ export default function PurchaseBulkReportCard({ onPrint }) {
   const [reviewPage, setReviewPage] = useState(0), [reading, setReading] = useState(false), [error, setError] = useState("");
   const [documents, setDocuments] = useState([]), [previewBranch, setPreviewBranch] = useState("");
   const [readyOnly, setReadyOnly] = useState(false), [checkedProposals, setCheckedProposals] = useState(false);
+  const [includeUnlinkedLots, setIncludeUnlinkedLots] = useState(false);
   const invalidate = () => { setDocuments([]); setCheckedProposals(false); };
   const changeReview = (field, key, value) => {
     const aliases = field === "transferMatches" ? result?.rows?.find((row) => row.id === key)?.pairedEventIds || [] : [];
@@ -61,7 +62,10 @@ export default function PurchaseBulkReportCard({ onPrint }) {
   const visibleRows = rows.slice(reviewPage * 40, reviewPage * 40 + 40);
   const filteredBranches = valid ? result.branches.filter((branch) => selectedBranches.includes(branch.branch)) : [];
   const unlinkedSources = valid ? result.sources.filter((source) => !result.receiptJobs.some((job) => job.sourceId === source.id)) : [];
-  const selectedRows = filteredBranches.flatMap((branch) => branch.rows).filter((row) => !readyOnly || row.ready);
+  const allSelectedRows = filteredBranches.flatMap((branch) => branch.rows);
+  const selectedRows = selectPurchaseDocumentRows(allSelectedRows, { readyOnly, includeUnlinkedLots });
+  const csvRows = allSelectedRows.filter((row) => !readyOnly || row.ready);
+  const lotGapRows = allSelectedRows.filter((row) => !row.lot);
   const dateError = dates.from && dates.to && dates.from > dates.to;
   const rangeError = valid && ((dates.from && result.dateFrom && dates.from < result.dateFrom) || (dates.to && result.dateTo && dates.to > result.dateTo));
   const proposals = visibleRows.filter((row) => row.type === "transfer" && row.status === "proposed" && row.sourceId);
@@ -77,11 +81,13 @@ export default function PurchaseBulkReportCard({ onPrint }) {
         setReview({ edits: input.review?.edits || {}, receiptMatches: input.review?.receiptMatches || {}, transferMatches: input.review?.transferMatches || {} });
         setDates(input.settings?.dates || { from: "", to: "" });
         setSelectedBranches((input.settings?.selectedBranches || PURCHASE_BRANCHES).filter((branch) => PURCHASE_BRANCHES.includes(branch)));
+        setReadyOnly(input.settings?.readyOnly === true); setIncludeUnlinkedLots(input.settings?.includeUnlinkedLots === true);
       } else if (type === "sources") {
         const records = Array.isArray(input) ? input : input.source_records;
         if (!Array.isArray(records)) throw new Error("เลือกไฟล์ทะเบียนเอกสารสแกน source_records หรือ ky9_bundle.json");
         setSources({ source_records: records }); setSourceName(file.name);
         setReview({ edits: {}, receiptMatches: {}, transferMatches: {} });
+        setReadyOnly(false); setIncludeUnlinkedLots(false);
       } else {
         if (!Array.isArray(input.receipts) || !Array.isArray(input.transfers)) throw new Error("เลือกไฟล์รับ/โอนที่มี receipts และ transfers");
         setMovements(input); setMovementName(file.name); setReview((previous) => ({ ...previous, receiptMatches: {}, transferMatches: {} }));
@@ -91,11 +97,13 @@ export default function PurchaseBulkReportCard({ onPrint }) {
     finally { setReading(false); }
   }
   function createDocuments() {
-    const next = filteredBranches.map((branch) => ({ ...branch, rows: branch.rows.filter((row) => !readyOnly || row.ready).map((row) => ({ ...row })) })).filter((branch) => branch.rows.length);
+    const next = filteredBranches.map((branch) => ({ ...branch,
+      heldLotRows: includeUnlinkedLots ? 0 : branch.rows.filter((row) => !row.lot).length,
+      rows: selectPurchaseDocumentRows(branch.rows, { readyOnly, includeUnlinkedLots }).map((row) => ({ ...row })) })).filter((branch) => branch.rows.length);
     setDocuments(next); setPreviewBranch(next[0]?.branch || "");
   }
   function saveReview() {
-    download("ky9_bundle_review.json", JSON.stringify({ version: 1, type: "ky9-bulk", sources, movements, review, settings: { dates, selectedBranches }, savedAt: new Date().toISOString() }, null, 2));
+    download("ky9_bundle_review.json", JSON.stringify({ version: 1, type: "ky9-bulk", sources, movements, review, settings: { dates, selectedBranches, readyOnly, includeUnlinkedLots }, savedAt: new Date().toISOString() }, null, 2));
   }
   return <section className={`report1011-section card purchase-bulk${collapsed ? " is-collapsed" : ""}`}>
     <button type="button" className="report1011-section__toggle" aria-expanded={!collapsed} aria-controls="purchase-bulk-section" onClick={() => setCollapsed((value) => !value)}>
@@ -115,6 +123,7 @@ export default function PurchaseBulkReportCard({ onPrint }) {
         {valid ? <>
           <div className="purchase-summary" role="status"><strong>{number(result.rows.length)} รายการรับ · {number(result.sources.length)} รายการซื้อในกลุ่มยา · {result.branches.filter((branch) => branch.rows.length).length} สาขา</strong>
             <span>พร้อมใช้ {number(result.rows.filter((row) => row.ready).length)} · รอตรวจ {number(result.rows.filter((row) => !row.ready).length)} · แยกสินค้าที่ไม่ใช่ยา {result.excluded.length} รายการ</span>
+            <span>เชื่อมล็อตจากใบสแกน {number(result.rows.filter((row) => row.lot).length)} · ยังไม่เชื่อมล็อต {number(result.rows.filter((row) => !row.lot).length)} รายการ</span>
             {unlinkedSources.length ? <span>เอกสารซื้อที่ยังไม่เชื่อมใบรับ {unlinkedSources.length} รายการ — ตรวจรหัสสินค้าและการจับคู่ด้านล่าง</span> : null}
             <small>ข้อมูล Movement Trace: {result.dateFrom} ถึง {result.dateTo} · ตัดรายการซ้ำ {result.duplicates} · รวมคู่รับ/จ่ายใบโอน {result.mirroredTransfers.length} คู่ · ไม่รวมรายการยกเลิก {result.cancelled}</small>
           </div>
@@ -152,7 +161,9 @@ export default function PurchaseBulkReportCard({ onPrint }) {
           </details>
           <fieldset className="purchase-branches"><legend>สาขาที่สร้างเอกสาร</legend>{filteredBranches.length === 0 ? <small>เลือกอย่างน้อยหนึ่งสาขา</small> : null}{result.branches.map((branch) => <label className="purchase-check" key={branch.branch}><input type="checkbox" checked={selectedBranches.includes(branch.branch)} onChange={(event) => { invalidate(); setSelectedBranches(event.target.checked ? [...selectedBranches, branch.branch] : selectedBranches.filter((id) => id !== branch.branch)); }} /><span>{branch.branch} · {branch.name}<small>{branch.rows.length} รายการ · พร้อมใช้ {branch.rows.filter((row) => row.ready).length}</small></span></label>)}</fieldset>
           <label className="purchase-check"><input type="checkbox" checked={readyOnly} onChange={(event) => { invalidate(); setReadyOnly(event.target.checked); }} />สร้างเฉพาะรายการพร้อมใช้ (หากไม่เลือกจะรวมรายการรอตรวจในฉบับร่าง)</label>
-          <div className="purchase-actions"><button type="button" className="primary-button" disabled={!selectedRows.length || dateError || rangeError || result.errors.length > 0 || reading} onClick={createDocuments}>สร้างเอกสารฉบับร่าง</button><button type="button" className="outline-button" onClick={saveReview}>บันทึกข้อมูลและการตรวจ</button><button type="button" className="ghost-button" disabled={!selectedRows.length} onClick={() => download("ky9_purchase_review.csv", purchaseRowsCsv(selectedRows), "text/csv")}>ดาวน์โหลด CSV</button></div>
+          <label className="purchase-check"><input type="checkbox" checked={includeUnlinkedLots} onChange={(event) => { invalidate(); setIncludeUnlinkedLots(event.target.checked); }} />รวมรายการที่ยังไม่เชื่อมล็อตใน PDF (แสดงคำว่า “รอเชื่อมล็อต”)</label>
+          <p>PDF จะมี {number(selectedRows.length)} รายการ{lotGapRows.length && !includeUnlinkedLots ? ` · แยก ${number(lotGapRows.length)} รายการที่ยังไม่เชื่อมล็อตไว้ตรวจใน CSV` : ""} · CSV ข้อมูลรับ/โอนมี {number(csvRows.length)} รายการ</p>
+          <div className="purchase-actions"><button type="button" className="primary-button" disabled={!selectedRows.length || dateError || rangeError || result.errors.length > 0 || reading} onClick={createDocuments}>สร้างเอกสารฉบับร่าง</button><button type="button" className="outline-button" onClick={saveReview}>บันทึกข้อมูลและการตรวจ</button><button type="button" className="ghost-button" disabled={!csvRows.length} onClick={() => download("ky9_purchase_review.csv", purchaseRowsCsv(csvRows), "text/csv")}>ดาวน์โหลด CSV</button>{lotGapRows.length ? <button type="button" className="outline-button" onClick={() => download("ky9_lot_gaps.csv", purchaseLotGapsCsv({ ...result, rows: allSelectedRows }), "text/csv")}>ดาวน์โหลดรายการที่ยังไม่เชื่อมล็อต</button> : null}</div>
           {documents.length ? <div className="purchase-actions"><label>ตัวอย่างสาขา<select value={previewBranch} onChange={(event) => setPreviewBranch(event.target.value)}>{documents.map((branch) => <option key={branch.branch} value={branch.branch}>{branch.branch} · {branch.rows.length} รายการ</option>)}</select></label><span>{documents.length} สาขา · {documents.reduce((sum, branch) => sum + Math.ceil(branch.rows.length / 8), 0)} หน้า</span><button type="button" className="primary-button" onClick={onPrint}>พิมพ์ / บันทึก PDF ทุกสาขาที่เลือก</button></div> : null}
         </> : null}
       </div>

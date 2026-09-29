@@ -228,3 +228,21 @@ export function purchaseRowsCsv(rows) {
   return encodeCsv([["branchCode", "receivedDate", "supplier", "productCode", "productName", "lot", "quantity", "unit", "documentNo", "invoiceNo", "sourceFile", "status", "reviewNotes", "manufacturedDate", "expiryDate"],
     ...rows.map((row) => [row.branch, row.date, row.supplier, row.productCode, row.productName, row.lot, row.qty, row.unit, row.documentNo, row.invoiceNo, row.sourceFile, row.ready ? "ready" : row.status, row.issues.join("; "), row.manufacturedDate, row.expiry])]);
 }
+
+export function selectPurchaseDocumentRows(rows, { readyOnly = false, includeUnlinkedLots = false } = {}) {
+  return rows.filter((row) => (!readyOnly || row.ready) && (includeUnlinkedLots || Boolean(row.lot && row.sourceId)));
+}
+
+export function purchaseLotGapsCsv(result) {
+  return encodeCsv([["branchCode", "receivedDate", "productCode", "productName", "documentNo", "quantity", "unit", "reason", "nearbyReceiptDocumentsForLookup", "nearbyInvoiceReferencesForLookup", "scannedLotsForReference", "lookupNote"],
+    ...result.rows.filter((row) => !row.lot).map((row) => {
+      const prior = result.receiptJobs.filter((job) => job.code === row.productCode && job.date <= row.date).sort((a, b) => b.date.localeCompare(a.date));
+      const nearby = prior.filter((job) => job.date === prior[0]?.date);
+      const scanned = result.sources.filter((source) => source.code === row.productCode);
+      return [row.branch, row.date, row.productCode, row.productName, row.documentNo, row.qty, row.unit,
+        row.type === "supplier_receipt" ? "ใบรับยังไม่เชื่อมกับใบสแกน" : "เส้นทางรับโอนยังไม่เชื่อมกับล็อตที่มีจำนวนรองรับ",
+        [...new Set(nearby.map((job) => job.doc))].join("; "), [...new Set(nearby.map((job) => job.invoice).filter(Boolean))].join("; "),
+        scanned.map((source) => `${source.lot} · ${source.invoiceNo || source.invoiceDate}`).join("; "),
+        "เลขใบรับใกล้วันโอนใช้ค้นเอกสารเพิ่มเติม ยังไม่ได้ยืนยันว่าเป็นล็อตของใบโอนนี้"];
+    })]);
+}

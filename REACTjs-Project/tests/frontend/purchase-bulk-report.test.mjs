@@ -1,5 +1,5 @@
 import { describe, expect, test } from "@jest/globals";
-import { normalizePurchaseSources, purchaseRowsCsv, reconcilePurchases } from "../../src/lib/report1011/purchaseBulk.js";
+import { normalizePurchaseSources, purchaseLotGapsCsv, purchaseRowsCsv, reconcilePurchases, selectPurchaseDocumentRows } from "../../src/lib/report1011/purchaseBulk.js";
 
 const source = (changes = {}) => ({ id: "s1", code: "IC-001", name: "ยาทดสอบ", kind: "drug", lot: "LOT-A", invoice_no: "INV-1", invoice_date: "2026-06-16", source_supplier: "ผู้ขาย", source_qty: 36, source_unit: "ขวด", cap_qty: 36, cap_unit: "ขวด", quantity_conversion_status: "EXPLICIT_PRIOR_FACTS", ...changes });
 const receipt = (changes = {}) => ({ type: "supplier_receipt", eventId: "PR|1|IC-001", date: "2026-06-18", documentNo: "PR1", productCode: "IC-001", branchTo: "000", supplierName: "ผู้ขายจริง", invoiceReference: "INV-1", originalQuantity: 30, originalUnit: "ขวด", baseQuantity: 30, stockFactor: 1, lot: "1", unitPrice: 10, lineAmount: 300, ...changes });
@@ -124,5 +124,20 @@ describe("bulk purchase evidence", () => {
     expect(run({ dateFrom: "2026-06-19" }).rows).toEqual([]);
     expect(purchaseRowsCsv(result.rows)).toContain("PR1");
     expect(purchaseRowsCsv(result.rows)).toContain("ใบโอนไม่ระบุล็อต");
+  });
+  test("default documents hold unlinked rows while complete CSV and explicit draft inclusion retain them", () => {
+    const result = run({ movementInput: { receipts: [], transfers: [transfer()] } });
+    expect(selectPurchaseDocumentRows(result.rows)).toEqual([]);
+    expect(selectPurchaseDocumentRows(result.rows, { includeUnlinkedLots: true })).toHaveLength(1);
+    expect(selectPurchaseDocumentRows(result.rows, { readyOnly: true, includeUnlinkedLots: true })).toEqual([]);
+    expect(purchaseRowsCsv(result.rows)).toContain("TB1");
+    expect(selectPurchaseDocumentRows(run().rows)).toHaveLength(3);
+  });
+  test("a later purchase with a different invoice is exposed for lookup without reusing an exhausted scanned lot", () => {
+    const transfers = [transfer({ originalQuantity: 36, baseQuantity: 36 }), transfer({ eventId: "TB2|1", documentNo: "TB2", date: "2026-07-01", originalQuantity: 30, baseQuantity: 30 })];
+    const result = run({ movementInput: { receipts: [receipt(), free(), receipt({ eventId: "PR2|1", documentNo: "PR2", date: "2026-07-01", invoiceReference: "INV-2", originalQuantity: 30, baseQuantity: 30 })], transfers } });
+    expect(result.rows.find((row) => row.documentNo === "TB2")).toMatchObject({ lot: "", sourceId: "", ready: false });
+    const gaps = purchaseLotGapsCsv(result);
+    expect(gaps).toContain("PR2"); expect(gaps).toContain("INV-2"); expect(gaps).toContain("ยังไม่ได้ยืนยัน");
   });
 });
