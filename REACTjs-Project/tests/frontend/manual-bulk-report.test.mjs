@@ -1,6 +1,6 @@
 import { describe, expect, jest, test } from "@jest/globals";
 import { buildBulkReportCsv, buildBulkReportItem } from "../../src/lib/report1011/buildBulkReport.js";
-import { buildLotsTemplate, createBulkSource, importBulkSources, normalizeBulkDate, normalizeBulkProducts, normalizeBulkSaleTimestamp, resolveBulkProduct, validateBulkLots } from "../../src/lib/report1011/bulkImport.js";
+import { buildLotsTemplate, createBulkSource, createCombinedBulkSources, importBulkSources, normalizeBulkDate, normalizeBulkProducts, normalizeBulkSaleTimestamp, resolveBulkProduct, validateBulkLots } from "../../src/lib/report1011/bulkImport.js";
 import { parseCsv } from "../../src/lib/report1011/csv.js";
 
 const branches = ["001", "003", "004", "005"].map((value) => ({ value, label: `${value} : สาขา ${value}` }));
@@ -14,6 +14,27 @@ const patientsCsvText = "pid,full_name\n0000000000001,ผู้ทดสอบ�
 const source = (text, name = "sales.csv") => createBulkSource(text, name);
 const load = (sources, extra = {}) => importBulkSources({ sources, products, branches, ...extra });
 const standardHeader = "branchCode,productCode,saleDate,quantity,billNo,unit\n";
+
+describe("one-file sales and lots import", () => {
+  const header = "recordType,branchCode,productCode,saleDate,quantity,billNo,batch,received_date,boxes,units_per_box\n";
+  test("splits interleaved rows and builds through the existing allocator", () => {
+    const combined = createCombinedBulkSources(header + "SALE,001,IC-001,2026-07-01,2,A,,,,\nLOT,001,IC-001,,,,L1,2026-06-01,1,10\nSALE,001,IC-001,2026-07-02,3,B,,,,", "combined.csv");
+    const sales = load([combined.sales]);
+    const lots = load([combined.lots], { kind: "lots" });
+    expect(sales.errors).toEqual([]);
+    expect(lots.errors).toEqual([]);
+    expect(sales.groups[0].totalSold).toBe(5);
+    expect(lots.groups[0].lots[0].batch).toBe("L1");
+    expect(buildBulkReportItem({ group: sales.groups[0], lots: lots.groups[0].lots, patientsCsvText, sku: "test" }).status).toBe("success");
+  });
+  test("rejects an untyped row instead of silently omitting a sale", () => {
+    expect(() => createCombinedBulkSources(header + "SALE,001,IC-001,2026-07-01,1,A,,,,\n,001,IC-001,2026-07-02,1,B,,,,\nLOT,001,IC-001,,,,L1,2026-06-01,1,10", "combined.csv")).toThrow("แถว 3");
+  });
+  test("keeps physical line numbers for row-level import errors", () => {
+    const combined = createCombinedBulkSources(header + "SALE,001,IC-001,2026-07-01,1,A,,,,\nLOT,001,IC-001,,,,L1,2026-06-01,1,10\nSALE,001,MISSING,2026-07-02,1,B,,,,", "combined.csv");
+    expect(load([combined.sales]).errors[0].location).toBe("combined.csv แถว 4");
+  });
+});
 
 describe("bulk sales import", () => {
   test("separates product/branch jobs, includes 005 and preserves every first sale", () => {

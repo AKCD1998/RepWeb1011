@@ -131,13 +131,52 @@ export function createBulkSource(text, name, id = name, kind = "sales") {
     columns: detectColumns(header), branchId: "", productId: "", skipLegacyFirstRow: false };
 }
 
-export async function readBulkFile(file, kind = "sales") {
-  if (!/\.(csv|json)$/i.test(file.name) || (kind === "lots" && !/\.csv$/i.test(file.name))) throw new Error("เลือกไฟล์ CSV หรือ JSON ประวัติขายเท่านั้น");
+// A combined CSV keeps the two established import formats in one table. Split
+// by recordType before either importer sees a row from the other format.
+export function createCombinedBulkSources(text, name, id = name) {
+  const rows = parseCsv(text);
+  const header = rows[0]?.map(clean) || [];
+  const normalized = header.map(key);
+  const required = ["recordType", "branchCode", "productCode", "saleDate", "quantity", "billNo", "batch", "received_date", "boxes", "units_per_box"];
+  for (const column of required) {
+    if (normalized.filter((value) => value === key(column)).length !== 1) {
+      throw new Error(`ไฟล์รวมต้องมีคอลัมน์ ${column} เพียงหนึ่งคอลัมน์`);
+    }
+  }
+  const typeIndex = normalized.indexOf(key("recordType"));
+  const split = { SALE: [], LOT: [] };
+  const lineNumbers = { SALE: [], LOT: [] };
+  rows.slice(1).forEach((row, index) => {
+    if (!row.some((value) => clean(value))) return;
+    const type = clean(row[typeIndex]).toUpperCase();
+    if (!Object.hasOwn(split, type)) throw new Error(`${name} แถว ${index + 2}: recordType ต้องเป็น SALE หรือ LOT`);
+    split[type].push(row);
+    lineNumbers[type].push(index + 2);
+  });
+  if (!split.SALE.length || !split.LOT.length) throw new Error("ไฟล์รวมต้องมีทั้งแถว SALE และ LOT");
+  const make = (type, kind) => {
+    const source = createBulkSource(encodeCsv([header, ...split[type]]), name, `${id}:${kind}`, kind);
+    source.rowNumbers = lineNumbers[type];
+    return source;
+  };
+  return { sales: make("SALE", "sales"), lots: make("LOT", "lots") };
+}
+
+async function readBulkText(file) {
   if (file.size > 20 * 1024 * 1024) throw new Error("ไฟล์ต้องมีขนาดไม่เกิน 20 MB");
   const buffer = await file.arrayBuffer();
-  let text;
-  try { text = new TextDecoder("utf-8", { fatal: true }).decode(buffer); }
-  catch { text = new TextDecoder("windows-874", { fatal: true }).decode(buffer); }
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(buffer); }
+  catch { return new TextDecoder("windows-874", { fatal: true }).decode(buffer); }
+}
+
+export async function readCombinedBulkFile(file) {
+  if (!/\.csv$/i.test(file.name)) throw new Error("ไฟล์รวมต้องเป็น CSV");
+  return createCombinedBulkSources(await readBulkText(file), file.name, `${file.name}:${file.size}:${file.lastModified}`);
+}
+
+export async function readBulkFile(file, kind = "sales") {
+  if (!/\.(csv|json)$/i.test(file.name) || (kind === "lots" && !/\.csv$/i.test(file.name))) throw new Error("เลือกไฟล์ CSV หรือ JSON ประวัติขายเท่านั้น");
+  const text = await readBulkText(file);
   const source = createBulkSource(text, file.name, `${file.name}:${file.size}:${file.lastModified}`, kind);
   // Filenames are a convenience only; the user can override this before building.
   const branchMatch = file.name.match(/branch[_-]?(001|003|004|005)/i);
@@ -157,7 +196,7 @@ export function importBulkSources({ sources, products, branches, kind = "sales",
       const row = source.rows[index];
       if (!row.some((value) => clean(value))) continue;
       if (index === 0 && source.skipLegacyFirstRow) continue;
-      const location = `${source.name} แถว ${source.firstLine + index}`;
+      const location = `${source.name} แถว ${source.rowNumbers?.[index] ?? source.firstLine + index}`;
       const fail = (message) => errors.push({ location, message });
       const productValue = source.columns.product >= 0 ? cell(row, "product") : source.productId;
       const product = resolveBulkProduct(productValue, products);

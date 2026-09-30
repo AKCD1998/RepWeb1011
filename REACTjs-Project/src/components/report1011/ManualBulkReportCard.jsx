@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BRANCHES } from "../../data/branches";
 import {
   buildLotsTemplate, buildSalesTemplate, importBulkSources, normalizeBulkProducts,
-  readBulkFile, validateBulkLots,
+  readBulkFile, readCombinedBulkFile, validateBulkLots,
 } from "../../lib/report1011/bulkImport.js";
 import { buildBulkReportCsv, buildBulkReportItem } from "../../lib/report1011/buildBulkReport.js";
 import { ReportPages } from "./ReportPreview";
@@ -87,6 +87,14 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
   const imported = useMemo(() => importBulkSources({ sources, products, branches: BULK_BRANCHES, dateFrom: dates.from, dateTo: dates.to }), [sources, products, dates]);
   const importedLots = useMemo(() => importBulkSources({ sources: lotSources, products, branches: BULK_BRANCHES, kind: "lots" }), [lotSources, products]);
   const importedLotMap = useMemo(() => new Map(importedLots.groups.map((group) => [group.key, group.lots])), [importedLots]);
+  const developmentLotCount = lotSources.reduce((count, source) => {
+    const column = source.header.indexOf("receiptBasis");
+    return count + (column < 0 ? 0 : source.rows.filter((row) => String(row[column] || "").includes("SIMULATED")).length);
+  }, 0);
+  const paperHeaderDateCount = lotSources.reduce((count, source) => {
+    const column = source.header.indexOf("receivedDateMeaning");
+    return count + (column < 0 ? 0 : source.rows.filter((row) => String(row[column] || "").includes("PAPER_DOCUMENT_HEADER_DATE")).length);
+  }, 0);
   const jobs = useMemo(() => imported.groups.map((group) => {
     const lots = lotOverrides[group.key] ?? importedLotMap.get(group.key) ?? [];
     return { ...group, lots, error: validateBulkLots(lots, group.totalSold) };
@@ -125,6 +133,21 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
     });
     setReadErrors(settled.flatMap((result, index) => result.status === "rejected" ? [{ location: files[index].name, message: result.reason?.message || "อ่านไฟล์ไม่สำเร็จ" }] : []));
     setIsReading(false);
+  };
+  const handleCombinedUpload = async (file) => {
+    if (!file) return;
+    setIsReading(true);
+    setReadErrors([]);
+    try {
+      const combined = await readCombinedBulkFile(file);
+      if (!activeRef.current) return;
+      setSources([combined.sales]);
+      setLotSources([combined.lots]);
+      setLotOverrides({});
+      setSelectedKeys(null);
+    } catch (error) {
+      if (activeRef.current) setReadErrors([{ location: file.name, message: error?.message || "อ่านไฟล์รวมไม่สำเร็จ" }]);
+    } finally { if (activeRef.current) setIsReading(false); }
   };
   const updateSource = (id, patch) => setSources((previous) => previous.map((source) => source.id === id ? { ...source, ...patch } : source));
   const updateLots = (job, lots) => setLotOverrides((previous) => ({ ...previous, [job.key]: lots }));
@@ -170,6 +193,10 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
         <p className="muted">นำเข้ายอดขายครั้งเดียว ระบบแยกสินค้าและสาขา แล้วใช้การจัดสรรยอดซื้อและชื่อผู้ซื้อแบบเดิม</p>
         {productsError ? <p role="alert">{productsError}</p> : null}
         {productsLoading ? <p role="status">กำลังโหลดรายการสินค้า…</p> : null}
+        <label htmlFor="bulk-combined-file">ไฟล์เดียว: ประวัติขายและลอตทุกสินค้า/สาขา (CSV)
+          <input id="bulk-combined-file" type="file" accept=".csv" onChange={(event) => { handleCombinedUpload(event.target.files?.[0]); event.target.value = ""; }} />
+        </label>
+        <p className="muted">เลือกไฟล์รวมเพื่อแทนชุดที่อัปโหลดไว้ หรือใช้ช่องแยกด้านล่างตามเดิม</p>
         <div className="manual-bulk-fields">
           <label htmlFor="bulk-sales-files">1. ประวัติขาย (เลือกหลายไฟล์ได้)
             <input id="bulk-sales-files" type="file" accept=".csv,.json" multiple onChange={(event) => { handleUpload([...event.target.files], "sales"); event.target.value = ""; }} />
@@ -183,6 +210,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
           <button type="button" className="ghost-button" onClick={() => downloadText("ขย11_lots_template.csv", buildLotsTemplate(imported.groups))}>แม่แบบลอตตามงานที่นำเข้า</button>
         </div>
         <p className="muted">รองรับ CSV รวมสินค้า/สาขา, CSV เดิมทีละสินค้า และ JSON ประวัติขายที่รวบรวมไว้ · จำนวนต้องอยู่ในหน่วยรายงานเดิม เช่น แผงหรือขวด</p>
+        {developmentLotCount || paperHeaderDateCount ? <p role="alert">ข้อมูลลอตในไฟล์นี้: {number(developmentLotCount)} รายการใช้วันที่/ความจุจำลองสำหรับพัฒนาระบบ; {number(paperHeaderDateCount)} รายการใช้วันที่หัวบันทึกกระดาษแทนวันที่รับเข้ารายการนั้น โปรดตรวจเอกสารก่อนใช้ยื่นจริง</p> : null}
         <ImportErrors title="อ่านไฟล์ไม่สำเร็จ" errors={readErrors} />
         {readErrors.length ? <button type="button" className="ghost-button" onClick={() => setReadErrors([])}>นำไฟล์ที่อ่านไม่ได้ออกจากชุดนี้</button> : null}
         {sources.map((source, index) => <SalesSourceSettings key={source.id} source={source} products={products} index={index}
