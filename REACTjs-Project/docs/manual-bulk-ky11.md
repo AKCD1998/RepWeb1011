@@ -2,6 +2,8 @@
 
 หน้า `#/reports` → ส่วน Dextromethorphan/1st Generation Antihistamine → **Bulk ขย.11 · หลายสินค้า / สาขา**
 
+เมื่อผู้ดูแลระบบเปิดหน้านี้ เว็บจะโหลด snapshot ช่วง **18/06/2026–27/09/2026** จาก Rx1011 backend ที่บันทึก CSV รวมฉบับเดิมไว้ในฐานข้อมูล พร้อมตรวจ checksum ก่อนส่งกลับมาแยกเป็นยอดขายและลอต หากเปลี่ยนไฟล์ระหว่างใช้งาน กด **ใช้ชุดข้อมูลอ้างอิงที่บันทึกไว้** เพื่อกลับสู่ snapshot เดิมได้ ข้อมูลนี้ไม่ถูกเก็บใน frontend สาธารณะหรือ localStorage และการแก้ลอตในหน้าจอไม่แก้ snapshot ที่บันทึกไว้
+
 1. หากมีไฟล์รวมยอดขายและลอต ให้เลือกช่อง **ไฟล์เดียว: ประวัติขายและลอตทุกสินค้า/สาขา** หนึ่งครั้ง ไฟล์ CSV ต้องมี `recordType` เป็น `SALE` หรือ `LOT` ในทุกแถว พร้อมคอลัมน์ `branchCode,productCode,saleDate,quantity,billNo,batch,received_date,boxes,units_per_box` ระบบแยกแถวส่งเข้าตัวนำเข้าเดิมและแทนชุดไฟล์ที่อัปโหลดไว้
 2. หากมีไฟล์แยก ให้ใช้สองช่องเดิม: อัปโหลดยอดขายหลาย CSV พร้อมกัน หรือ CSV รวมสินค้าและสาขา รองรับ JSON `rows` รูปแบบ `POS_LOT_ASSIGNMENTS_LOT_INFERENCE_20260929_V2.json` ด้วย
 3. ไฟล์ยอดขายแยกใช้ `branchCode,productCode,saleDate,quantity,billNo,unit` รองรับหัวคอลัมน์ไทยและ StockDay (`ic_code`, `sale_date`, `quantity`, `bill_no`)

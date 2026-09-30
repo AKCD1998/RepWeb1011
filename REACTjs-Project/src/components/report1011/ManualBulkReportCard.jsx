@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BRANCHES } from "../../data/branches";
+import { authApiClient } from "../../lib/authApi";
 import {
-  buildLotsTemplate, buildSalesTemplate, importBulkSources, normalizeBulkProducts,
+  buildLotsTemplate, buildSalesTemplate, createCombinedBulkSources, importBulkSources, normalizeBulkProducts,
   readBulkFile, readCombinedBulkFile, validateBulkLots,
 } from "../../lib/report1011/bulkImport.js";
 import { buildBulkReportCsv, buildBulkReportItem } from "../../lib/report1011/buildBulkReport.js";
@@ -12,6 +13,8 @@ import "./ManualBulkReport.css";
 const BULK_BRANCHES = [...BRANCHES, { value: "005", label: "005 : ถนนเอกชัยสมุทรสาคร" }];
 const emptyLot = () => ({ batch: "", date: "", boxes: "", strips: "" });
 const number = (value) => Number(value || 0).toLocaleString("th-TH");
+const REFERENCE_KEY = "stockday-20260618-20260927-dev-v1";
+const REFERENCE_LABEL = "18 มิ.ย.–27 ก.ย. 2026 · StockDay · 27 สินค้า / 4 สาขา";
 
 function downloadText(filename, csvText) {
   const url = URL.createObjectURL(new Blob([csvText], { type: "text/csv;charset=utf-8;" }));
@@ -72,6 +75,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
   const [sources, setSources] = useState([]);
   const [lotSources, setLotSources] = useState([]);
   const [readErrors, setReadErrors] = useState([]);
+  const [reference, setReference] = useState({ status: "waiting", sources: null, error: "" });
   const [isReading, setIsReading] = useState(false);
   const [dates, setDates] = useState({ from: "", to: "" });
   const [lotOverrides, setLotOverrides] = useState({});
@@ -83,6 +87,8 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
   const [runError, setRunError] = useState("");
   const cancelRef = useRef(false);
   const activeRef = useRef(true);
+  const userSelectedFileRef = useRef(false);
+  const hasCatalog = Boolean(catalogProducts?.length);
   const products = useMemo(() => normalizeBulkProducts(catalogProducts), [catalogProducts]);
   const imported = useMemo(() => importBulkSources({ sources, products, branches: BULK_BRANCHES, dateFrom: dates.from, dateTo: dates.to }), [sources, products, dates]);
   const importedLots = useMemo(() => importBulkSources({ sources: lotSources, products, branches: BULK_BRANCHES, kind: "lots" }), [lotSources, products]);
@@ -117,9 +123,41 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
     activeRef.current = true;
     return () => { activeRef.current = false; cancelRef.current = true; };
   }, []);
+  useEffect(() => {
+    if (!hasCatalog) return;
+    let cancelled = false;
+    setReference({ status: "loading", sources: null, error: "" });
+    authApiClient.get(`/api/reports/ky11-bulk-source-snapshots/${REFERENCE_KEY}`, { responseType: "text" })
+      .then((response) => {
+        const saved = createCombinedBulkSources(response.data, `${REFERENCE_LABEL} (บันทึกบนเว็บ)`, REFERENCE_KEY);
+        if (cancelled) return;
+        setReference({ status: "ready", sources: saved, error: "" });
+        if (!userSelectedFileRef.current) {
+          setSources([saved.sales]);
+          setLotSources([saved.lots]);
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setReference({ status: "error", sources: null, error: error?.status === 403
+          ? "ชุดข้อมูลที่บันทึกไว้เปิดได้เฉพาะผู้ดูแลระบบ"
+          : "โหลดชุดข้อมูลที่บันทึกไว้ไม่สำเร็จ; ยังอัปโหลด CSV เองได้" });
+      });
+    return () => { cancelled = true; };
+  }, [hasCatalog]);
+
+  const restoreReference = () => {
+    if (!reference.sources) return;
+    setSources([reference.sources.sales]);
+    setLotSources([reference.sources.lots]);
+    setLotOverrides({});
+    setSelectedKeys(null);
+    setReadErrors([]);
+  };
 
   const handleUpload = async (files, kind) => {
     if (!files.length) return;
+    userSelectedFileRef.current = true;
     setIsReading(true);
     setReadErrors([]);
     const settled = await Promise.allSettled(files.map((file) => readBulkFile(file, kind)));
@@ -136,6 +174,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
   };
   const handleCombinedUpload = async (file) => {
     if (!file) return;
+    userSelectedFileRef.current = true;
     setIsReading(true);
     setReadErrors([]);
     try {
@@ -193,6 +232,12 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
         <p className="muted">นำเข้ายอดขายครั้งเดียว ระบบแยกสินค้าและสาขา แล้วใช้การจัดสรรยอดซื้อและชื่อผู้ซื้อแบบเดิม</p>
         {productsError ? <p role="alert">{productsError}</p> : null}
         {productsLoading ? <p role="status">กำลังโหลดรายการสินค้า…</p> : null}
+        {reference.status === "loading" ? <p role="status">กำลังโหลดชุดข้อมูลอ้างอิงช่วง {REFERENCE_LABEL}…</p> : null}
+        {reference.status === "ready" ? <div className="manual-bulk-actions">
+          <button type="button" className="outline-button" onClick={restoreReference}>ใช้ชุดข้อมูลอ้างอิงที่บันทึกไว้: {REFERENCE_LABEL}</button>
+          <span className="muted">เว็บโหลดชุดนี้ให้อัตโนมัติเมื่อเปิดหน้า และเรียกกลับได้หลังเปลี่ยนไฟล์</span>
+        </div> : null}
+        {reference.status === "error" ? <p className="muted">{reference.error}</p> : null}
         <label htmlFor="bulk-combined-file">ไฟล์เดียว: ประวัติขายและลอตทุกสินค้า/สาขา (CSV)
           <input id="bulk-combined-file" type="file" accept=".csv" onChange={(event) => { handleCombinedUpload(event.target.files?.[0]); event.target.value = ""; }} />
         </label>
