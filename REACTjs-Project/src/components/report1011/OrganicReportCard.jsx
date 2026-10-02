@@ -2,6 +2,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { inventoryApi, productsApi, reportsApi } from "../../lib/api";
 import {
+  ALL_REPORT_BRANCHES,
+  getAllReportBranchesLabel,
+  mergeBranchActivityProducts,
+  resolveReportBranchCodes,
+} from "../../lib/report1011/organicReportBranches";
+import {
+  COMBINED_REPORT_GROUP,
+  COMBINED_REPORT_GROUP_LABEL,
+  buildOrganicReportRequests,
+  buildReportGroupScopes,
+  formatReportGroupLabel,
+  getProductReportGroupCodes,
+  resolveReportGroupCodes,
+} from "../../lib/report1011/organicReportGroups";
+import {
   buildOrganicBulkReportCsv,
   buildOrganicReportCsv,
 } from "../../lib/report1011/exportOrganicCsv";
@@ -89,7 +104,7 @@ function buildBulkReportMeta(form, counts = {}) {
   const successCount = Number(counts?.successCount) || 0;
   const failedCount = Number(counts?.failedCount) || 0;
   return {
-    branchCode: toCleanText(form?.branchCode),
+    branchCode: form?.branchCode === ALL_REPORT_BRANCHES ? "" : toCleanText(form?.branchCode),
     reportGroupCode: toCleanText(form?.reportGroupCode).toUpperCase(),
     dateFrom: toCleanText(form?.dateFrom),
     dateTo: toCleanText(form?.dateTo),
@@ -132,6 +147,7 @@ function normalizeProductOption(product) {
     tradeName,
     productCode,
     packageSize,
+    reportGroupCodes: getProductReportGroupCodes(product),
     label: `${tradeName} : ${packageSize || "-"}`,
     activityCount: Number.isFinite(activityCount) ? activityCount : null,
     lotCount: Number.isFinite(lotCount) ? lotCount : null,
@@ -139,7 +155,7 @@ function normalizeProductOption(product) {
   };
 }
 
-function normalizeActivityProductsResponse(response) {
+function normalizeActivityProductsResponse(response, scope) {
   const rows = Array.isArray(response?.items)
     ? response.items
     : Array.isArray(response?.products)
@@ -151,7 +167,11 @@ function normalizeActivityProductsResponse(response) {
           : [];
 
   return rows
-    .map(normalizeProductOption)
+    .map((product) => ({
+      ...normalizeProductOption(product),
+      reportGroupCodes: [scope.reportGroupCode],
+      activityScopes: [scope],
+    }))
     .filter((product) => product.id)
     .sort((left, right) => left.label.localeCompare(right.label, "th"));
 }
@@ -170,6 +190,9 @@ function buildActivityProductStats(product) {
   }
   if (product?.packageSize) {
     parts.push(product.packageSize);
+  }
+  if (product?.reportGroupCodes?.length) {
+    parts.push(product.reportGroupCodes.map(formatReportGroupLabel).join(" / "));
   }
   if (Number.isFinite(product?.activityCount) && product.activityCount > 0) {
     parts.push(`dispense ${product.activityCount.toLocaleString("th-TH")} รายการ`);
@@ -402,13 +425,17 @@ function OrganicReportBulkRunPanel({ bulkReportData, bulkRunState, bulkGenerateE
         <div className="organic-report-bulk-run__list" role="list">
           {items.map((item) => (
             <div
-              key={`${item.productId}-${item.status}`}
+              key={`${item.branchCode}-${item.reportGroupCode}-${item.productId}-${item.status}`}
               role="listitem"
               className={`organic-report-bulk-run__item organic-report-bulk-run__item--${item.status}`}
             >
               <div className="organic-report-bulk-run__item-copy">
                 <strong>{item.productName || item.productId}</strong>
-                <span>{[item.productCode, buildBulkItemStatusText(item)].filter(Boolean).join(" • ")}</span>
+                <span>
+                  {[item.branchCode && `สาขา ${item.branchCode}`, formatReportGroupLabel(item.reportGroupCode), item.productCode, buildBulkItemStatusText(item)]
+                    .filter(Boolean)
+                    .join(" • ")}
+                </span>
               </div>
               <span className="organic-report-bulk-run__item-status">
                 {item.status === "success" ? "success" : "error"}
@@ -421,8 +448,8 @@ function OrganicReportBulkRunPanel({ bulkReportData, bulkRunState, bulkGenerateE
       {!bulkRunState.isRunning && failedItems.length ? (
         <div className="organic-report-card__meta organic-report-card__meta--stacked">
           {failedItems.map((item) => (
-            <span key={`${item.productId}-failure`}>
-              {item.productName || item.productId}: {item.errorMessage || "สร้างรายงานไม่สำเร็จ"}
+            <span key={`${item.branchCode}-${item.reportGroupCode}-${item.productId}-failure`}>
+              สาขา {item.branchCode} • {formatReportGroupLabel(item.reportGroupCode)} • {item.productName || item.productId}: {item.errorMessage || "สร้างรายงานไม่สำเร็จ"}
             </span>
           ))}
         </div>
@@ -436,6 +463,7 @@ export default function OrganicReportCard({ onPrint }) {
   const userRole = toCleanText(user?.role).toUpperCase();
   const isAdmin = userRole === "ADMIN";
   const isMountedRef = useRef(true);
+  const singleRequestSeqRef = useRef(0);
   const activityRequestSeqRef = useRef(0);
   const bulkRunSeqRef = useRef(0);
   const bulkCancelRequestedRef = useRef(false);
@@ -467,6 +495,7 @@ export default function OrganicReportCard({ onPrint }) {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      singleRequestSeqRef.current += 1;
       activityRequestSeqRef.current += 1;
       bulkRunSeqRef.current += 1;
       bulkCancelRequestedRef.current = true;
@@ -522,19 +551,22 @@ export default function OrganicReportCard({ onPrint }) {
       .sort((left, right) => toCleanText(left?.code).localeCompare(toCleanText(right?.code), "th"));
   }, [reportGroups]);
 
+  const selectedReportGroupCodes = useMemo(
+    () => resolveReportGroupCodes(form.reportGroupCode),
+    [form.reportGroupCode]
+  );
+
   const productOptions = useMemo(() => {
-    const targetGroup = toCleanText(form.reportGroupCode).toUpperCase();
-    if (!targetGroup) return [];
+    if (!selectedReportGroupCodes.length) return [];
 
     return products
       .filter((product) =>
-        Array.isArray(product?.reportGroupCodes) &&
-        product.reportGroupCodes.some((code) => toCleanText(code).toUpperCase() === targetGroup)
+        getProductReportGroupCodes(product).some((code) => selectedReportGroupCodes.includes(code))
       )
       .map(normalizeProductOption)
       .filter((product) => product.id)
       .sort((left, right) => left.label.localeCompare(right.label, "th"));
-  }, [form.reportGroupCode, products]);
+  }, [selectedReportGroupCodes, products]);
 
   const selectedBranchLabel = useMemo(() => {
     const targetBranchCode = toCleanText(form.branchCode);
@@ -544,6 +576,12 @@ export default function OrganicReportCard({ onPrint }) {
     }
     return `${toCleanText(branch.code)} : ${toCleanText(branch.name) || "-"}`;
   }, [branchOptions, form.branchCode]);
+
+  const allBranchesLabel = useMemo(() => getAllReportBranchesLabel(branchOptions), [branchOptions]);
+  const selectedBranchCodes = useMemo(
+    () => resolveReportBranchCodes(form.branchCode, branchOptions, isAdmin),
+    [form.branchCode, branchOptions, isAdmin]
+  );
 
   const selectedProductLabel = useMemo(() => {
     return productOptions.find((product) => product.id === form.productId)?.label || "";
@@ -604,10 +642,12 @@ export default function OrganicReportCard({ onPrint }) {
   }, [form.branchCode, form.reportGroupCode, form.dateFrom, form.dateTo]);
 
   useEffect(() => {
+    singleRequestSeqRef.current += 1;
+    setIsGeneratingSingle(false);
     setSingleGenerateError("");
     setSingleEmptyStateText("");
     setSingleReportData(createInitialSingleReportData());
-  }, [reportMode]);
+  }, [reportMode, form.branchCode, form.reportGroupCode, form.productId, form.dateFrom, form.dateTo]);
 
   const handleFieldChange = (field, value) => {
     setForm((prev) => ({
@@ -631,11 +671,11 @@ export default function OrganicReportCard({ onPrint }) {
   };
 
   const handleGenerate = async () => {
-    if (!form.branchCode) {
+    if (!selectedBranchCodes.length) {
       setSingleGenerateError("กรุณาเลือกสาขา");
       return;
     }
-    if (!form.reportGroupCode) {
+    if (!selectedReportGroupCodes.length) {
       setSingleGenerateError("กรุณาเลือกกลุ่มรายงาน");
       return;
     }
@@ -644,39 +684,59 @@ export default function OrganicReportCard({ onPrint }) {
       return;
     }
 
+    const requestSeq = ++singleRequestSeqRef.current;
     setIsGeneratingSingle(true);
     setSingleGenerateError("");
     setSingleEmptyStateText("");
 
     try {
-      const payload = await reportsApi.organicDispenseLedger({
-        branchCode: form.branchCode,
-        reportGroupCode: form.reportGroupCode,
-        productId: form.productId,
-        dateFrom: form.dateFrom,
-        dateTo: form.dateTo,
-      });
+      const reports = [];
+      const selectedProduct = productOptions.find((product) => product.id === form.productId);
+      const requests = buildOrganicReportRequests(
+        selectedProduct ? [selectedProduct] : [], selectedBranchCodes, selectedReportGroupCodes
+      );
+      if (!requests.length) throw new Error("สินค้าที่เลือกไม่อยู่ในกลุ่มรายงานนี้");
+      for (const { branchCode, reportGroupCode } of requests) {
+        if (!isMountedRef.current || singleRequestSeqRef.current !== requestSeq) return;
+        let payload;
+        try {
+          payload = await reportsApi.organicDispenseLedger({
+            branchCode,
+            reportGroupCode,
+            productId: form.productId,
+            dateFrom: form.dateFrom,
+            dateTo: form.dateTo,
+          });
+        } catch (error) {
+          throw new Error(`สาขา ${branchCode} • ${formatReportGroupLabel(reportGroupCode)}: ${error?.message || "สร้างรายงานไม่สำเร็จ"}`);
+        }
+        reports.push(...normalizeOrganicReportCollection(payload).reports);
+      }
+      if (!isMountedRef.current || singleRequestSeqRef.current !== requestSeq) return;
 
-      const nextReportData = normalizeOrganicReportCollection(payload);
+      const nextReportData = normalizeOrganicReportCollection({ reports });
       setSingleReportData(nextReportData);
 
       if (!countOrganicReportRows(nextReportData)) {
         setSingleEmptyStateText("ยังไม่พบข้อมูลการจ่ายยาจริงตามเงื่อนไขที่เลือก");
       }
     } catch (error) {
+      if (!isMountedRef.current || singleRequestSeqRef.current !== requestSeq) return;
       setSingleReportData(createInitialSingleReportData());
       setSingleGenerateError(error?.message || "สร้างรายงานจากข้อมูลจริงไม่สำเร็จ");
     } finally {
-      setIsGeneratingSingle(false);
+      if (isMountedRef.current && singleRequestSeqRef.current === requestSeq) {
+        setIsGeneratingSingle(false);
+      }
     }
   };
 
   const handleLoadActivityProducts = async () => {
-    if (!form.branchCode) {
+    if (!selectedBranchCodes.length) {
       setActivityError("กรุณาเลือกสาขาก่อนค้นหารายการสินค้า");
       return;
     }
-    if (!form.reportGroupCode) {
+    if (!selectedReportGroupCodes.length) {
       setActivityError("กรุณาเลือกกลุ่มรายงานก่อนค้นหารายการสินค้า");
       return;
     }
@@ -691,18 +751,29 @@ export default function OrganicReportCard({ onPrint }) {
     setBulkRunState(createInitialBulkRunState());
 
     try {
-      const payload = await reportsApi.organicDispenseLedgerActivityProducts({
-        branchCode: form.branchCode,
-        reportGroupCode: form.reportGroupCode,
-        dateFrom: form.dateFrom,
-        dateTo: form.dateTo,
-      });
+      const productLists = [];
+      for (const scope of buildReportGroupScopes(selectedBranchCodes, selectedReportGroupCodes)) {
+        const { branchCode, reportGroupCode } = scope;
+        if (!isMountedRef.current || activityRequestSeqRef.current !== requestSeq) return;
+        let payload;
+        try {
+          payload = await reportsApi.organicDispenseLedgerActivityProducts({
+            branchCode,
+            reportGroupCode,
+            dateFrom: form.dateFrom,
+            dateTo: form.dateTo,
+          });
+        } catch (error) {
+          throw new Error(`สาขา ${branchCode} • ${formatReportGroupLabel(reportGroupCode)}: ${error?.message || "โหลดรายการสินค้าไม่สำเร็จ"}`);
+        }
+        productLists.push(normalizeActivityProductsResponse(payload, scope));
+      }
 
       if (activityRequestSeqRef.current !== requestSeq) {
         return;
       }
 
-      const nextProducts = normalizeActivityProductsResponse(payload);
+      const nextProducts = mergeBranchActivityProducts(productLists);
       setActivityProducts(nextProducts);
       setSelectedProductIds([]);
       setHasLoadedActivityProducts(true);
@@ -723,11 +794,11 @@ export default function OrganicReportCard({ onPrint }) {
   };
 
   const handleBulkGenerate = async () => {
-    if (!form.branchCode) {
+    if (!selectedBranchCodes.length) {
       setBulkGenerateError("กรุณาเลือกสาขา");
       return;
     }
-    if (!form.reportGroupCode) {
+    if (!selectedReportGroupCodes.length) {
       setBulkGenerateError("กรุณาเลือกกลุ่มรายงาน");
       return;
     }
@@ -746,10 +817,17 @@ export default function OrganicReportCard({ onPrint }) {
         id: productId,
         tradeName: matched?.tradeName || productId,
         productCode: matched?.productCode || "",
+        reportGroupCodes: matched?.reportGroupCodes || [],
+        activityScopes: matched?.activityScopes || [],
       };
     });
 
-    const requestedCount = selectedProducts.length;
+    const reportRequests = buildOrganicReportRequests(selectedProducts, selectedBranchCodes, selectedReportGroupCodes);
+    if (!reportRequests.length) {
+      setBulkGenerateError("ไม่พบรายการสินค้าในกลุ่มรายงานและสาขาที่เลือก กรุณาค้นหารายการสินค้าใหม่");
+      return;
+    }
+    const requestedCount = reportRequests.length;
     const startedAt = new Date().toISOString();
     const runSeq = bulkRunSeqRef.current + 1;
     bulkRunSeqRef.current = runSeq;
@@ -782,7 +860,7 @@ export default function OrganicReportCard({ onPrint }) {
     let failedCount = 0;
     let processedCount = 0;
 
-    for (const product of selectedProducts) {
+    for (const product of reportRequests) {
       if (!isMountedRef.current || bulkRunSeqRef.current !== runSeq || bulkCancelRequestedRef.current) {
         break;
       }
@@ -791,15 +869,15 @@ export default function OrganicReportCard({ onPrint }) {
         ...prev,
         isRunning: true,
         currentProductId: product.id,
-        currentProductName: product.tradeName,
+        currentProductName: `สาขา ${product.branchCode} • ${formatReportGroupLabel(product.reportGroupCode)} • ${product.tradeName}`,
         processedCount,
         totalCount: requestedCount,
       }));
 
       try {
         const payload = await reportsApi.organicDispenseLedger({
-          branchCode: form.branchCode,
-          reportGroupCode: form.reportGroupCode,
+          branchCode: product.branchCode,
+          reportGroupCode: product.reportGroupCode,
           productId: product.id,
           dateFrom: form.dateFrom,
           dateTo: form.dateTo,
@@ -812,6 +890,8 @@ export default function OrganicReportCard({ onPrint }) {
         successCount += 1;
         const normalizedReportData = normalizeOrganicReportCollection(payload);
         collectedItems.push({
+          branchCode: product.branchCode,
+          reportGroupCode: product.reportGroupCode,
           productId: product.id,
           productName: product.tradeName,
           productCode: product.productCode,
@@ -827,6 +907,8 @@ export default function OrganicReportCard({ onPrint }) {
 
         failedCount += 1;
         collectedItems.push({
+          branchCode: product.branchCode,
+          reportGroupCode: product.reportGroupCode,
           productId: product.id,
           productName: product.tradeName,
           productCode: product.productCode,
@@ -951,8 +1033,14 @@ export default function OrganicReportCard({ onPrint }) {
                 value={form.branchCode}
                 onChange={(event) => handleFieldChange("branchCode", event.target.value)}
                 disabled={isLoadingCatalog}
+                aria-describedby={
+                  form.branchCode === ALL_REPORT_BRANCHES ? "organic-branch-scope" : undefined
+                }
               >
                 <option value="">เลือกสาขา…</option>
+                {allBranchesLabel ? (
+                  <option value={ALL_REPORT_BRANCHES}>{allBranchesLabel}</option>
+                ) : null}
                 {branchOptions.map((branch) => (
                   <option key={branch.id || branch.code} value={branch.code}>
                     {`${toCleanText(branch.code)} : ${toCleanText(branch.name) || "-"}`}
@@ -962,6 +1050,9 @@ export default function OrganicReportCard({ onPrint }) {
             ) : (
               <input id="organic-branch" type="text" readOnly value={selectedBranchLabel} />
             )}
+            {isAdmin && form.branchCode === ALL_REPORT_BRANCHES ? (
+              <small id="organic-branch-scope">{allBranchesLabel}</small>
+            ) : null}
           </FieldRow>
 
           <FieldRow
@@ -974,14 +1065,23 @@ export default function OrganicReportCard({ onPrint }) {
               value={form.reportGroupCode}
               onChange={(event) => handleFieldChange("reportGroupCode", event.target.value)}
               disabled={isLoadingCatalog}
+              aria-describedby={
+                form.reportGroupCode === COMBINED_REPORT_GROUP ? "organic-report-group-scope" : undefined
+              }
             >
               <option value="">เลือกกลุ่มรายงาน…</option>
+              {filteredReportGroups.length === 2 ? (
+                <option value={COMBINED_REPORT_GROUP}>{COMBINED_REPORT_GROUP_LABEL}</option>
+              ) : null}
               {filteredReportGroups.map((group) => (
                 <option key={group.code} value={group.code}>
                   {`${toCleanText(group.code)} : ${toCleanText(group.thaiName) || "-"}`}
                 </option>
               ))}
             </select>
+            {form.reportGroupCode === COMBINED_REPORT_GROUP ? (
+              <small id="organic-report-group-scope">{COMBINED_REPORT_GROUP_LABEL}</small>
+            ) : null}
           </FieldRow>
 
           <FieldRow
@@ -1066,8 +1166,7 @@ export default function OrganicReportCard({ onPrint }) {
           <div className="organic-report-card__hint">
             <strong>Bulk mode</strong>
             <span>
-              โหมดนี้จะเรียก single-report endpoint ทีละสินค้าแบบ sequential จากฝั่ง frontend เพื่อคง
-              generator เดิมไว้และลดความเสี่ยงการเปลี่ยน backend เชิงลึก
+              สร้างรายงานทีละสินค้าและสาขาตามเงื่อนไขที่เลือก รายงานแต่ละชุดระบุสาขาแยกกัน
             </span>
           </div>
         ) : null}

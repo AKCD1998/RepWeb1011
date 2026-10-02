@@ -1,4 +1,5 @@
 import { formatReportLocationName } from "../../lib/report1011/utils";
+import { formatReportGroupLabel } from "../../lib/report1011/organicReportGroups";
 import {
   formatOrganicReportMonthLabel,
   getOrganicReportObjects,
@@ -36,7 +37,9 @@ export default function OrganicBulkReportPreview({ bulkReportData, printTarget =
           <strong>รายการที่สร้างไม่สำเร็จ</strong>
           <div className="organic-bulk-preview__error-list">
             {failedItems.map((item) => (
-              <span key={`${item.productId}-error`}>
+              <span key={`${item.branchCode}-${item.reportGroupCode}-${item.productId}-error`}>
+                {item.branchCode ? `สาขา ${item.branchCode} • ` : ""}
+                {item.reportGroupCode ? `${formatReportGroupLabel(item.reportGroupCode)} • ` : ""}
                 {item.productName || item.productId}: {item.errorMessage || "สร้างรายงานไม่สำเร็จ"}
               </span>
             ))}
@@ -55,7 +58,7 @@ export default function OrganicBulkReportPreview({ bulkReportData, printTarget =
           formatReportLocationName(reportMeta?.branchCode || reportMeta?.branchNameOnly) || "-";
 
         return (
-          <section key={item.productId} className="organic-bulk-preview__group">
+          <section key={`${item.branchCode}-${item.reportGroupCode}-${item.productId}`} className="organic-bulk-preview__group">
             <div className="organic-bulk-preview__group-head no-print">
               <div>
                 <strong>{reportMeta?.product || item.productName || item.productId}</strong>

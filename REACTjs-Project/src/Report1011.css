@@ -908,7 +908,7 @@ button:not(:disabled):hover {
   grid-template-areas:
     "branch group date-from date-to"
     "product product product product";
-  align-items: end;
+  align-items: start;
 }
 
 .organic-report-grid .field-row {
