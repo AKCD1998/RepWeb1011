@@ -13,8 +13,10 @@ import "./ManualBulkReport.css";
 const BULK_BRANCHES = [...BRANCHES, { value: "005", label: "005 : ถนนเอกชัยสมุทรสาคร" }];
 const emptyLot = () => ({ batch: "", date: "", boxes: "", strips: "" });
 const number = (value) => Number(value || 0).toLocaleString("th-TH");
-const REFERENCE_KEY = "stockday-20260618-20260927-dev-v1";
-const REFERENCE_LABEL = "18 มิ.ย.–27 ก.ย. 2026 · StockDay · 27 สินค้า / 4 สาขา";
+const REFERENCES = [
+  { key: "stockday-pos-20260618-20261024-dev-v1", label: "18 มิ.ย.–24 ต.ค. 2026 · StockDay + POS · 27 สินค้า / 4 สาขา", from: "2026-06-18", to: "2026-10-24" },
+  { key: "stockday-20260618-20260927-dev-v1", label: "18 มิ.ย.–27 ก.ย. 2026 · StockDay · 27 สินค้า / 4 สาขา", from: "2026-06-18", to: "2026-09-27" },
+];
 
 function downloadText(filename, csvText) {
   const url = URL.createObjectURL(new Blob([csvText], { type: "text/csv;charset=utf-8;" }));
@@ -75,7 +77,8 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
   const [sources, setSources] = useState([]);
   const [lotSources, setLotSources] = useState([]);
   const [readErrors, setReadErrors] = useState([]);
-  const [reference, setReference] = useState({ status: "waiting", sources: null, error: "" });
+  const [reference, setReference] = useState({ status: "waiting", sources: null, error: "", version: null });
+  const [saveVersionStatus, setSaveVersionStatus] = useState("");
   const [isReading, setIsReading] = useState(false);
   const [dates, setDates] = useState({ from: "", to: "" });
   const [lotOverrides, setLotOverrides] = useState({});
@@ -126,20 +129,30 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
   useEffect(() => {
     if (!hasCatalog) return;
     let cancelled = false;
-    setReference({ status: "loading", sources: null, error: "" });
-    authApiClient.get(`/api/reports/ky11-bulk-source-snapshots/${REFERENCE_KEY}`, { responseType: "text" })
-      .then((response) => {
-        const saved = createCombinedBulkSources(response.data, `${REFERENCE_LABEL} (บันทึกบนเว็บ)`, REFERENCE_KEY);
+    setReference({ status: "loading", sources: null, error: "", version: null });
+    const load = async () => {
+      for (const version of REFERENCES) {
+        let response;
+        try {
+          response = await authApiClient.get(`/api/reports/ky11-bulk-source-snapshots/${version.key}`, { responseType: "text" });
+        } catch (error) {
+          if (error?.status === 404 && version !== REFERENCES.at(-1)) continue;
+          throw error;
+        }
+        const saved = createCombinedBulkSources(response.data, `${version.label} (บันทึกบนเว็บ)`, version.key);
         if (cancelled) return;
-        setReference({ status: "ready", sources: saved, error: "" });
+        setReference({ status: "ready", sources: saved, error: "", version });
         if (!userSelectedFileRef.current) {
           setSources([saved.sales]);
           setLotSources([saved.lots]);
+          setDates({ from: version.from, to: version.to });
         }
-      })
-      .catch((error) => {
+        return;
+      }
+    };
+    load().catch((error) => {
         if (cancelled) return;
-        setReference({ status: "error", sources: null, error: error?.status === 403
+        setReference({ status: "error", sources: null, version: null, error: error?.status === 403
           ? "ชุดข้อมูลที่บันทึกไว้เปิดได้เฉพาะผู้ดูแลระบบ"
           : "โหลดชุดข้อมูลที่บันทึกไว้ไม่สำเร็จ; ยังอัปโหลด CSV เองได้" });
       });
@@ -153,6 +166,53 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
     setLotOverrides({});
     setSelectedKeys(null);
     setReadErrors([]);
+    if (reference.version) setDates({ from: reference.version.from, to: reference.version.to });
+  };
+
+  const selectReferenceVersion = async (key) => {
+    const version = REFERENCES.find((entry) => entry.key === key);
+    if (!version) return;
+    setIsReading(true);
+    try {
+      const response = await authApiClient.get(`/api/reports/ky11-bulk-source-snapshots/${version.key}`, { responseType: "text" });
+      const saved = createCombinedBulkSources(response.data, `${version.label} (บันทึกบนเว็บ)`, version.key);
+      if (!activeRef.current) return;
+      userSelectedFileRef.current = true;
+      setReference({ status: "ready", sources: saved, error: "", version });
+      setSources([saved.sales]);
+      setLotSources([saved.lots]);
+      setDates({ from: version.from, to: version.to });
+      setLotOverrides({});
+      setSelectedKeys(null);
+      setSaveVersionStatus("");
+    } catch (error) {
+      if (activeRef.current) setSaveVersionStatus(`เปิดเวอร์ชันไม่สำเร็จ: ${error?.message || "โปรดลองอีกครั้ง"}`);
+    } finally { if (activeRef.current) setIsReading(false); }
+  };
+
+  const handleSaveOct24Version = async (file) => {
+    if (!file) return;
+    setIsReading(true);
+    setSaveVersionStatus("กำลังบันทึกชุดข้อมูลต้นทางบนเว็บ…");
+    try {
+      const version = REFERENCES[0];
+      await authApiClient.put(`/api/reports/ky11-bulk-source-snapshots/${version.key}`, file,
+        { headers: { "Content-Type": "application/octet-stream" } });
+      const response = await authApiClient.get(`/api/reports/ky11-bulk-source-snapshots/${version.key}`, { responseType: "text" });
+      const saved = createCombinedBulkSources(response.data, `${version.label} (บันทึกบนเว็บ)`, version.key);
+      if (!activeRef.current) return;
+      userSelectedFileRef.current = true;
+      setReference({ status: "ready", sources: saved, error: "", version });
+      setSources([saved.sales]);
+      setLotSources([saved.lots]);
+      setDates({ from: version.from, to: version.to });
+      setLotOverrides({});
+      setSelectedKeys(null);
+      setReadErrors([]);
+      setSaveVersionStatus("บันทึกชุดข้อมูลต้นทาง 18 มิ.ย.–24 ต.ค. 2569 แบบแก้ทับไม่ได้แล้ว");
+    } catch (error) {
+      if (activeRef.current) setSaveVersionStatus(`บันทึกไม่สำเร็จ: ${error?.message || "โปรดลองอีกครั้ง"}`);
+    } finally { if (activeRef.current) setIsReading(false); }
   };
 
   const handleUpload = async (files, kind) => {
@@ -232,12 +292,20 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
         <p className="muted">นำเข้ายอดขายครั้งเดียว ระบบแยกสินค้าและสาขา แล้วใช้การจัดสรรยอดซื้อและชื่อผู้ซื้อแบบเดิม</p>
         {productsError ? <p role="alert">{productsError}</p> : null}
         {productsLoading ? <p role="status">กำลังโหลดรายการสินค้า…</p> : null}
-        {reference.status === "loading" ? <p role="status">กำลังโหลดชุดข้อมูลอ้างอิงช่วง {REFERENCE_LABEL}…</p> : null}
+        {reference.status === "loading" ? <p role="status">กำลังโหลดชุดข้อมูลอ้างอิงที่บันทึกไว้…</p> : null}
         {reference.status === "ready" ? <div className="manual-bulk-actions">
-          <button type="button" className="outline-button" onClick={restoreReference}>ใช้ชุดข้อมูลอ้างอิงที่บันทึกไว้: {REFERENCE_LABEL}</button>
+          <label>เวอร์ชันข้อมูลต้นทาง <select value={reference.version?.key || ""} onChange={(event) => selectReferenceVersion(event.target.value)}>
+            {REFERENCES.map((version) => <option key={version.key} value={version.key}>{version.label}</option>)}
+          </select></label>
+          <button type="button" className="outline-button" onClick={restoreReference}>ใช้ชุดข้อมูลอ้างอิงที่บันทึกไว้: {reference.version?.label}</button>
           <span className="muted">เว็บโหลดชุดนี้ให้อัตโนมัติเมื่อเปิดหน้า และเรียกกลับได้หลังเปลี่ยนไฟล์</span>
         </div> : null}
         {reference.status === "error" ? <p className="muted">{reference.error}</p> : null}
+        <p className="muted">เวอร์ชันนี้เก็บเฉพาะยอดขายและลอตต้นทางแบบถาวร ผลจัดสรรชื่อผู้ซื้อ เอกสาร และ PDF หลังสร้างยังไม่ถูกบันทึก ชุดลอตที่ยังไม่ยืนยันใช้เป็นร่างสำหรับตรวจสอบเท่านั้น</p>
+        {reference.version?.key !== REFERENCES[0].key ? <label htmlFor="bulk-save-oct24-version">บันทึกเวอร์ชันข้อมูลต้นทาง 18 มิ.ย.–24 ต.ค. 2569 (ผู้ดูแลระบบ)
+          <input id="bulk-save-oct24-version" type="file" accept=".csv" onChange={(event) => { handleSaveOct24Version(event.target.files?.[0]); event.target.value = ""; }} />
+        </label> : null}
+        {saveVersionStatus ? <p role="status">{saveVersionStatus}</p> : null}
         <label htmlFor="bulk-combined-file">ไฟล์เดียว: ประวัติขายและลอตทุกสินค้า/สาขา (CSV)
           <input id="bulk-combined-file" type="file" accept=".csv" onChange={(event) => { handleCombinedUpload(event.target.files?.[0]); event.target.value = ""; }} />
         </label>
