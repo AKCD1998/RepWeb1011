@@ -34,6 +34,12 @@ describe("one-file sales and lots import", () => {
     const combined = createCombinedBulkSources(header + "SALE,001,IC-001,2026-07-01,1,A,,,,\nLOT,001,IC-001,,,,L1,2026-06-01,1,10\nSALE,001,MISSING,2026-07-02,1,B,,,,", "combined.csv");
     expect(load([combined.sales]).errors[0].location).toBe("combined.csv แถว 4");
   });
+  test("separates branch transfer-outs, including FEFO transfers without recorded batch", () => {
+    const combined = createCombinedBulkSources("recordType,branchCode,productCode,saleDate,quantity,billNo,batch,received_date,boxes,units_per_box,expiry_date\nSALE,001,IC-001,2026-07-01,1,A,,,,,\nLOT,001,IC-001,,,,SOON,2026-06-01,1,1,2027-01-01\nTRANSFER_OUT,001,IC-001,,,,,2026-06-30,1,1,", "with-transfer.csv");
+    const transfers = load([combined.transfers], { kind: "transfers" });
+    expect(transfers.errors).toEqual([]);
+    expect(transfers.groups[0].lots[0]).toMatchObject({ batch: "", date: "2026-06-30", boxes: 1, strips: 1 });
+  });
 });
 
 describe("bulk sales import", () => {
@@ -155,6 +161,21 @@ describe("FEFO bulk allocation", () => {
     expect(imported.groups[0].lots[0]).toMatchObject({ receivedQty: 7, receivedUnit: "แผง", expiry: "2027-01-01" });
     const result = buildBulkReportItem({ group: makeGroup(["2026-07-01"]), lots: imported.groups[0].lots, patientsCsvText, sku: "test", lotAllocation: "fefo" });
     expect(result.pages[0].lot).toMatchObject({ receivedQty: 7, receivedUnit: "แผง" });
+  });
+  test("subtracts branch transfer-out before the next sale", () => {
+    const lots = [
+      { batch: "SOON", date: "2026-06-01", expiry: "2027-01-01", boxes: 1, strips: 1 },
+      { batch: "LONG", date: "2026-06-01", expiry: "2028-01-01", boxes: 1, strips: 1 },
+    ];
+    const group = makeGroup(["2026-07-01"]);
+    const transfer = { batch: "SOON", date: "2026-06-30", expiry: "2027-01-01", boxes: 1, strips: 1 };
+    const result = buildBulkReportItem({ group, lots, transfers: [transfer], patientsCsvText, sku: "test", lotAllocation: "fefo" });
+    expect(result.status).toBe("success");
+    expect(result.pages[0].lot.batch).toBe("LONG (1)");
+    const inferredTransfer = buildBulkReportItem({ group, lots, transfers: [{ ...transfer, batch: "", expiry: "" }], patientsCsvText, sku: "test", lotAllocation: "fefo" });
+    expect(inferredTransfer.pages[0].lot.batch).toBe("LONG (1)");
+    const laterTransfer = buildBulkReportItem({ group, lots, transfers: [{ ...transfer, date: "2026-07-02" }], patientsCsvText, sku: "test", lotAllocation: "fefo" });
+    expect(laterTransfer.pages[0].lot.batch).toBe("SOON (1)");
   });
 });
 

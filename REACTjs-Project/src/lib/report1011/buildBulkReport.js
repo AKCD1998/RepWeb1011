@@ -1,7 +1,7 @@
 import { buildReport } from "./buildReport.js";
 import { validateBulkLots } from "./bulkImport.js";
 
-export function buildBulkReportItem({ group, lots, patientsCsvText, sku, lotAllocation = "received" }) {
+export function buildBulkReportItem({ group, lots, transfers = [], patientsCsvText, sku, lotAllocation = "received" }) {
   const error = validateBulkLots(lots, group.totalSold, { requireExpiry: lotAllocation === "fefo" });
   if (error) return { key: group.key, status: "error", error };
   if (!group.sales.length) return { key: group.key, status: "error", error: "ไม่มีประวัติขายในช่วงวันที่เลือก" };
@@ -24,6 +24,7 @@ export function buildBulkReportItem({ group, lots, patientsCsvText, sku, lotAllo
   const salesCsvText = ["วันที่,จำนวน", rows[0], ...rows].join("\n");
   const result = buildReport({
     lots: lots.map((lot) => ({ ...lot, boxes: Number(lot.boxes), strips: Number(lot.strips) })),
+    lotTransfers: transfers.map((entry) => ({ ...entry, qty: Number(entry.boxes) * Number(entry.strips) })),
     salesCsvText, patientsCsvText, sku, branchId: group.branchId,
     productName: group.product.value, maker: group.product.maker, lotAllocation,
   });
