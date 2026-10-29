@@ -148,6 +148,14 @@ describe("FEFO bulk allocation", () => {
     expect(validateBulkLots(lots, 1)).toBe("");
     expect(validateBulkLots(lots, 1, { requireExpiry: true })).toContain("วันหมดอายุ");
   });
+  test("retains the recorded receipt quantity and unit for the printed header", () => {
+    const lotSource = createBulkSource("branchCode,productCode,batch,received_date,boxes,units_per_box,expiry_date,received_quantity,received_unit\n001,IC-001,A,2026-06-01,1,7,2027-01-01,7,แผง", "lots.csv", "lots", "lots");
+    const imported = load([lotSource], { kind: "lots" });
+    expect(imported.errors).toEqual([]);
+    expect(imported.groups[0].lots[0]).toMatchObject({ receivedQty: 7, receivedUnit: "แผง", expiry: "2027-01-01" });
+    const result = buildBulkReportItem({ group: makeGroup(["2026-07-01"]), lots: imported.groups[0].lots, patientsCsvText, sku: "test", lotAllocation: "fefo" });
+    expect(result.pages[0].lot).toMatchObject({ receivedQty: 7, receivedUnit: "แผง" });
+  });
 });
 
 describe("bulk generation through the existing report builder", () => {
