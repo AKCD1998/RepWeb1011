@@ -15,6 +15,8 @@ const ALIASES = {
   boxes: ["boxes", "จำนวนกล่อง", "กล่อง"],
   strips: ["strips", "unitsPerBox", "units_per_box", "แผงต่อกล่อง", "แผง/กล่อง"],
   expiry: ["expiry_date", "expiryDate", "exp_date", "sourceExpiryDate", "วันหมดอายุ"],
+  receivedQty: ["received_quantity", "receivedQuantity", "จำนวนรับเข้า"],
+  receivedUnit: ["received_unit", "receivedUnit", "หน่วยรับเข้า"],
 };
 
 export function encodeCsv(rows) {
@@ -238,7 +240,11 @@ export function importBulkSources({ sources, products, branches, kind = "sales",
         const expiryValue = source.columns.expiry >= 0 ? cell(row, "expiry") : "";
         const expiry = normalizeBulkDate(expiryValue);
         if (expiryValue && !expiry) { fail("วันหมดอายุลอตไม่ถูกต้อง"); continue; }
-        record = { batch, date, boxes, strips, expiry, source: location };
+        const receivedQtyValue = source.columns.receivedQty >= 0 ? cell(row, "receivedQty") : "";
+        const receivedUnit = source.columns.receivedUnit >= 0 ? cell(row, "receivedUnit") : "";
+        const receivedQty = receivedQtyValue ? positiveInteger(receivedQtyValue) : null;
+        if (receivedQtyValue && (!receivedQty || !receivedUnit)) { fail("จำนวนรับและหน่วยรับเข้าต้องถูกต้องและกรอกคู่กัน"); continue; }
+        record = { batch, date, boxes, strips, expiry, receivedQty, receivedUnit, source: location };
       }
       if (!groups.has(groupKey)) groups.set(groupKey, { key: groupKey, branchId, product, sales: [], lots: [], sources: new Set() });
       const group = groups.get(groupKey);

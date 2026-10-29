@@ -374,7 +374,9 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
                 {job.lots.map((lot, index) => <div className="manual-bulk-lot" key={index}>
                   {[["batch", "text", "เลขลอต"], ["date", "date", "วันที่รับ"], ["boxes", "number", "กล่อง"], ["strips", "number", "หน่วยต่อกล่อง"], ["expiry", "date", "วันหมดอายุ"]].map(([field, type, label]) => <input key={field} type={type} min={type === "number" ? 1 : undefined} step={type === "number" ? 1 : undefined} placeholder={label}
                     aria-label={`${label} ${job.branchId} ${job.product.code} ลอต ${index + 1}`} value={lot[field]}
-                    onChange={(event) => updateLots(job, job.lots.map((entry, position) => position === index ? { ...entry, [field]: event.target.value } : entry))} />)}
+                    onChange={(event) => updateLots(job, job.lots.map((entry, position) => position === index
+                      ? { ...entry, [field]: event.target.value, ...(["boxes", "strips"].includes(field) ? { receivedQty: null, receivedUnit: "" } : {}) }
+                      : entry))} />)}
                   <button type="button" className="ghost-button" aria-label={`ลบลอต ${index + 1} ${job.key}`} onClick={() => updateLots(job, job.lots.filter((_, position) => position !== index))}>ลบ</button>
                 </div>)}
                 <button type="button" className="outline-button" onClick={() => updateLots(job, [...job.lots, emptyLot()])}>เพิ่มลอต สาขา {job.branchId}</button>

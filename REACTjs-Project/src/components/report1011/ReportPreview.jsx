@@ -39,7 +39,9 @@ function PageSheet({ meta, lot, rows, quantityLabel }) {
           </span>
           <span className="page-line-item">
             <b>จำนวนที่รับ</b>
-            <span>{(lot?.boxes || 0).toLocaleString("th-TH")} กล่อง</span>
+            <span>{lot?.receivedQty && lot?.receivedUnit
+              ? `${Number(lot.receivedQty).toLocaleString("th-TH")} ${lot.receivedUnit}`
+              : `${(lot?.boxes || 0).toLocaleString("th-TH")} กล่อง`}</span>
           </span>
         </div>
 
