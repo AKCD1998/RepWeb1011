@@ -11,7 +11,7 @@ import "./ManualBulkReport.css";
 
 // Keep legacy single-mode branches unchanged; the new workflow includes 005.
 const BULK_BRANCHES = [...BRANCHES, { value: "005", label: "005 : ถนนเอกชัยสมุทรสาคร" }];
-const emptyLot = () => ({ batch: "", date: "", boxes: "", strips: "" });
+const emptyLot = () => ({ batch: "", date: "", boxes: "", strips: "", expiry: "" });
 const number = (value) => Number(value || 0).toLocaleString("th-TH");
 const REFERENCES = [
   { key: "stockday-pos-20260618-20261024-dev-v1", label: "18 มิ.ย.–24 ต.ค. 2026 · StockDay + POS · 27 สินค้า / 4 สาขา", from: "2026-06-18", to: "2026-10-24" },
@@ -106,7 +106,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
   }, 0);
   const jobs = useMemo(() => imported.groups.map((group) => {
     const lots = lotOverrides[group.key] ?? importedLotMap.get(group.key) ?? [];
-    return { ...group, lots, error: validateBulkLots(lots, group.totalSold) };
+    return { ...group, lots, error: validateBulkLots(lots, group.totalSold, { requireExpiry: true }) };
   }), [imported, importedLotMap, lotOverrides]);
   const selectedJobs = jobs.filter((job) => selectedKeys === null || selectedKeys.includes(job.key));
   const successes = results.filter((result) => result.status === "success");
@@ -274,7 +274,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
         if (cancelRef.current || !activeRef.current) break;
         const group = queue[index];
         let result;
-        try { result = buildBulkReportItem({ group, lots: group.lots, patientsCsvText: patients, sku }); }
+        try { result = buildBulkReportItem({ group, lots: group.lots, patientsCsvText: patients, sku, lotAllocation: "fefo" }); }
         catch (error) { result = { key: group.key, status: "error", error: error?.message || "สร้างรายงานไม่สำเร็จ" }; }
         next = [...next, result];
         setResults(next);
@@ -289,7 +289,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
     <div className="manual-bulk">
       <fieldset className="manual-bulk-controls no-print" disabled={busy}>
         <legend>สร้าง ขย.11 หลายสินค้า / หลายสาขา</legend>
-        <p className="muted">นำเข้ายอดขายครั้งเดียว ระบบแยกสินค้าและสาขา แล้วใช้การจัดสรรยอดซื้อและชื่อผู้ซื้อแบบเดิม</p>
+        <p className="muted">นำเข้ายอดขายครั้งเดียว ระบบแยกสินค้าและสาขา จัดลอตตามวันหมดอายุ (FEFO) และใช้การจัดสรรชื่อผู้ซื้อแบบเดิม</p>
         {productsError ? <p role="alert">{productsError}</p> : null}
         {productsLoading ? <p role="status">กำลังโหลดรายการสินค้า…</p> : null}
         {reference.status === "loading" ? <p role="status">กำลังโหลดชุดข้อมูลอ้างอิงที่บันทึกไว้…</p> : null}
@@ -369,10 +369,10 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
               </div>
               <details open={checked && Boolean(job.error)}>
                 <summary>ลอตรับเข้า {number(job.lots.length)} รายการ · {job.error || "พร้อมสร้างรายงาน"}</summary>
-                <p className="muted">ใช้จำนวนรับเข้าของสาขานี้ จำนวนต่อกล่องต้องเป็นหน่วยเดียวกับยอดขาย</p>
-                <div className="manual-bulk-lot-labels" aria-hidden="true"><span>เลขลอต</span><span>วันที่รับ</span><span>กล่อง</span><span>หน่วย/กล่อง</span><span /></div>
+                <p className="muted">ใช้จำนวนรับเข้าของสาขานี้ จำนวนต่อกล่องต้องเป็นหน่วยเดียวกับยอดขาย และกรอกวันหมดอายุเพื่อจัดลอตตาม FEFO</p>
+                <div className="manual-bulk-lot-labels" aria-hidden="true"><span>เลขลอต</span><span>วันที่รับ</span><span>กล่อง</span><span>หน่วย/กล่อง</span><span>วันหมดอายุ</span><span /></div>
                 {job.lots.map((lot, index) => <div className="manual-bulk-lot" key={index}>
-                  {[["batch", "text", "เลขลอต"], ["date", "date", "วันที่รับ"], ["boxes", "number", "กล่อง"], ["strips", "number", "หน่วยต่อกล่อง"]].map(([field, type, label]) => <input key={field} type={type} min={type === "number" ? 1 : undefined} step={type === "number" ? 1 : undefined} placeholder={label}
+                  {[["batch", "text", "เลขลอต"], ["date", "date", "วันที่รับ"], ["boxes", "number", "กล่อง"], ["strips", "number", "หน่วยต่อกล่อง"], ["expiry", "date", "วันหมดอายุ"]].map(([field, type, label]) => <input key={field} type={type} min={type === "number" ? 1 : undefined} step={type === "number" ? 1 : undefined} placeholder={label}
                     aria-label={`${label} ${job.branchId} ${job.product.code} ลอต ${index + 1}`} value={lot[field]}
                     onChange={(event) => updateLots(job, job.lots.map((entry, position) => position === index ? { ...entry, [field]: event.target.value } : entry))} />)}
                   <button type="button" className="ghost-button" aria-label={`ลบลอต ${index + 1} ${job.key}`} onClick={() => updateLots(job, job.lots.filter((_, position) => position !== index))}>ลบ</button>

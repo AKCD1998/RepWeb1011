@@ -29,7 +29,7 @@ div.manual-bulk-file { display: flex; flex-wrap: wrap; align-items: center; gap:
 .manual-bulk-job-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
 .manual-bulk-job-head small { display: block; color: var(--muted); margin-top: 4px; }
 .manual-bulk-job-head > span { font-size: 13px; color: var(--muted); }
-.manual-bulk-lot, .manual-bulk-lot-labels { display: grid; grid-template-columns: 1.3fr 1.2fr .7fr .9fr 50px; gap: 8px; margin: 10px 0; }
+.manual-bulk-lot, .manual-bulk-lot-labels { display: grid; grid-template-columns: 1.3fr 1.2fr .7fr .9fr 1.2fr 50px; gap: 8px; margin: 10px 0; }
 .manual-bulk-lot input { min-width: 0; width: 100%; }
 .manual-bulk-lot-labels { font-size: 13px; color: var(--muted); margin-top: 16px; }
 .manual-bulk-confirm { padding: 20px 0 8px; font-weight: 600; }

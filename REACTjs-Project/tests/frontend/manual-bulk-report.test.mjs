@@ -109,7 +109,44 @@ describe("dates and branch lots", () => {
   });
   test("template leaves unknown receipts blank instead of manufacturing quantities", () => {
     const groups = load([source(standardHeader + "005,IC-002,2026-07-01,1,A,ขวด")]).groups;
-    expect(parseCsv(buildLotsTemplate(groups))[1]).toEqual(["005", "IC-002", "", "", "", ""]);
+    expect(parseCsv(buildLotsTemplate(groups))[1]).toEqual(["005", "IC-002", "", "", "", "", ""]);
+  });
+});
+
+describe("FEFO bulk allocation", () => {
+  const makeGroup = (dates) => load([source(standardHeader + dates.map((date, index) => `001,IC-001,${date},1,B${index + 1},แผง`).join("\n"))]).groups[0];
+  test("uses earlier expiry even when its receipt is later", () => {
+    const lots = [
+      { batch: "LONG", date: "2026-06-01", expiry: "2028-01-01", boxes: 1, strips: 1 },
+      { batch: "SOON", date: "2026-06-30", expiry: "2027-01-01", boxes: 1, strips: 1 },
+    ];
+    const result = buildBulkReportItem({ group: makeGroup(["2026-07-01", "2026-07-02"]), lots, patientsCsvText, sku: "test", lotAllocation: "fefo" });
+    expect(result.status).toBe("success");
+    expect(result.pages.map((page) => page.lot.batch)).toEqual(["SOON (1)", "LONG (1)"]);
+    expect(result.pages.flatMap((page) => page.rows).every((row) => row.note.includes("FEFO"))).toBe(true);
+  });
+  test("does not assign sales to an expired or not-yet-received lot", () => {
+    const group = makeGroup(["2026-07-01"]);
+    const expired = [{ batch: "OLD", date: "2026-06-01", expiry: "2026-06-30", boxes: 1, strips: 1 }];
+    const future = [{ batch: "FUTURE", date: "2026-07-02", expiry: "2027-01-01", boxes: 1, strips: 1 }];
+    expect(buildBulkReportItem({ group, lots: expired, patientsCsvText, sku: "test", lotAllocation: "fefo" }).status).toBe("error");
+    expect(buildBulkReportItem({ group, lots: future, patientsCsvText, sku: "test", lotAllocation: "fefo" }).status).toBe("error");
+  });
+  test("splits one sale across available lots without losing units", () => {
+    const group = load([source(standardHeader + "001,IC-001,2026-07-01,1,B1,แผง\n001,IC-001,2026-07-02,2,B2,แผง")]).groups[0];
+    const lots = [
+      { batch: "FIRST", date: "2026-06-01", expiry: "2027-01-01", boxes: 1, strips: 2 },
+      { batch: "SECOND", date: "2026-06-01", expiry: "2028-01-01", boxes: 1, strips: 2 },
+    ];
+    const result = buildBulkReportItem({ group, lots, patientsCsvText, sku: "test", lotAllocation: "fefo" });
+    expect(result.status).toBe("success");
+    expect(result.pages.map((page) => page.rows.reduce((sum, row) => sum + row.qty, 0))).toEqual([2, 1]);
+    expect(result.pages[0].rows.at(-1).pid).toBe(result.pages[1].rows[0].pid);
+  });
+  test("requires expiry for FEFO without breaking the older import format", () => {
+    const lots = [{ batch: "A", date: "2026-06-01", boxes: 1, strips: 1 }];
+    expect(validateBulkLots(lots, 1)).toBe("");
+    expect(validateBulkLots(lots, 1, { requireExpiry: true })).toContain("วันหมดอายุ");
   });
 });
 

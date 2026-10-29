@@ -1,8 +1,8 @@
 import { buildReport } from "./buildReport.js";
 import { validateBulkLots } from "./bulkImport.js";
 
-export function buildBulkReportItem({ group, lots, patientsCsvText, sku }) {
-  const error = validateBulkLots(lots, group.totalSold);
+export function buildBulkReportItem({ group, lots, patientsCsvText, sku, lotAllocation = "received" }) {
+  const error = validateBulkLots(lots, group.totalSold, { requireExpiry: lotAllocation === "fefo" });
   if (error) return { key: group.key, status: "error", error };
   if (!group.sales.length) return { key: group.key, status: "error", error: "ไม่มีประวัติขายในช่วงวันที่เลือก" };
   if (group.totalSold > 100000) return { key: group.key, status: "error", error: "ยอดต่อรายงานเกิน 100,000 หน่วย โปรดแบ่งช่วงวันที่" };
@@ -25,10 +25,10 @@ export function buildBulkReportItem({ group, lots, patientsCsvText, sku }) {
   const result = buildReport({
     lots: lots.map((lot) => ({ ...lot, boxes: Number(lot.boxes), strips: Number(lot.strips) })),
     salesCsvText, patientsCsvText, sku, branchId: group.branchId,
-    productName: group.product.value, maker: group.product.maker,
+    productName: group.product.value, maker: group.product.maker, lotAllocation,
   });
   if (result.error) return { key: group.key, status: "error", error: result.error };
-  if (result.warning) return { key: group.key, status: "error", error: `ลอตไม่พอ ขาด ${result.warning.deficit} หน่วย` };
+  if (result.warning) return { key: group.key, status: "error", error: `${result.warning.reason || "ลอตไม่พอ"} ขาดอย่างน้อย ${result.warning.deficit} หน่วย` };
   const totalOutput = result.pages.reduce((sum, page) => sum + page.rows.reduce((quantity, row) => quantity + row.qty, 0), 0);
   if (totalOutput !== group.totalSold || result.totals?.totalSold !== group.totalSold) return { key: group.key, status: "error", error: "ยอดในรายงานไม่ตรงกับยอดนำเข้า โปรดตรวจข้อมูล" };
   // Detect a legacy lot-allocation edge case without changing its algorithm.

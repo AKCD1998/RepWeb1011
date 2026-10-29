@@ -14,6 +14,7 @@ const ALIASES = {
   received: ["receivedDate", "received_date", "วันที่รับเข้า", "วันรับเข้า"],
   boxes: ["boxes", "จำนวนกล่อง", "กล่อง"],
   strips: ["strips", "unitsPerBox", "units_per_box", "แผงต่อกล่อง", "แผง/กล่อง"],
+  expiry: ["expiry_date", "expiryDate", "exp_date", "sourceExpiryDate", "วันหมดอายุ"],
 };
 
 export function encodeCsv(rows) {
@@ -234,7 +235,10 @@ export function importBulkSources({ sources, products, branches, kind = "sales",
         const boxes = positiveInteger(cell(row, "boxes"));
         const strips = positiveInteger(cell(row, "strips"));
         if (!batch || !boxes || !strips) { fail("ลอตต้องมี batch, boxes และ strips/units_per_box เป็นจำนวนเต็มบวก"); continue; }
-        record = { batch, date, boxes, strips, source: location };
+        const expiryValue = source.columns.expiry >= 0 ? cell(row, "expiry") : "";
+        const expiry = normalizeBulkDate(expiryValue);
+        if (expiryValue && !expiry) { fail("วันหมดอายุลอตไม่ถูกต้อง"); continue; }
+        record = { batch, date, boxes, strips, expiry, source: location };
       }
       if (!groups.has(groupKey)) groups.set(groupKey, { key: groupKey, branchId, product, sales: [], lots: [], sources: new Set() });
       const group = groups.get(groupKey);
@@ -248,11 +252,13 @@ export function importBulkSources({ sources, products, branches, kind = "sales",
     .sort((left, right) => left.branchId.localeCompare(right.branchId) || left.product.value.localeCompare(right.product.value, "th")), errors, excluded, rowCount };
 }
 
-export function validateBulkLots(lots, totalSold) {
+export function validateBulkLots(lots, totalSold, { requireExpiry = false } = {}) {
   if (!lots.length) return "ยังไม่มีลอตรับเข้าของสาขานี้";
   let capacity = 0;
   for (const lot of lots) {
     if (!clean(lot.batch) || !normalizeBulkDate(lot.date) || !positiveInteger(lot.boxes) || !positiveInteger(lot.strips)) return "กรอกเลขลอต วันที่รับ จำนวนกล่อง และหน่วยต่อกล่องให้ครบ";
+    if (requireExpiry && !normalizeBulkDate(lot.expiry)) return "FEFO ต้องมีวันหมดอายุของทุกลอต";
+    if (lot.expiry && normalizeBulkDate(lot.expiry) < normalizeBulkDate(lot.date)) return "วันหมดอายุต้องไม่ก่อนวันรับลอต";
     capacity += Number(lot.boxes) * Number(lot.strips);
   }
   if (!Number.isSafeInteger(capacity)) return "จำนวนรับเข้าสูงเกินขอบเขตที่รองรับ";
@@ -265,5 +271,5 @@ export function buildSalesTemplate() {
 }
 
 export function buildLotsTemplate(groups = []) {
-  return encodeCsv([["branchCode", "productCode", "batch", "received_date", "boxes", "units_per_box"], ...groups.map((group) => [group.branchId, group.product.code || group.product.id, "", "", "", ""])]);
+  return encodeCsv([["branchCode", "productCode", "batch", "received_date", "boxes", "units_per_box", "expiry_date"], ...groups.map((group) => [group.branchId, group.product.code || group.product.id, "", "", "", "", ""])]);
 }
