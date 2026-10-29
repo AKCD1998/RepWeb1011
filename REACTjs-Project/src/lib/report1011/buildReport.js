@@ -16,6 +16,7 @@ export function buildReport({
   maker,
   sku,
   branchId,
+  lotAllocation = "received",
 }) {
   const salesRows = parseCsv(salesCsvText || "");
   const patientRows = parseCsv(patientsCsvText || "");
@@ -76,7 +77,9 @@ export function buildReport({
       boxes: Number(lot.boxes || 1),
       strips: Number(lot.strips || 0),
     }))
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
+    .sort((a, b) => lotAllocation === "fefo"
+      ? String(a.expiry).localeCompare(String(b.expiry)) || String(a.date).localeCompare(String(b.date)) || String(a.batch).localeCompare(String(b.batch))
+      : new Date(a.date) - new Date(b.date));
 
   const totalFromLots = lotsOrdered.reduce((sum, lot) => sum + lot.boxes * lot.strips, 0);
 
@@ -115,34 +118,58 @@ export function buildReport({
     return { pages: [] };
   }
 
-  let lotIndex = 0;
-  let lotRemain = expandedLots[0].strips;
-  const pages = [{ lot: expandedLots[0], rows: [] }];
-
-  for (const sale of sales) {
-    while (sale.qty > lotRemain && lotIndex < expandedLots.length - 1) {
-      lotIndex += 1;
-      lotRemain = expandedLots[lotIndex].strips;
-      pages.push({ lot: expandedLots[lotIndex], rows: [] });
+  let pages;
+  if (lotAllocation === "fefo") {
+    pages = [];
+    const available = expandedLots.map((lot) => ({ lot, remaining: lot.strips, page: null }));
+    for (const sale of sales) {
+      const patient = pickPatient(sale.date);
+      patient.next = addDays(sale.date, 3 * sale.qty);
+      const saleDate = `${sale.date.getFullYear()}-${String(sale.date.getMonth() + 1).padStart(2, "0")}-${String(sale.date.getDate()).padStart(2, "0")}`;
+      let remaining = sale.qty;
+      while (remaining > 0) {
+        const candidate = available.find((entry) => entry.remaining > 0 && entry.lot.date <= saleDate && entry.lot.expiry >= saleDate);
+        if (!candidate) return { pages: [], warning: { totalSold, totalFromLots, deficit: remaining, reason: "FEFO ไม่มีลอตที่รับแล้วและยังไม่หมดอายุรองรับยอดขาย" } };
+        const qty = Math.min(remaining, candidate.remaining);
+        if (!candidate.page) {
+          candidate.page = { lot: candidate.lot, rows: [] };
+          pages.push(candidate.page);
+        }
+        candidate.page.rows.push({ date: sale.date, qty, name: patient.name, pid: patient.pid, note: "FEFO; POS ไม่เก็บลอต" });
+        candidate.remaining -= qty;
+        remaining -= qty;
+      }
     }
+  } else {
+    let lotIndex = 0;
+    let lotRemain = expandedLots[0].strips;
+    pages = [{ lot: expandedLots[0], rows: [] }];
 
-    const patient = pickPatient(sale.date);
-    patient.next = addDays(sale.date, 3 * sale.qty);
+    for (const sale of sales) {
+      while (sale.qty > lotRemain && lotIndex < expandedLots.length - 1) {
+        lotIndex += 1;
+        lotRemain = expandedLots[lotIndex].strips;
+        pages.push({ lot: expandedLots[lotIndex], rows: [] });
+      }
 
-    pages.at(-1).rows.push({
-      date: sale.date,
-      qty: sale.qty,
-      name: patient.name,
-      pid: patient.pid,
-      note: "",
-    });
+      const patient = pickPatient(sale.date);
+      patient.next = addDays(sale.date, 3 * sale.qty);
 
-    lotRemain -= sale.qty;
+      pages.at(-1).rows.push({
+        date: sale.date,
+        qty: sale.qty,
+        name: patient.name,
+        pid: patient.pid,
+        note: "",
+      });
 
-    if (lotRemain === 0 && lotIndex < expandedLots.length - 1) {
-      lotIndex += 1;
-      lotRemain = expandedLots[lotIndex].strips;
-      pages.push({ lot: expandedLots[lotIndex], rows: [] });
+      lotRemain -= sale.qty;
+
+      if (lotRemain === 0 && lotIndex < expandedLots.length - 1) {
+        lotIndex += 1;
+        lotRemain = expandedLots[lotIndex].strips;
+        pages.push({ lot: expandedLots[lotIndex], rows: [] });
+      }
     }
   }
 
