@@ -10,6 +10,7 @@ const addDays = (date, days) => {
 
 export function buildReport({
   lots,
+  lotTransfers = [],
   salesCsvText,
   patientsCsvText,
   productName,
@@ -109,6 +110,7 @@ export function buildReport({
         ...lot,
         boxes: 1,
         _boxIndex: i,
+        _rawBatch: lot.batch,
         batch: `${lot.batch || ""} (${i})`,
       });
     }
@@ -122,10 +124,28 @@ export function buildReport({
   if (lotAllocation === "fefo") {
     pages = [];
     const available = expandedLots.map((lot) => ({ lot, remaining: lot.strips, page: null }));
+    const transfersOrdered = [...lotTransfers].sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.expiry).localeCompare(String(b.expiry)) || String(a.batch).localeCompare(String(b.batch)));
+    let transferIndex = 0;
     for (const sale of sales) {
+      const saleDate = `${sale.date.getFullYear()}-${String(sale.date.getMonth() + 1).padStart(2, "0")}-${String(sale.date.getDate()).padStart(2, "0")}`;
+      while (transferIndex < transfersOrdered.length && transfersOrdered[transferIndex].date <= saleDate) {
+        const transfer = transfersOrdered[transferIndex];
+        let toMove = Number(transfer.qty);
+        if (!Number.isSafeInteger(toMove) || toMove <= 0) return { pages: [], error: "จำนวนโอนออกไม่ถูกต้อง" };
+        while (toMove > 0) {
+          const candidate = available.find((entry) => entry.remaining > 0 && entry.lot.date <= transfer.date
+            && entry.lot.expiry >= transfer.date
+            && (!transfer.batch || entry.lot._rawBatch === transfer.batch)
+            && (!transfer.expiry || entry.lot.expiry === transfer.expiry));
+          if (!candidate) return { pages: [], warning: { totalSold, totalFromLots, deficit: toMove, reason: "ยอดโอนออกไม่มีลอตคงเหลือรองรับ" } };
+          const moved = Math.min(toMove, candidate.remaining);
+          candidate.remaining -= moved;
+          toMove -= moved;
+        }
+        transferIndex += 1;
+      }
       const patient = pickPatient(sale.date);
       patient.next = addDays(sale.date, 3 * sale.qty);
-      const saleDate = `${sale.date.getFullYear()}-${String(sale.date.getMonth() + 1).padStart(2, "0")}-${String(sale.date.getDate()).padStart(2, "0")}`;
       let remaining = sale.qty;
       while (remaining > 0) {
         const candidate = available.find((entry) => entry.remaining > 0 && entry.lot.date <= saleDate && entry.lot.expiry >= saleDate);

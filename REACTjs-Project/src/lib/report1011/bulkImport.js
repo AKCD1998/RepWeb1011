@@ -147,12 +147,12 @@ export function createCombinedBulkSources(text, name, id = name) {
     }
   }
   const typeIndex = normalized.indexOf(key("recordType"));
-  const split = { SALE: [], LOT: [] };
-  const lineNumbers = { SALE: [], LOT: [] };
+  const split = { SALE: [], LOT: [], TRANSFER_OUT: [] };
+  const lineNumbers = { SALE: [], LOT: [], TRANSFER_OUT: [] };
   rows.slice(1).forEach((row, index) => {
     if (!row.some((value) => clean(value))) return;
     const type = clean(row[typeIndex]).toUpperCase();
-    if (!Object.hasOwn(split, type)) throw new Error(`${name} แถว ${index + 2}: recordType ต้องเป็น SALE หรือ LOT`);
+    if (!Object.hasOwn(split, type)) throw new Error(`${name} แถว ${index + 2}: recordType ต้องเป็น SALE, LOT หรือ TRANSFER_OUT`);
     split[type].push(row);
     lineNumbers[type].push(index + 2);
   });
@@ -162,7 +162,8 @@ export function createCombinedBulkSources(text, name, id = name) {
     source.rowNumbers = lineNumbers[type];
     return source;
   };
-  return { sales: make("SALE", "sales"), lots: make("LOT", "lots") };
+  return { sales: make("SALE", "sales"), lots: make("LOT", "lots"),
+    transfers: split.TRANSFER_OUT.length ? make("TRANSFER_OUT", "transfers") : null };
 }
 
 async function readBulkText(file) {
@@ -236,7 +237,7 @@ export function importBulkSources({ sources, products, branches, kind = "sales",
         const batch = cell(row, "batch");
         const boxes = positiveInteger(cell(row, "boxes"));
         const strips = positiveInteger(cell(row, "strips"));
-        if (!batch || !boxes || !strips) { fail("ลอตต้องมี batch, boxes และ strips/units_per_box เป็นจำนวนเต็มบวก"); continue; }
+        if ((!batch && kind !== "transfers") || !boxes || !strips) { fail("ลอตต้องมี batch, boxes และ strips/units_per_box เป็นจำนวนเต็มบวก"); continue; }
         const expiryValue = source.columns.expiry >= 0 ? cell(row, "expiry") : "";
         const expiry = normalizeBulkDate(expiryValue);
         if (expiryValue && !expiry) { fail("วันหมดอายุลอตไม่ถูกต้อง"); continue; }

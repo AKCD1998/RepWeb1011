@@ -76,6 +76,7 @@ function SalesSourceSettings({ source, products, onChange, onRemove, index }) {
 export default function ManualBulkReportCard({ catalogProducts, productsLoading, productsError, patientsCsvText, patientsStatus, fetchPatients, sku, onPrint, onBusyChange }) {
   const [sources, setSources] = useState([]);
   const [lotSources, setLotSources] = useState([]);
+  const [transferSources, setTransferSources] = useState([]);
   const [readErrors, setReadErrors] = useState([]);
   const [reference, setReference] = useState({ status: "waiting", sources: null, error: "", version: null });
   const [saveVersionStatus, setSaveVersionStatus] = useState("");
@@ -96,6 +97,8 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
   const imported = useMemo(() => importBulkSources({ sources, products, branches: BULK_BRANCHES, dateFrom: dates.from, dateTo: dates.to }), [sources, products, dates]);
   const importedLots = useMemo(() => importBulkSources({ sources: lotSources, products, branches: BULK_BRANCHES, kind: "lots" }), [lotSources, products]);
   const importedLotMap = useMemo(() => new Map(importedLots.groups.map((group) => [group.key, group.lots])), [importedLots]);
+  const importedTransfers = useMemo(() => importBulkSources({ sources: transferSources, products, branches: BULK_BRANCHES, kind: "transfers" }), [transferSources, products]);
+  const importedTransferMap = useMemo(() => new Map(importedTransfers.groups.map((group) => [group.key, group.lots])), [importedTransfers]);
   const developmentLotCount = lotSources.reduce((count, source) => {
     const column = source.header.indexOf("receiptBasis");
     return count + (column < 0 ? 0 : source.rows.filter((row) => String(row[column] || "").includes("SIMULATED")).length);
@@ -106,21 +109,21 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
   }, 0);
   const jobs = useMemo(() => imported.groups.map((group) => {
     const lots = lotOverrides[group.key] ?? importedLotMap.get(group.key) ?? [];
-    return { ...group, lots, error: validateBulkLots(lots, group.totalSold, { requireExpiry: true }) };
-  }), [imported, importedLotMap, lotOverrides]);
+    return { ...group, lots, transfers: importedTransferMap.get(group.key) ?? [], error: validateBulkLots(lots, group.totalSold, { requireExpiry: true }) };
+  }), [imported, importedLotMap, importedTransferMap, lotOverrides]);
   const selectedJobs = jobs.filter((job) => selectedKeys === null || selectedKeys.includes(job.key));
   const successes = results.filter((result) => result.status === "success");
   const failures = results.filter((result) => result.status === "error");
   const busy = run.running || isReading;
   const dateError = dates.from && dates.to && dates.from > dates.to ? "วันที่เริ่มต้นต้องไม่อยู่หลังวันที่สิ้นสุด" : "";
-  const canBuild = !busy && !productsLoading && !productsError && !dateError && !readErrors.length && !imported.errors.length && !importedLots.errors.length && selectedJobs.length > 0 && selectedJobs.every((job) => !job.error) && confirmed;
+  const canBuild = !busy && !productsLoading && !productsError && !dateError && !readErrors.length && !imported.errors.length && !importedLots.errors.length && !importedTransfers.errors.length && selectedJobs.length > 0 && selectedJobs.every((job) => !job.error) && confirmed;
 
   useEffect(() => {
     setConfirmed(false);
     setResults([]);
     setRunError("");
     setRun({ running: false, processed: 0, total: 0, cancelled: false });
-  }, [sources, lotSources, dates, lotOverrides, selectedKeys, products, sku]);
+  }, [sources, lotSources, transferSources, dates, lotOverrides, selectedKeys, products, sku]);
   useEffect(() => { onBusyChange?.(busy); }, [busy, onBusyChange]);
   useEffect(() => {
     activeRef.current = true;
@@ -145,6 +148,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
         if (!userSelectedFileRef.current) {
           setSources([saved.sales]);
           setLotSources([saved.lots]);
+          setTransferSources(saved.transfers ? [saved.transfers] : []);
           setDates({ from: version.from, to: version.to });
         }
         return;
@@ -163,6 +167,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
     if (!reference.sources) return;
     setSources([reference.sources.sales]);
     setLotSources([reference.sources.lots]);
+    setTransferSources(reference.sources.transfers ? [reference.sources.transfers] : []);
     setLotOverrides({});
     setSelectedKeys(null);
     setReadErrors([]);
@@ -181,6 +186,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
       setReference({ status: "ready", sources: saved, error: "", version });
       setSources([saved.sales]);
       setLotSources([saved.lots]);
+      setTransferSources(saved.transfers ? [saved.transfers] : []);
       setDates({ from: version.from, to: version.to });
       setLotOverrides({});
       setSelectedKeys(null);
@@ -205,6 +211,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
       setReference({ status: "ready", sources: saved, error: "", version });
       setSources([saved.sales]);
       setLotSources([saved.lots]);
+      setTransferSources(saved.transfers ? [saved.transfers] : []);
       setDates({ from: version.from, to: version.to });
       setLotOverrides({});
       setSelectedKeys(null);
@@ -242,6 +249,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
       if (!activeRef.current) return;
       setSources([combined.sales]);
       setLotSources([combined.lots]);
+      setTransferSources(combined.transfers ? [combined.transfers] : []);
       setLotOverrides({});
       setSelectedKeys(null);
     } catch (error) {
@@ -274,7 +282,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
         if (cancelRef.current || !activeRef.current) break;
         const group = queue[index];
         let result;
-        try { result = buildBulkReportItem({ group, lots: group.lots, patientsCsvText: patients, sku, lotAllocation: "fefo" }); }
+        try { result = buildBulkReportItem({ group, lots: group.lots, transfers: group.transfers, patientsCsvText: patients, sku, lotAllocation: "fefo" }); }
         catch (error) { result = { key: group.key, status: "error", error: error?.message || "สร้างรายงานไม่สำเร็จ" }; }
         next = [...next, result];
         setResults(next);
@@ -331,6 +339,9 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
         {lotSources.map((source) => <div className="manual-bulk-file" key={source.id}>{source.name} · {number(source.rows.length)} ลอต
           <button type="button" className="ghost-button" onClick={() => setLotSources((previous) => previous.filter((entry) => entry.id !== source.id))}>นำไฟล์ลอตออก</button>
         </div>)}
+        {transferSources.map((source) => <div className="manual-bulk-file" key={source.id}>{source.name} · {number(source.rows.length)} รายการโอนออก
+          <button type="button" className="ghost-button" onClick={() => setTransferSources((previous) => previous.filter((entry) => entry.id !== source.id))}>นำรายการโอนออก</button>
+        </div>)}
         <div className="manual-bulk-fields">
           <label htmlFor="bulk-date-from">วันที่ขายตั้งแต่ (เว้นว่างเพื่อใช้ทั้งหมด)
             <input id="bulk-date-from" type="date" value={dates.from} onChange={(event) => setDates((previous) => ({ ...previous, from: event.target.value }))} />
@@ -346,6 +357,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
         <p className="muted">รายชื่อผู้ป่วย: {patientsStatus}</p>
         <ImportErrors title="ข้อมูลยอดขายที่ต้องแก้ก่อนสร้าง" errors={imported.errors} />
         <ImportErrors title="ข้อมูลลอตที่ต้องแก้ก่อนสร้าง" errors={importedLots.errors} />
+        <ImportErrors title="ข้อมูลโอนออกที่ต้องแก้ก่อนสร้าง" errors={importedTransfers.errors} />
         {sources.length ? <div className="manual-bulk-summary">
           <strong>{number(jobs.length)} งาน · {number(new Set(jobs.map((job) => job.product.id)).size)} สินค้า · {number(new Set(jobs.map((job) => job.branchId)).size)} สาขา</strong>
           <span>{number(imported.rowCount)} บิล/แถว · ขาย {number(jobs.reduce((sum, job) => sum + job.totalSold, 0))} หน่วย</span>
