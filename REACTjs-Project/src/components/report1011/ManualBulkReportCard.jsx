@@ -13,8 +13,11 @@ import "./ManualBulkReport.css";
 const BULK_BRANCHES = [...BRANCHES, { value: "005", label: "005 : ถนนเอกชัยสมุทรสาคร" }];
 const emptyLot = () => ({ batch: "", date: "", boxes: "", strips: "", expiry: "" });
 const number = (value) => Number(value || 0).toLocaleString("th-TH");
+const FROZEN_OCT28_KEY = "ada-pos-20260401-20261028-fefo-draft-v1";
+const OCT24_KEY = "stockday-pos-20260618-20261024-dev-v1";
 const REFERENCES = [
-  { key: "stockday-pos-20260618-20261024-dev-v1", label: "18 มิ.ย.–24 ต.ค. 2026 · StockDay + POS · 27 สินค้า / 4 สาขา", from: "2026-06-18", to: "2026-10-24" },
+  { key: FROZEN_OCT28_KEY, label: "1 เม.ย.–28 ต.ค. 2026 · Ada POS + ลอตที่บันทึก · ร่าง FEFO", from: "2026-04-01", to: "2026-10-28" },
+  { key: OCT24_KEY, label: "18 มิ.ย.–24 ต.ค. 2026 · StockDay + POS · 27 สินค้า / 4 สาขา", from: "2026-06-18", to: "2026-10-24" },
   { key: "stockday-20260618-20260927-dev-v1", label: "18 มิ.ย.–27 ก.ย. 2026 · StockDay · 27 สินค้า / 4 สาขา", from: "2026-06-18", to: "2026-09-27" },
 ];
 
@@ -80,6 +83,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
   const [readErrors, setReadErrors] = useState([]);
   const [reference, setReference] = useState({ status: "waiting", sources: null, error: "", version: null });
   const [saveVersionStatus, setSaveVersionStatus] = useState("");
+  const [savedArtifacts, setSavedArtifacts] = useState({ status: "idle", items: [], error: "" });
   const [isReading, setIsReading] = useState(false);
   const [dates, setDates] = useState({ from: "", to: "" });
   const [lotOverrides, setLotOverrides] = useState({});
@@ -125,6 +129,18 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
     setRun({ running: false, processed: 0, total: 0, cancelled: false });
   }, [sources, lotSources, transferSources, dates, lotOverrides, selectedKeys, products, sku]);
   useEffect(() => { onBusyChange?.(busy); }, [busy, onBusyChange]);
+  useEffect(() => {
+    if (reference.version?.key !== FROZEN_OCT28_KEY) {
+      setSavedArtifacts({ status: "idle", items: [], error: "" });
+      return;
+    }
+    let cancelled = false;
+    setSavedArtifacts({ status: "loading", items: [], error: "" });
+    authApiClient.get(`/api/reports/ky11-bulk-draft-artifacts/${FROZEN_OCT28_KEY}`)
+      .then((response) => { if (!cancelled) setSavedArtifacts({ status: "ready", items: response.data?.artifacts || [], error: "" }); })
+      .catch(() => { if (!cancelled) setSavedArtifacts({ status: "error", items: [], error: "โหลดรายการ PDF ที่บันทึกไว้ไม่สำเร็จ" }); });
+    return () => { cancelled = true; };
+  }, [reference.version?.key]);
   useEffect(() => {
     activeRef.current = true;
     return () => { activeRef.current = false; cancelRef.current = true; };
@@ -201,7 +217,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
     setIsReading(true);
     setSaveVersionStatus("กำลังบันทึกชุดข้อมูลต้นทางบนเว็บ…");
     try {
-      const version = REFERENCES[0];
+      const version = REFERENCES.find((entry) => entry.key === OCT24_KEY);
       await authApiClient.put(`/api/reports/ky11-bulk-source-snapshots/${version.key}`, file,
         { headers: { "Content-Type": "application/octet-stream" } });
       const response = await authApiClient.get(`/api/reports/ky11-bulk-source-snapshots/${version.key}`, { responseType: "text" });
@@ -220,6 +236,22 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
     } catch (error) {
       if (activeRef.current) setSaveVersionStatus(`บันทึกไม่สำเร็จ: ${error?.message || "โปรดลองอีกครั้ง"}`);
     } finally { if (activeRef.current) setIsReading(false); }
+  };
+
+  const downloadSavedPdf = async (artifact) => {
+    try {
+      const response = await authApiClient.get(`/api/reports/ky11-bulk-draft-artifacts/${FROZEN_OCT28_KEY}/${artifact.key}`, { responseType: "blob" });
+      const file = new Blob([response.data], { type: "application/pdf" });
+      const url = URL.createObjectURL(file);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = artifact.filename;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setSaveVersionStatus(`ดาวน์โหลด PDF ร่างที่บันทึกไว้: ${artifact.filename}`);
+    } catch (error) {
+      setSaveVersionStatus(`ดาวน์โหลด PDF ไม่สำเร็จ: ${error?.message || "โปรดลองอีกครั้ง"}`);
+    }
   };
 
   const handleUpload = async (files, kind) => {
@@ -309,8 +341,19 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
           <span className="muted">เว็บโหลดชุดนี้ให้อัตโนมัติเมื่อเปิดหน้า และเรียกกลับได้หลังเปลี่ยนไฟล์</span>
         </div> : null}
         {reference.status === "error" ? <p className="muted">{reference.error}</p> : null}
-        <p className="muted">เวอร์ชันนี้เก็บเฉพาะยอดขายและลอตต้นทางแบบถาวร ผลจัดสรรชื่อผู้ซื้อ เอกสาร และ PDF หลังสร้างยังไม่ถูกบันทึก ชุดลอตที่ยังไม่ยืนยันใช้เป็นร่างสำหรับตรวจสอบเท่านั้น</p>
-        {reference.version?.key !== REFERENCES[0].key ? <label htmlFor="bulk-save-oct24-version">บันทึกเวอร์ชันข้อมูลต้นทาง 18 มิ.ย.–24 ต.ค. 2569 (ผู้ดูแลระบบ)
+        {reference.version?.key === FROZEN_OCT28_KEY ? <div className="manual-bulk-saved-drafts">
+          <p>เวอร์ชัน 1 เม.ย.–28 ต.ค. 2569 เก็บข้อมูลต้นทางและ PDF ร่างเดิมแบบแก้ทับไม่ได้: <strong>31 จาก 102 คู่สินค้า–สาขามี PDF พร้อมตรวจ</strong> อีก 55 คู่มีข้อมูลพอให้อนุมานลอตแต่ยังไม่ได้สร้าง PDF, 9 คู่มีข้อมูลลอตหรือการโอนขัดกัน และ 7 คู่มียอด Ada ติดลบ</p>
+          <p className="muted">ลอตขายใน PDF จัดสรรตาม FEFO เพราะ POS ไม่เก็บลอตขาย ส่วนวันแรกที่พบการคีย์ลอตบนเว็บอาจเป็นการระบุลอตของสต็อกเดิม ไม่ยืนยันว่าเป็นวันรับเข้าจริง โปรดให้เภสัชกรตรวจร่างก่อนใช้</p>
+          {savedArtifacts.status === "loading" ? <p role="status">กำลังโหลด PDF ร่างที่บันทึกไว้…</p> : null}
+          {savedArtifacts.error ? <p role="alert">{savedArtifacts.error}</p> : null}
+          {savedArtifacts.items.length ? <div className="manual-bulk-actions">
+            {savedArtifacts.items.map((artifact) => <button key={artifact.key} type="button" className={artifact.branchCode ? "outline-button" : "primary-button"} onClick={() => downloadSavedPdf(artifact)}>
+              {artifact.branchCode ? `ดาวน์โหลดสาขา ${artifact.branchCode}` : "ดาวน์โหลด PDF รวม 31 งาน"} · {artifact.pageCount} หน้า
+            </button>)}
+          </div> : null}
+          <p className="muted">ปุ่มดาวน์โหลดให้ PDF เดิมทุกครั้ง การกด “สร้าง ขย.11 ทั้งชุด” อีกครั้งอาจเลือกชื่อผู้ซื้อใหม่ตาม algorithm ปัจจุบัน</p>
+        </div> : <p className="muted">เวอร์ชันเก่าเก็บเฉพาะยอดขายและลอตต้นทาง ผลจัดสรรชื่อผู้ซื้อและ PDF หลังสร้างยังไม่ถูกบันทึก</p>}
+        {reference.version?.key !== OCT24_KEY ? <label htmlFor="bulk-save-oct24-version">บันทึกเวอร์ชันข้อมูลต้นทาง 18 มิ.ย.–24 ต.ค. 2569 (ผู้ดูแลระบบ)
           <input id="bulk-save-oct24-version" type="file" accept=".csv" onChange={(event) => { handleSaveOct24Version(event.target.files?.[0]); event.target.value = ""; }} />
         </label> : null}
         {saveVersionStatus ? <p role="status">{saveVersionStatus}</p> : null}
