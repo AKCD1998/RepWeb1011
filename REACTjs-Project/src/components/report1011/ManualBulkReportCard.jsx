@@ -13,9 +13,11 @@ import "./ManualBulkReport.css";
 const BULK_BRANCHES = [...BRANCHES, { value: "005", label: "005 : ถนนเอกชัยสมุทรสาคร" }];
 const emptyLot = () => ({ batch: "", date: "", boxes: "", strips: "", expiry: "" });
 const number = (value) => Number(value || 0).toLocaleString("th-TH");
+const FROZEN_OCT28_V2_KEY = "ada-pos-20260401-20261028-ky11-draft-v2";
 const FROZEN_OCT28_KEY = "ada-pos-20260401-20261028-fefo-draft-v1";
 const OCT24_KEY = "stockday-pos-20260618-20261024-dev-v1";
 const REFERENCES = [
+  { key: FROZEN_OCT28_V2_KEY, label: "1 เม.ย.–28 ต.ค. 2026 · ร่าง ข.ย.11 ถาวร 93 งาน / 4 สาขา", from: "2026-04-01", to: "2026-10-28" },
   { key: FROZEN_OCT28_KEY, label: "1 เม.ย.–28 ต.ค. 2026 · Ada POS + ลอตที่บันทึก · ร่าง FEFO", from: "2026-04-01", to: "2026-10-28" },
   { key: OCT24_KEY, label: "18 มิ.ย.–24 ต.ค. 2026 · StockDay + POS · 27 สินค้า / 4 สาขา", from: "2026-06-18", to: "2026-10-24" },
   { key: "stockday-20260618-20260927-dev-v1", label: "18 มิ.ย.–27 ก.ย. 2026 · StockDay · 27 สินค้า / 4 สาขา", from: "2026-06-18", to: "2026-09-27" },
@@ -39,6 +41,50 @@ function ImportErrors({ title, errors }) {
       {errors.length > 20 ? <p>แสดง 20 รายการแรก โปรดแก้ไฟล์ต้นทางแล้วนำเข้าใหม่</p> : null}
     </details>
   );
+}
+
+const STATUS_LABELS = {
+  DOCUMENTED_STOCK_DRAFT: "ร่างจากยอดรับ/โอนที่บันทึก",
+  POLICY_INFERENCE_DRAFT: "ร่างจากการอนุมานลอต",
+  CONDITIONAL_SALES_SHORTFALL_DRAFT: "ร่างสมมติยอดขาด",
+  UNRESOLVED_NO_PDF: "ยังไม่คลาย / ไม่มี PDF",
+};
+
+function FrozenStatusTable({ source, products }) {
+  const [branchFilter, setBranchFilter] = useState("");
+  const entries = useMemo(() => {
+    if (!source) return [];
+    const column = (name) => source.header.indexOf(name);
+    const indexes = Object.fromEntries(["branchCode", "productCode", "quantity", "reportStatus", "reportNote", "pdfPageStart", "pdfPageEnd"].map((name) => [name, column(name)]));
+    const grouped = new Map();
+    source.rows.forEach((row) => {
+      const branch = row[indexes.branchCode];
+      const code = row[indexes.productCode];
+      const key = `${branch}:${code}`;
+      if (!grouped.has(key)) grouped.set(key, { branch, code, sold: 0, status: row[indexes.reportStatus], note: row[indexes.reportNote], start: row[indexes.pdfPageStart], end: row[indexes.pdfPageEnd] });
+      grouped.get(key).sold += Number(row[indexes.quantity] || 0);
+    });
+    const names = new Map(products.map((product) => [product.code, product.name]));
+    return [...grouped.values()].map((entry) => ({ ...entry, name: names.get(entry.code) || entry.code }))
+      .sort((a, b) => a.branch.localeCompare(b.branch) || a.code.localeCompare(b.code));
+  }, [source, products]);
+  const visible = branchFilter ? entries.filter((entry) => entry.branch === branchFilter) : entries;
+  return <section className="manual-bulk-frozen-status" aria-label="สถานะข้อมูลรายสินค้าและสาขา">
+    <h3>สถานะข้อมูลรายสินค้า–สาขา</h3>
+    <p>หมายเหตุท้ายตารางบอกว่าร่างแต่ละงานอ้างอิงหลักฐานหรือข้ออนุมานใด เลขหน้าอ้างถึง PDF ของสาขานั้น</p>
+    <label>แสดงสาขา <select value={branchFilter} onChange={(event) => setBranchFilter(event.target.value)}>
+      <option value="">ทุกสาขา ({number(entries.length)})</option>
+      {["001", "003", "004", "005"].map((branch) => <option key={branch} value={branch}>สาขา {branch}</option>)}
+    </select></label>
+    <div className="manual-bulk-frozen-table-wrap"><table>
+      <thead><tr><th scope="col">สาขา</th><th scope="col">สินค้า</th><th scope="col">ยอดขาย</th><th scope="col">หน้า PDF</th><th scope="col">สถานะข้อมูล</th><th scope="col">หมายเหตุ</th></tr></thead>
+      <tbody>{visible.map((entry) => <tr key={`${entry.branch}:${entry.code}`}>
+        <td>{entry.branch}</td><td>{entry.code} · {entry.name}</td><td>{number(entry.sold)}</td>
+        <td>{entry.start && entry.end ? `${entry.start}–${entry.end}` : "ยังไม่มี PDF"}</td>
+        <td>{STATUS_LABELS[entry.status] || entry.status}</td><td>{entry.note || "—"}</td>
+      </tr>)}</tbody>
+    </table></div>
+  </section>;
 }
 
 function SalesSourceSettings({ source, products, onChange, onRemove, index }) {
@@ -120,7 +166,8 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
   const failures = results.filter((result) => result.status === "error");
   const busy = run.running || isReading;
   const dateError = dates.from && dates.to && dates.from > dates.to ? "วันที่เริ่มต้นต้องไม่อยู่หลังวันที่สิ้นสุด" : "";
-  const canBuild = !busy && !productsLoading && !productsError && !dateError && !readErrors.length && !imported.errors.length && !importedLots.errors.length && !importedTransfers.errors.length && selectedJobs.length > 0 && selectedJobs.every((job) => !job.error) && confirmed;
+  const usingFrozenArchive = reference.version?.key === FROZEN_OCT28_V2_KEY && sources.some((source) => source.id === `${FROZEN_OCT28_V2_KEY}:sales`);
+  const canBuild = !usingFrozenArchive && !busy && !productsLoading && !productsError && !dateError && !readErrors.length && !imported.errors.length && !importedLots.errors.length && !importedTransfers.errors.length && selectedJobs.length > 0 && selectedJobs.every((job) => !job.error) && confirmed;
 
   useEffect(() => {
     setConfirmed(false);
@@ -130,13 +177,14 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
   }, [sources, lotSources, transferSources, dates, lotOverrides, selectedKeys, products, sku]);
   useEffect(() => { onBusyChange?.(busy); }, [busy, onBusyChange]);
   useEffect(() => {
-    if (reference.version?.key !== FROZEN_OCT28_KEY) {
+    const key = reference.version?.key;
+    if (key !== FROZEN_OCT28_KEY && key !== FROZEN_OCT28_V2_KEY) {
       setSavedArtifacts({ status: "idle", items: [], error: "" });
       return;
     }
     let cancelled = false;
     setSavedArtifacts({ status: "loading", items: [], error: "" });
-    authApiClient.get(`/api/reports/ky11-bulk-draft-artifacts/${FROZEN_OCT28_KEY}`)
+    authApiClient.get(`/api/reports/ky11-bulk-draft-artifacts/${key}`)
       .then((response) => { if (!cancelled) setSavedArtifacts({ status: "ready", items: response.data?.artifacts || [], error: "" }); })
       .catch(() => { if (!cancelled) setSavedArtifacts({ status: "error", items: [], error: "โหลดรายการ PDF ที่บันทึกไว้ไม่สำเร็จ" }); });
     return () => { cancelled = true; };
@@ -240,7 +288,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
 
   const downloadSavedPdf = async (artifact) => {
     try {
-      const response = await authApiClient.get(`/api/reports/ky11-bulk-draft-artifacts/${FROZEN_OCT28_KEY}/${artifact.key}`, { responseType: "blob" });
+      const response = await authApiClient.get(`/api/reports/ky11-bulk-draft-artifacts/${reference.version.key}/${artifact.key}`, { responseType: "blob" });
       const file = new Blob([response.data], { type: "application/pdf" });
       const url = URL.createObjectURL(file);
       const link = document.createElement("a");
@@ -341,7 +389,18 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
           <span className="muted">เว็บโหลดชุดนี้ให้อัตโนมัติเมื่อเปิดหน้า และเรียกกลับได้หลังเปลี่ยนไฟล์</span>
         </div> : null}
         {reference.status === "error" ? <p className="muted">{reference.error}</p> : null}
-        {reference.version?.key === FROZEN_OCT28_KEY ? <div className="manual-bulk-saved-drafts">
+        {reference.version?.key === FROZEN_OCT28_V2_KEY ? <div className="manual-bulk-saved-drafts">
+          <p><strong>ร่าง ข.ย.11 ถาวร 1 เม.ย.–28 ต.ค. 2569:</strong> มี PDF 93 คู่สินค้า–สาขา แยกสาขา 001, 003, 004 และ 005 อีก 9 คู่ยังไม่มี PDF รายงานต้นฉบับไม่เพิ่มคำกำกับ; ภาคผนวกท้าย PDF แต่ละสาขาระบุหน้าและประเด็นที่ต้องตรวจ</p>
+          <p className="muted">ไฟล์ PDF ที่ดาวน์โหลดเป็นไฟล์เดิมทุกครั้ง สำหรับพิมพ์ซ้ำให้เลือกสาขาด้านล่าง ลอตขายใช้ FEFO ร่วมกับลอตและการโอนที่บันทึกจริงตามกรณี โปรดอ่านสถานะกับหมายเหตุในตารางก่อนใช้ร่าง</p>
+          {savedArtifacts.status === "loading" ? <p role="status">กำลังโหลด PDF ร่างที่บันทึกไว้…</p> : null}
+          {savedArtifacts.error ? <p role="alert">{savedArtifacts.error}</p> : null}
+          {savedArtifacts.items.length ? <div className="manual-bulk-actions">
+            {savedArtifacts.items.map((artifact) => <button key={artifact.key} type="button" className="primary-button" onClick={() => downloadSavedPdf(artifact)}>
+              ดาวน์โหลด/พิมพ์สาขา {artifact.branchCode} · {artifact.pageCount} หน้า
+            </button>)}
+          </div> : null}
+          <FrozenStatusTable source={reference.sources?.sales} products={products} />
+        </div> : reference.version?.key === FROZEN_OCT28_KEY ? <div className="manual-bulk-saved-drafts">
           <p>เวอร์ชัน 1 เม.ย.–28 ต.ค. 2569 เก็บข้อมูลต้นทางและ PDF ร่างเดิมแบบแก้ทับไม่ได้: <strong>31 จาก 102 คู่สินค้า–สาขามี PDF พร้อมตรวจ</strong> อีก 55 คู่มีข้อมูลพอให้อนุมานลอตแต่ยังไม่ได้สร้าง PDF, 9 คู่มีข้อมูลลอตหรือการโอนขัดกัน และ 7 คู่มียอด Ada ติดลบ</p>
           <p className="muted">ลอตขายใน PDF จัดสรรตาม FEFO เพราะ POS ไม่เก็บลอตขาย ส่วนวันแรกที่พบการคีย์ลอตบนเว็บอาจเป็นการระบุลอตของสต็อกเดิม ไม่ยืนยันว่าเป็นวันรับเข้าจริง โปรดให้เภสัชกรตรวจร่างก่อนใช้</p>
           {savedArtifacts.status === "loading" ? <p role="status">กำลังโหลด PDF ร่างที่บันทึกไว้…</p> : null}
@@ -440,6 +499,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
               {result ? <p className={result.status === "error" ? "manual-bulk-error-text" : "manual-bulk-success-text"} role="status">{result.status === "success" ? `สร้างแล้ว · ${number(result.totalSold)} หน่วย` : result.error}</p> : null}
             </article>;
           })}</div>
+          {usingFrozenArchive ? <p className="muted">เวอร์ชันถาวรนี้ใช้ปุ่มดาวน์โหลด PDF ด้านบนเพื่อพิมพ์ซ้ำ หากต้องสร้างร่างใหม่ ให้นำเข้าไฟล์ชุดใหม่</p> : null}
           <label className="manual-bulk-check manual-bulk-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
             ตรวจสินค้า สาขา หน่วยยอดขาย และลอตของ {number(selectedJobs.length)} งานที่เลือกแล้ว
           </label>
