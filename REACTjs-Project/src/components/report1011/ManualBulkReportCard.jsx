@@ -13,11 +13,13 @@ import "./ManualBulkReport.css";
 const BULK_BRANCHES = [...BRANCHES, { value: "005", label: "005 : ถนนเอกชัยสมุทรสาคร" }];
 const emptyLot = () => ({ batch: "", date: "", boxes: "", strips: "", expiry: "" });
 const number = (value) => Number(value || 0).toLocaleString("th-TH");
+const FROZEN_OCT28_V3_KEY = "ada-pos-20260401-20261028-ky11-draft-v3";
 const FROZEN_OCT28_V2_KEY = "ada-pos-20260401-20261028-ky11-draft-v2";
 const FROZEN_OCT28_KEY = "ada-pos-20260401-20261028-fefo-draft-v1";
 const OCT24_KEY = "stockday-pos-20260618-20261024-dev-v1";
 const REFERENCES = [
-  { key: FROZEN_OCT28_V2_KEY, label: "1 เม.ย.–28 ต.ค. 2026 · ร่าง ข.ย.11 ถาวร 93 งาน / 4 สาขา", from: "2026-04-01", to: "2026-10-28" },
+  { key: FROZEN_OCT28_V3_KEY, label: "1 เม.ย.–28 ต.ค. 2026 · ร่าง ข.ย.11 ถาวร 93 งาน / 4 สาขา · ช่องหมายเหตุว่าง", from: "2026-04-01", to: "2026-10-28" },
+  { key: FROZEN_OCT28_V2_KEY, label: "เวอร์ชันก่อนแก้ · มีหมายเหตุในหน้ารายงาน", from: "2026-04-01", to: "2026-10-28" },
   { key: FROZEN_OCT28_KEY, label: "1 เม.ย.–28 ต.ค. 2026 · Ada POS + ลอตที่บันทึก · ร่าง FEFO", from: "2026-04-01", to: "2026-10-28" },
   { key: OCT24_KEY, label: "18 มิ.ย.–24 ต.ค. 2026 · StockDay + POS · 27 สินค้า / 4 สาขา", from: "2026-06-18", to: "2026-10-24" },
   { key: "stockday-20260618-20260927-dev-v1", label: "18 มิ.ย.–27 ก.ย. 2026 · StockDay · 27 สินค้า / 4 สาขา", from: "2026-06-18", to: "2026-09-27" },
@@ -166,7 +168,8 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
   const failures = results.filter((result) => result.status === "error");
   const busy = run.running || isReading;
   const dateError = dates.from && dates.to && dates.from > dates.to ? "วันที่เริ่มต้นต้องไม่อยู่หลังวันที่สิ้นสุด" : "";
-  const usingFrozenArchive = reference.version?.key === FROZEN_OCT28_V2_KEY && sources.some((source) => source.id === `${FROZEN_OCT28_V2_KEY}:sales`);
+  const usingFrozenArchive = [FROZEN_OCT28_V3_KEY, FROZEN_OCT28_V2_KEY].includes(reference.version?.key)
+    && sources.some((source) => source.id === `${reference.version.key}:sales`);
   const canBuild = !usingFrozenArchive && !busy && !productsLoading && !productsError && !dateError && !readErrors.length && !imported.errors.length && !importedLots.errors.length && !importedTransfers.errors.length && selectedJobs.length > 0 && selectedJobs.every((job) => !job.error) && confirmed;
 
   useEffect(() => {
@@ -178,7 +181,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
   useEffect(() => { onBusyChange?.(busy); }, [busy, onBusyChange]);
   useEffect(() => {
     const key = reference.version?.key;
-    if (key !== FROZEN_OCT28_KEY && key !== FROZEN_OCT28_V2_KEY) {
+    if (key !== FROZEN_OCT28_KEY && key !== FROZEN_OCT28_V2_KEY && key !== FROZEN_OCT28_V3_KEY) {
       setSavedArtifacts({ status: "idle", items: [], error: "" });
       return;
     }
@@ -389,8 +392,11 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
           <span className="muted">เว็บโหลดชุดนี้ให้อัตโนมัติเมื่อเปิดหน้า และเรียกกลับได้หลังเปลี่ยนไฟล์</span>
         </div> : null}
         {reference.status === "error" ? <p className="muted">{reference.error}</p> : null}
-        {reference.version?.key === FROZEN_OCT28_V2_KEY ? <div className="manual-bulk-saved-drafts">
-          <p><strong>ร่าง ข.ย.11 ถาวร 1 เม.ย.–28 ต.ค. 2569:</strong> มี PDF 93 คู่สินค้า–สาขา แยกสาขา 001, 003, 004 และ 005 อีก 9 คู่ยังไม่มี PDF รายงานต้นฉบับไม่เพิ่มคำกำกับ; ภาคผนวกท้าย PDF แต่ละสาขาระบุหน้าและประเด็นที่ต้องตรวจ</p>
+        {[FROZEN_OCT28_V3_KEY, FROZEN_OCT28_V2_KEY].includes(reference.version?.key) ? <div className="manual-bulk-saved-drafts">
+          <p><strong>ร่าง ข.ย.11 ถาวร 1 เม.ย.–28 ต.ค. 2569:</strong> มี PDF 93 คู่สินค้า–สาขา แยกสาขา 001, 003, 004 และ 005 อีก 9 คู่ยังไม่มี PDF ภาคผนวกท้าย PDF แต่ละสาขาระบุหน้าและประเด็นที่ต้องตรวจ</p>
+          {reference.version?.key === FROZEN_OCT28_V3_KEY
+            ? <p><strong>เวอร์ชันแก้ 30 ต.ค. 2569:</strong> ช่องหมายเหตุในหน้ารายงานว่างทุกหน้า รายละเอียดหลักฐานและข้ออนุมานอยู่ในภาคผนวกท้ายไฟล์ของแต่ละสาขา</p>
+            : <p role="alert">เวอร์ชันก่อนแก้: ยังมีข้อความ FEFO/POS ในช่องหมายเหตุของหน้ารายงาน โปรดเลือกเวอร์ชันแก้เพื่อพิมพ์</p>}
           <p className="muted">ไฟล์ PDF ที่ดาวน์โหลดเป็นไฟล์เดิมทุกครั้ง สำหรับพิมพ์ซ้ำให้เลือกสาขาด้านล่าง ลอตขายใช้ FEFO ร่วมกับลอตและการโอนที่บันทึกจริงตามกรณี โปรดอ่านสถานะกับหมายเหตุในตารางก่อนใช้ร่าง</p>
           {savedArtifacts.status === "loading" ? <p role="status">กำลังโหลด PDF ร่างที่บันทึกไว้…</p> : null}
           {savedArtifacts.error ? <p role="alert">{savedArtifacts.error}</p> : null}
