@@ -772,7 +772,10 @@ input[readonly] {
 }
 
 .page-table th {
-  background: var(--panel-soft);
+  background: #1d2736;
+  color: #fff;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 
 .page-table td.left {
