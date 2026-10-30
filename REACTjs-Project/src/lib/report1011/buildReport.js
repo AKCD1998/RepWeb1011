@@ -155,7 +155,7 @@ export function buildReport({
           candidate.page = { lot: candidate.lot, rows: [] };
           pages.push(candidate.page);
         }
-        candidate.page.rows.push({ date: sale.date, qty, name: patient.name, pid: patient.pid, note: "FEFO; POS ไม่เก็บลอต" });
+        candidate.page.rows.push({ date: sale.date, qty, name: patient.name, pid: patient.pid, note: "" });
         candidate.remaining -= qty;
         remaining -= qty;
       }
