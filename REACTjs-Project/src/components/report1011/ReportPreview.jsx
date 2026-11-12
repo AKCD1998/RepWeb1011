@@ -56,7 +56,7 @@ function PageSheet({ meta, lot, rows, quantityLabel }) {
           </span>
           <span className="page-line-item">
             <b>วันที่รับ</b>
-            <span>{fmtThai(lot?.date || "")}</span>
+            <span>{lot?.dateLabel || fmtThai(lot?.date || "")}</span>
           </span>
         </div>
 

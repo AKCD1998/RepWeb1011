@@ -55,13 +55,18 @@ export function buildReport({
   for (let i = patientMeta.startRow; i < patientRows.length; i += 1) {
     const pid = pick(patientRows[i], patientMeta.pidCol);
     const name = pick(patientRows[i], patientMeta.nameCol);
-    if (pid && name) {
+    // Keep the allocator unchanged; admit named buyers with a 13-digit PID.
+    if (/^[0-9]{13}$/.test(pid) && name && name.replace(/\s+/g, " ") !== "ทดสอบ ทดสอบ") {
       patients.push({ pid, name, next: new Date(0) });
     }
   }
 
   if (!patients.length) {
     return { error: "ไฟล์รายชื่อผู้ป่วยว่างหรือคอลัมน์ไม่ตรง", pages: [] };
+  }
+
+  if (!patients.length) {
+    return { error: "ไม่พบรายชื่อผู้ซื้อที่มีชื่อและเลขประจำตัวประชาชนเป็นตัวเลข 13 หลัก", pages: [] };
   }
 
   const pickPatient = (onDate) => {
