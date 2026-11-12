@@ -14,6 +14,10 @@ export function summarizeFrozenSales(source) {
       sold: 0, printed: 0, pending: 0, status: at(row, "reportStatus"), note: at(row, "reportNote"),
     });
     const group = groups.get(key);
+    if (at(row, "reportStatus") === "USER_ATTESTED_LOT_DRAFT") {
+      group.status = "USER_ATTESTED_LOT_DRAFT";
+      group.note = at(row, "reportNote");
+    }
     const sold = Number(at(row, "quantity") || 0);
     const printed = Number(at(row, "printedQuantity") || 0);
     const pending = Number(at(row, "pendingQuantity") || 0);
