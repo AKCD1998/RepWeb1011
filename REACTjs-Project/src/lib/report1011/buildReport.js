@@ -62,10 +62,6 @@ export function buildReport({
   }
 
   if (!patients.length) {
-    return { error: "ไฟล์รายชื่อผู้ป่วยว่างหรือคอลัมน์ไม่ตรง", pages: [] };
-  }
-
-  if (!patients.length) {
     return { error: "ไม่พบรายชื่อผู้ซื้อที่มีชื่อและเลขประจำตัวประชาชนเป็นตัวเลข 13 หลัก", pages: [] };
   }
 
