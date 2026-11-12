@@ -15,7 +15,7 @@ export default function FrozenQuarterArchive({ source, version, versions, savedA
     <label>เวอร์ชันข้อมูลต้นทาง <select value={version.key} onChange={(event) => onVersion(event.target.value)}>
       {versions.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
     </select></label>
-    <p>สาขา 001, 003, 004 และ 005 · ยอดขายตาม Ada POS · หลักฐานรับและโอนรุ่น R4</p>
+    <p>สาขา 001, 003, 004 และ 005 · ยอดขายตาม Ada POS · หลักฐานรับและโอน พร้อมคำยืนยันล็อตตามรุ่นที่เลือก</p>
     <p>ยอดขาย {number(summary.sold)} หน่วย · ลงร่าง {number(summary.printed)} หน่วย · ค้าง {number(summary.pending)} หน่วย</p>
     <p className="muted">เก็บ PDF และผลจัดสรรผู้ซื้อของรุ่นนี้ไว้แล้ว ดาวน์โหลดซ้ำได้ไฟล์เดิม ล็อตที่อนุมานและยอดยกมายังต้องให้เภสัชกรตรวจ เอกสารเว้นช่องลงนามไว้</p>
     {summary.error ? <p role="alert">{summary.error}</p> : null}

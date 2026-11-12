@@ -1,4 +1,6 @@
 export const JUL_SEP_R4_KEY = "ada-pos-20260701-20260930-ky11-r4-draft-v1";
+export const JUL_SEP_R5_KEY = "ada-pos-20260701-20260930-ky11-r5-draft-v1";
+export const QUARTER_ARCHIVE_KEYS = [JUL_SEP_R5_KEY, JUL_SEP_R4_KEY];
 
 export function summarizeFrozenSales(source) {
   if (!source) return { groups: [], sold: 0, printed: 0, pending: 0 };
