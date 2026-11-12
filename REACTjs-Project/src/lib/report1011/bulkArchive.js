@@ -8,7 +8,7 @@ export function summarizeFrozenSales(source) {
     const branch = at(row, "branchCode"), code = at(row, "productCode");
     const key = `${branch}:${code}`;
     if (!groups.has(key)) groups.set(key, {
-      branch, code, name: at(row, "snapshotProductName") || code,
+      branch, code, name: at(row, "snapshotProductName") || code, unit: at(row, "unit"),
       sold: 0, printed: 0, pending: 0, status: at(row, "reportStatus"), note: at(row, "reportNote"),
     });
     const group = groups.get(key);

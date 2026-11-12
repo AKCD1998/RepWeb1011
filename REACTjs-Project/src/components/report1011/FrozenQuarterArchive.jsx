@@ -31,7 +31,7 @@ export default function FrozenQuarterArchive({ source, version, versions, savedA
     {message ? <p role="status">{message}</p> : null}
     <div className="manual-bulk-frozen-table-wrap"><table>
       <thead><tr><th>สาขา</th><th>สินค้า</th><th>ยอดขาย</th><th>ลงร่าง</th><th>ค้าง</th><th>หมายเหตุการตรวจ</th></tr></thead>
-      <tbody>{groups.map((row) => <tr key={`${row.branch}:${row.code}`}><td>{row.branch}</td><td>{row.code} · {row.name}</td><td>{number(row.sold)}</td><td>{number(row.printed)}</td><td>{number(row.pending)}</td><td>{row.note || "ร่างรอเภสัชกรตรวจ"}</td></tr>)}</tbody>
+      <tbody>{groups.map((row) => <tr key={`${row.branch}:${row.code}`}><td>{row.branch}</td><td>{row.code} · {row.name}{row.unit ? <><br /><small>หน่วยรายงาน: {row.unit}</small></> : null}</td><td>{number(row.sold)}</td><td>{number(row.printed)}</td><td>{number(row.pending)}</td><td>{row.note || "ร่างรอเภสัชกรตรวจ"}</td></tr>)}</tbody>
     </table></div>
   </fieldset></div>;
 }
