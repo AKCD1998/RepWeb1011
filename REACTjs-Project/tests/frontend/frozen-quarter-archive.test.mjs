@@ -21,3 +21,11 @@ test("artifact labels distinguish quarter, month and print-once files", () => {
   assert.match(frozenArtifactLabel({ key: "branch-001", branchCode: "001", pageCount: 4 }), /รวม 3 เดือน/);
   assert.equal(JUL_SEP_R4_KEY, "ada-pos-20260701-20260930-ky11-r4-draft-v1");
 });
+test("later user-attested sale lots keep their receiving-evidence caveat visible in the product summary", () => {
+  const value = summarizeFrozenSales({ header, rows: [
+    ["001", "IC-X", "สินค้า", "5", "5", "0", "POLICY_INFERENCE_DRAFT", "ล็อตอนุมาน"],
+    ["001", "IC-X", "สินค้า", "2", "2", "0", "USER_ATTESTED_LOT_DRAFT", "ล็อตตามคำยืนยัน; ยอดรับเดิมยังไม่ยืนยัน"],
+  ] });
+  assert.deepEqual([value.sold, value.printed, value.pending], [7, 7, 0]);
+  assert.equal(value.groups[0].note, "ล็อตตามคำยืนยัน; ยอดรับเดิมยังไม่ยืนยัน");
+});

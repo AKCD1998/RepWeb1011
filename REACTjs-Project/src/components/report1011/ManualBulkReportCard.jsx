@@ -8,7 +8,7 @@ import {
 import { buildBulkReportCsv, buildBulkReportItem } from "../../lib/report1011/buildBulkReport.js";
 import { ReportPages } from "./ReportPreview";
 import FrozenQuarterArchive from "./FrozenQuarterArchive";
-import { JUL_SEP_R4_KEY } from "../../lib/report1011/bulkArchive.js";
+import { JUL_SEP_R4_KEY, JUL_SEP_R5_KEY, QUARTER_ARCHIVE_KEYS } from "../../lib/report1011/bulkArchive.js";
 import "./ManualBulkReport.css";
 
 // Keep legacy single-mode branches unchanged; the new workflow includes 005.
@@ -18,6 +18,7 @@ const number = (value) => Number(value || 0).toLocaleString("th-TH");
 const FROZEN_OCT28_V5_KEY = "ada-pos-20260401-20261028-ky11-draft-v5";
 const OCT24_KEY = "stockday-pos-20260618-20261024-dev-v1";
 const REFERENCES = [
+  { key: JUL_SEP_R5_KEY, label: "กรกฎาคม–กันยายน 2569 · เพิ่มล็อตที่ผู้ใช้ยืนยัน · R5", from: "2026-07-01", to: "2026-09-30" },
   { key: JUL_SEP_R4_KEY, label: "กรกฎาคม–กันยายน 2569 · ร่าง 4 สาขา · หลักฐาน R4", from: "2026-07-01", to: "2026-09-30" },
   { key: FROZEN_OCT28_V5_KEY, label: "1 เม.ย.–28 ต.ค. 2026 · ร่าง ข.ย.11 ฉบับพิมพ์หลัก 93 งาน / 4 สาขา", from: "2026-04-01", to: "2026-10-28" },
   { key: OCT24_KEY, label: "18 มิ.ย.–24 ต.ค. 2026 · StockDay + POS · 27 สินค้า / 4 สาขา", from: "2026-06-18", to: "2026-10-24" },
@@ -167,7 +168,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
   const failures = results.filter((result) => result.status === "error");
   const busy = run.running || isReading;
   const dateError = dates.from && dates.to && dates.from > dates.to ? "วันที่เริ่มต้นต้องไม่อยู่หลังวันที่สิ้นสุด" : "";
-  const usingFrozenArchive = [FROZEN_OCT28_V5_KEY, JUL_SEP_R4_KEY].includes(reference.version?.key)
+  const usingFrozenArchive = [FROZEN_OCT28_V5_KEY, ...QUARTER_ARCHIVE_KEYS].includes(reference.version?.key)
     && sources.some((source) => source.id === `${reference.version.key}:sales`);
   const canBuild = !usingFrozenArchive && !busy && !productsLoading && !productsError && !dateError && !readErrors.length && !imported.errors.length && !importedLots.errors.length && !importedTransfers.errors.length && selectedJobs.length > 0 && selectedJobs.every((job) => !job.error) && confirmed;
 
@@ -180,7 +181,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
   useEffect(() => { onBusyChange?.(busy); }, [busy, onBusyChange]);
   useEffect(() => {
     const key = reference.version?.key;
-    if (![FROZEN_OCT28_V5_KEY, JUL_SEP_R4_KEY].includes(key)) {
+    if (![FROZEN_OCT28_V5_KEY, ...QUARTER_ARCHIVE_KEYS].includes(key)) {
       setSavedArtifacts({ status: "idle", items: [], error: "" });
       return;
     }
@@ -383,7 +384,7 @@ export default function ManualBulkReportCard({ catalogProducts, productsLoading,
     finally { if (activeRef.current) setRun((previous) => ({ ...previous, running: false, cancelled: cancelRef.current })); }
   };
 
-  if (usingFrozenArchive && reference.version?.key === JUL_SEP_R4_KEY) return <FrozenQuarterArchive
+  if (usingFrozenArchive && QUARTER_ARCHIVE_KEYS.includes(reference.version?.key)) return <FrozenQuarterArchive
     source={reference.sources?.sales} version={reference.version} versions={REFERENCES}
     savedArtifacts={savedArtifacts} onVersion={selectReferenceVersion} onDownload={downloadSavedPdf}
     onSourceDownload={downloadFrozenSource} message={saveVersionStatus} />;

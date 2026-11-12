@@ -1,4 +1,6 @@
 export const JUL_SEP_R4_KEY = "ada-pos-20260701-20260930-ky11-r4-draft-v1";
+export const JUL_SEP_R5_KEY = "ada-pos-20260701-20260930-ky11-r5-draft-v1";
+export const QUARTER_ARCHIVE_KEYS = [JUL_SEP_R5_KEY, JUL_SEP_R4_KEY];
 
 export function summarizeFrozenSales(source) {
   if (!source) return { groups: [], sold: 0, printed: 0, pending: 0 };
@@ -12,6 +14,10 @@ export function summarizeFrozenSales(source) {
       sold: 0, printed: 0, pending: 0, status: at(row, "reportStatus"), note: at(row, "reportNote"),
     });
     const group = groups.get(key);
+    if (at(row, "reportStatus") === "USER_ATTESTED_LOT_DRAFT") {
+      group.status = "USER_ATTESTED_LOT_DRAFT";
+      group.note = at(row, "reportNote");
+    }
     const sold = Number(at(row, "quantity") || 0);
     const printed = Number(at(row, "printedQuantity") || 0);
     const pending = Number(at(row, "pendingQuantity") || 0);
